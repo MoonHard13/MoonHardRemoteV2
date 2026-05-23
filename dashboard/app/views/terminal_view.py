@@ -25,6 +25,8 @@ class TerminalView(ctk.CTkFrame):
         self.client_name_to_code: dict[str, str] = {}
         self.selected_client_code: str = ""
         self.current_directory: str = ""
+        self.command_history: list[str] = []
+        self.history_index: int | None = None
 
         self._build_ui()
 
@@ -87,6 +89,8 @@ class TerminalView(ctk.CTkFrame):
         )
         self.command_entry.grid(row=0, column=0, padx=(0, 10), pady=0, sticky="ew")
         self.command_entry.bind("<Return>", lambda _event: self.send_command())
+        self.command_entry.bind("<Up>", self._show_previous_command)
+        self.command_entry.bind("<Down>", self._show_next_command)
 
         send_button = ctk.CTkButton(
             bottom_frame,
@@ -149,6 +153,8 @@ class TerminalView(ctk.CTkFrame):
 
         if not command:
             return
+
+        self._add_command_to_history(command)
 
         if not self.selected_client_code:
             self.append_output("No online client selected.\n")
@@ -227,3 +233,67 @@ class TerminalView(ctk.CTkFrame):
         self.output_box.configure(state="normal")
         self.output_box.delete("1.0", "end")
         self.output_box.configure(state="disabled")
+        
+    def _add_command_to_history(self, command: str) -> None:
+        """
+        Αποθηκεύει την εντολή στο ιστορικό terminal.
+        """
+
+        if not command:
+            return
+
+        if self.command_history and self.command_history[-1] == command:
+            self.history_index = None
+            return
+
+        self.command_history.append(command)
+        self.history_index = None
+
+
+    def _show_previous_command(self, _event=None) -> str:
+        """
+        Φέρνει την προηγούμενη εντολή με το πάνω βελάκι.
+        """
+
+        if not self.command_history:
+            return "break"
+
+        if self.history_index is None:
+            self.history_index = len(self.command_history) - 1
+        elif self.history_index > 0:
+            self.history_index -= 1
+
+        self._set_command_entry(self.command_history[self.history_index])
+
+        return "break"
+
+
+    def _show_next_command(self, _event=None) -> str:
+        """
+        Φέρνει την επόμενη εντολή με το κάτω βελάκι.
+        """
+
+        if not self.command_history:
+            return "break"
+
+        if self.history_index is None:
+            return "break"
+
+        if self.history_index < len(self.command_history) - 1:
+            self.history_index += 1
+            self._set_command_entry(self.command_history[self.history_index])
+        else:
+            self.history_index = None
+            self._set_command_entry("")
+
+        return "break"
+
+
+    def _set_command_entry(self, command: str) -> None:
+        """
+        Βάζει εντολή στο input του terminal.
+        """
+
+        self.command_entry.delete(0, "end")
+        self.command_entry.insert(0, command)
+        self.command_entry.icursor("end")
