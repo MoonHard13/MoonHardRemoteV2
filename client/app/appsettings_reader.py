@@ -43,7 +43,6 @@ class AppSettingsReader:
             "raw_text": None,
             "selected_bo_connection_id": 1,
             "bo_connections": [],
-            "fo_connections": [],
             "provider_connections": [],
             "appsettings_summary": {},
             "database_connection": None,
@@ -65,7 +64,6 @@ class AppSettingsReader:
         raw_json = json.loads(raw_text)
 
         bo_connections = self._extract_list_from_appsettings(raw_json, "BOConnections")
-        fo_connections = self._extract_list_from_appsettings(raw_json, "FOConnections")
         provider_connections = self._extract_list_from_appsettings(raw_json, "ProviderConnections")
 
         selected_bo_connection_id = 1
@@ -89,7 +87,6 @@ class AppSettingsReader:
             "MaxWaitTimePerInvoice": app_settings.get("MaxWaitTimePerInvoice") if isinstance(app_settings, dict) else None,
             "initialDate": app_settings.get("initialDate") if isinstance(app_settings, dict) else None,
             "BOConnectionIDs": [item.get("ID") for item in bo_connections],
-            "FOConnectionIDs": [item.get("ID") for item in fo_connections],
             "ProviderConnectionIDs": [item.get("ID") for item in provider_connections],
         }
 
@@ -100,7 +97,6 @@ class AppSettingsReader:
             "raw_text": raw_text,
             "selected_bo_connection_id": selected_bo_connection_id,
             "bo_connections": bo_connections,
-            "fo_connections": fo_connections,
             "provider_connections": provider_connections,
             "appsettings_summary": appsettings_summary,
             "database_connection": database_connection,

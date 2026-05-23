@@ -268,7 +268,6 @@ class ClientRepository:
                     "last_read_at": appsettings_data.get("last_read_at"),
                     "selected_bo_connection_id": appsettings_data.get("selected_bo_connection_id", 1),
                     "bo_connections": appsettings_data.get("bo_connections"),
-                    "fo_connections": appsettings_data.get("fo_connections"),
                     "provider_connections": appsettings_data.get("provider_connections"),
                     "appsettings_summary": appsettings_data.get("appsettings_summary")
                 },
@@ -281,3 +280,32 @@ class ClientRepository:
             raise RuntimeError("Appsettings upsert returned no data.")
 
         return response.data[0]
+    
+    def get_client_appsettings(self, client_code: str) -> dict[str, Any]:
+        """
+        Επιστρέφει τα αποθηκευμένα appsettings.production.json για συγκεκριμένο client.
+        """
+
+        if not client_code:
+            raise ValueError("Missing client_code.")
+
+        logger.info("Fetching appsettings for client: %s", client_code)
+
+        response = (
+            self.db
+            .table("client_appsettings")
+            .select("*")
+            .eq("client_code", client_code)
+            .execute()
+        )
+
+        data = response.data or []
+
+        if not data:
+            return {
+                "client_code": client_code,
+                "file_found": False,
+                "message": "No appsettings saved for this client yet."
+            }
+
+        return data[0]

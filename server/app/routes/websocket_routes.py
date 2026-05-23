@@ -275,6 +275,40 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") == "get_client_appsettings":
+                    client_code = data.get("client_code", "")
+
+                    try:
+                        appsettings = self.client_repository.get_client_appsettings(
+                            client_code=client_code
+                        )
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_appsettings_result",
+                                "client_code": client_code,
+                                "success": True,
+                                "appsettings": appsettings
+                            }
+                        )
+
+                    except Exception as exc:
+                        logger.exception("Failed to fetch client appsettings.")
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_appsettings_result",
+                                "client_code": client_code,
+                                "success": False,
+                                "message": str(exc),
+                                "appsettings": None
+                            }
+                        )
+
+                    continue
+
                 if data.get("type") == "terminal_autocomplete":
                     request_id = data.get("request_id", "")
                     client_code = data.get("client_code", "")
