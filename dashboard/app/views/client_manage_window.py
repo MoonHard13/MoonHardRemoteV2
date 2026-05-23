@@ -469,62 +469,6 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         self._refresh_selected_bo_connection()
         
-    def handle_appsettings_result(self, payload: dict) -> None:
-        """
-        Λαμβάνει τα appsettings από τον server και ενημερώνει το AppSettings tab.
-        """
-
-        if payload.get("client_code") != self.client_code:
-            return
-
-        if not payload.get("success"):
-            message = payload.get("message", "Failed to load appsettings.")
-            self._set_appsettings_text(f"ERROR: {message}")
-            self.appsettings_status_label.configure(text="Failed to load appsettings.")
-            return
-
-        appsettings = payload.get("appsettings") or {}
-        self.appsettings_data = appsettings
-
-        file_found = appsettings.get("file_found", False)
-        file_path = appsettings.get("file_path") or "-"
-        last_read_at = appsettings.get("last_read_at") or "-"
-
-        self.bo_connections = appsettings.get("bo_connections") or []
-        self.selected_bo_connection_id = appsettings.get("selected_bo_connection_id") or 1
-
-        if not file_found:
-            self.appsettings_status_label.configure(
-                text="appsettings.production.json was not found on this client."
-            )
-            self._set_appsettings_text(
-                f"File found: No\n"
-                f"Path checked: {file_path}\n"
-                f"Last read: {last_read_at}\n"
-            )
-            return
-
-        bo_values = self._build_bo_connection_values()
-
-        if bo_values:
-            self.bo_connection_option.configure(values=bo_values)
-
-            default_value = self._find_bo_option_value(self.selected_bo_connection_id)
-
-            if default_value:
-                self.bo_connection_option.set(default_value)
-            else:
-                self.bo_connection_option.set(bo_values[0])
-        else:
-            self.bo_connection_option.configure(values=["No BOConnections"])
-            self.bo_connection_option.set("No BOConnections")
-
-        self.appsettings_status_label.configure(
-            text=f"Loaded from: {file_path} | Last read: {last_read_at}"
-        )
-
-        self._refresh_selected_bo_connection()
-        
     def _refresh_selected_bo_connection(self) -> None:
         """
         Εμφανίζει τα στοιχεία του επιλεγμένου BOConnection.
@@ -574,6 +518,137 @@ class ClientManageWindow(ctk.CTkToplevel):
         )
 
         self._set_appsettings_text(text)
+
+    def _format_provider_connections(self, provider_connections: list[dict]) -> str:
+        """
+        Μορφοποιεί τα ProviderConnections για προβολή.
+        """
+
+        if not provider_connections:
+            return "No ProviderConnections found."
+
+        lines: list[str] = []
+
+        for provider in provider_connections:
+            lines.append(
+                f"ID: {provider.get('ID')}\n"
+                f"BaseURL: {provider.get('BaseURL')}\n"
+                f"OfflineURL: {provider.get('OfflineURL')}\n"
+            )
+
+        return "\n".join(lines)
+
+    def _parse_connection_string(self, connection_string: str) -> dict[str, str | None]:
+        """
+        Αναλύει SQL Server connection string για εμφάνιση στο dashboard.
+        """
+
+        result = {
+            "server": None,
+            "database": None,
+            "user_id": None,
+            "password": None
+        }
+
+        if not connection_string:
+            return result
+
+        key_map = {
+            "server": "server",
+            "data source": "server",
+            "database": "database",
+            "initial catalog": "database",
+            "user id": "user_id",
+            "uid": "user_id",
+            "password": "password",
+            "pwd": "password"
+        }
+
+        for item in connection_string.split(";"):
+            if "=" not in item:
+                continue
+
+            key, value = item.split("=", 1)
+            normalized_key = key.strip().lower()
+            mapped_key = key_map.get(normalized_key)
+
+            if mapped_key:
+                result[mapped_key] = value.strip()
+
+        return result
+
+    def _set_appsettings_text(self, text: str) -> None:
+        """
+        Ενημερώνει το textbox του AppSettings tab.
+        """
+
+        self.appsettings_details_box.configure(state="normal")
+        self.appsettings_details_box.delete("1.0", "end")
+        self.appsettings_details_box.insert("end", text)
+        self.appsettings_details_box.configure(state="disabled")
+        
+    def _build_bo_connection_values(self) -> list[str]:
+        """
+        Δημιουργεί τις επιλογές BOConnections για το dropdown.
+        """
+
+        values: list[str] = []
+
+        for connection in self.bo_connections:
+            connection_id = connection.get("ID")
+            database_connection = connection.get("DatabaseConnection", "")
+            database_name = self._parse_connection_string(database_connection).get("database") or "-"
+
+            values.append(f"ID {connection_id} - {database_name}")
+
+        return values
+
+    def _find_bo_option_value(self, selected_id: int) -> str:
+        """
+        Βρίσκει την επιλογή dropdown για συγκεκριμένο BOConnection ID.
+        """
+
+        selected_id_text = f"ID {selected_id} "
+
+        for value in self._build_bo_connection_values():
+            if value.startswith(selected_id_text):
+                return value
+
+        return ""
+
+    def _on_bo_connection_selected(self, selected_value: str) -> None:
+        """
+        Αλλάζει το BOConnection που εμφανίζεται.
+        """
+
+        connection_id = self._extract_bo_id_from_option(selected_value)
+
+        if connection_id is not None:
+            self.selected_bo_connection_id = connection_id
+
+        self._refresh_selected_bo_connection()
+
+    def _extract_bo_id_from_option(self, selected_value: str) -> int | None:
+        """
+        Εξάγει το ID από επιλογή τύπου 'ID 1 - DatabaseName'.
+        """
+
+        try:
+            parts = selected_value.split()
+            return int(parts[1])
+        except Exception:
+            return None
+
+    def _get_selected_bo_connection(self) -> dict:
+        """
+        Επιστρέφει το επιλεγμένο BOConnection.
+        """
+
+        for connection in self.bo_connections:
+            if connection.get("ID") == self.selected_bo_connection_id:
+                return connection
+
+        return self.bo_connections[0] if self.bo_connections else {}
 
     def _format_provider_connections(self, provider_connections: list[dict]) -> str:
         """

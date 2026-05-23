@@ -126,10 +126,10 @@ class MoonHardDashboardApp(ctk.CTk):
                 manage_window.handle_terminal_error(payload)
 
         elif message_type == "terminal_autocomplete_result":
-            self.terminal_view.handle_autocomplete_result(payload)
+            logger.info("Terminal autocomplete result received.")
 
         elif message_type == "terminal_autocomplete_error":
-            self.terminal_view.handle_autocomplete_error(payload)
+            logger.error("Terminal autocomplete error: %s", payload.get("message"))
             
         elif message_type == "client_appsettings_result":
             client_code = payload.get("client_code", "")
