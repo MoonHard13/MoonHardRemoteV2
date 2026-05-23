@@ -55,6 +55,17 @@ class WebSocketRoutes:
 
 websocket_routes = WebSocketRoutes()
 
+@router.get("/api/ws-test")
+def websocket_route_test() -> dict:
+    """
+    Προσωρινό HTTP endpoint για να ελέγξουμε ότι φορτώθηκε το websocket_routes.py.
+    """
+
+    return {
+        "success": True,
+        "message": "websocket_routes.py loaded successfully",
+        "dashboard_ws": "/ws/dashboard"
+    }
 
 @router.websocket("/ws/dashboard")
 async def dashboard_websocket(websocket: WebSocket) -> None:
