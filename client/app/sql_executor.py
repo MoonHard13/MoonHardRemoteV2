@@ -147,7 +147,11 @@ class SqlExecutor:
         database = parts.get("database", "")
         user_id = parts.get("user_id", "")
         password = parts.get("password", "")
-        trust_server_certificate = parts.get("trustservercertificate", "yes")
+
+        trust_server_certificate = self._normalize_yes_no_value(
+            parts.get("trustservercertificate"),
+            default="yes"
+        )
 
         if not server:
             raise ValueError("Missing SQL Server in connection string.")
@@ -231,3 +235,21 @@ class SqlExecutor:
             return ""
 
         return str(value)
+    
+    def _normalize_yes_no_value(self, value: str | None, default: str = "yes") -> str:
+        """
+        Μετατρέπει boolean-like τιμές σε yes/no για ODBC connection string.
+        """
+
+        if value is None:
+            return default
+
+        normalized = str(value).strip().lower()
+
+        if normalized in ("true", "yes", "1", "y"):
+            return "yes"
+
+        if normalized in ("false", "no", "0", "n"):
+            return "no"
+
+        return default
