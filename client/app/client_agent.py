@@ -118,4 +118,4 @@ class MoonHardClientAgent:
             logger.info(
                 "Στάλθηκε heartbeat για client_code=%s",
                 self.identity["client_code"]
-            )            
+            )

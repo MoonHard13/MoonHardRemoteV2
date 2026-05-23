@@ -17,19 +17,12 @@ class DashboardConfig:
 
         self.app_name = "MoonHard Remote v2 Dashboard"
         self.app_version = "1.0.0"
-        self.dashboard_token = os.getenv("4e6b19215776ac81d57f4b2fc6e86a44", "")
-
-        self.dashboard_websocket_url = os.getenv(
-            "DASHBOARD_WEBSOCKET_URL",
-            "wss://moonhardremotev2.onrender.com/ws/dashboard"
-        )
-
-        self.dashboard_websocket_url = os.getenv(
-            "DASHBOARD_WEBSOCKET_URL",
-            "wss://moonhardremotev2.onrender.com/ws/dashboard"
-        )
-
         self.dashboard_token = os.getenv("DASHBOARD_TOKEN", "")
+
+        self.dashboard_websocket_url = os.getenv(
+            "DASHBOARD_WEBSOCKET_URL",
+            "wss://moonhardremotev2.onrender.com/ws/dashboard"
+        )
 
         self.local_data_dir = Path(
             os.getenv(

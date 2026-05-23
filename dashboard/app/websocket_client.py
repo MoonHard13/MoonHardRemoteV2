@@ -86,6 +86,13 @@ class DashboardWebSocketClient:
 
                     self.on_status_callback("Online")
 
+                    while not self._stop_event.is_set():
+                        message = await websocket.recv()
+                        payload = json.loads(message)
+
+                        logger.info("Dashboard received message: %s", payload)
+                        self.on_message_callback(payload)
+
             except Exception:
                 logger.exception("Dashboard WebSocket connection failed.")
                 self.on_status_callback("Offline - επανασύνδεση...")

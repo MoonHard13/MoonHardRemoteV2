@@ -17,19 +17,12 @@ class ClientConfig:
 
         self.app_name = "MoonHard Remote v2 Client"
         self.app_version = "1.0.0"
-        self.client_token = os.getenv("41c3fa81b8156eb832371fb93c7b0d4d", "")
+        self.client_token = os.getenv("CLIENT_TOKEN", "")
         
         self.server_websocket_url = os.getenv(
             "SERVER_WEBSOCKET_URL",
             "wss://moonhardremotev2.onrender.com/ws/client"
         )
-
-        self.server_websocket_url = os.getenv(
-            "SERVER_WEBSOCKET_URL",
-            "wss://moonhardremotev2.onrender.com/ws/client"
-        )
-
-        self.client_token = os.getenv("CLIENT_TOKEN", "")
 
         self.program_data_dir = Path(
             os.getenv(

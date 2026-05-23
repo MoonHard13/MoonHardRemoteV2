@@ -1,10 +1,10 @@
 import logging
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Header, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.websocket.connection_manager import connection_manager
 from app.repositories.client_repository import ClientRepository
-from fastapi import Header, HTTPException
+
 from app.config import AppConfig
 
 
@@ -166,6 +166,17 @@ class WebSocketRoutes:
                 {
                     "type": "dashboard_connected",
                     "message": "Dashboard WebSocket connected successfully."
+                }
+            )
+
+            clients = self.client_repository.get_all_clients()
+
+            await connection_manager.send_to_dashboard(
+                websocket,
+                {
+                    "type": "clients_list",
+                    "count": len(clients),
+                    "clients": clients
                 }
             )
 

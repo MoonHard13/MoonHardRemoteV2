@@ -18,9 +18,9 @@ class AppConfig:
         self.app_name = os.getenv("APP_NAME", "MoonHard Remote v2 Server")
         self.app_version = os.getenv("APP_VERSION", "1.0.0")
         self.environment = os.getenv("ENVIRONMENT", "development")
-        self.client_token = os.getenv("41c3fa81b8156eb832371fb93c7b0d4d", "")
-        self.dashboard_token = os.getenv("4e6b19215776ac81d57f4b2fc6e86a44", "")
-        self.admin_token = os.getenv("2deaffbf87dad616d8c46815b26e9ed5", "")
+        self.client_token = os.getenv("CLIENT_TOKEN", "")
+        self.dashboard_token = os.getenv("DASHBOARD_TOKEN", "")
+        self.admin_token = os.getenv("ADMIN_TOKEN", "")
 
         self.supabase_url = os.getenv("SUPABASE_URL", "")
         self.supabase_service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
