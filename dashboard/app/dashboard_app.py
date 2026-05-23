@@ -130,6 +130,13 @@ class MoonHardDashboardApp(ctk.CTk):
 
         elif message_type == "terminal_autocomplete_error":
             self.terminal_view.handle_autocomplete_error(payload)
+            
+        elif message_type == "client_appsettings_result":
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_appsettings_result(payload)
 
     def _set_connection_status_threadsafe(self, status: str) -> None:
         """
@@ -212,3 +219,11 @@ class MoonHardDashboardApp(ctk.CTk):
         )
 
         self.manage_windows[client_code] = window
+
+        if self.websocket_client:
+            self.websocket_client.send_message(
+                {
+                    "type": "get_client_appsettings",
+                    "client_code": client_code
+                }
+            )
