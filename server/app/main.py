@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from app.config import AppConfig
 from app.logger_config import LoggerConfig
 from app.routes.health_routes import router as health_router
+from app.routes.client_routes import router as client_router
 
 
 LoggerConfig.setup_logging()
@@ -35,6 +36,7 @@ class MoonHardServerApp:
         """
 
         self.app.include_router(health_router)
+        self.app.include_router(client_router)
         logger.info("Server routes registered successfully.")
 
 
