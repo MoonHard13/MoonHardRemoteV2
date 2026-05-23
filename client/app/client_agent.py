@@ -9,6 +9,7 @@ from app.identity_manager import ClientIdentityManager
 from websockets.exceptions import ConnectionClosed
 from app.terminal_executor import TerminalExecutor
 from app.appsettings_reader import AppSettingsReader
+from app.sql_executor import SqlExecutor
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class MoonHardClientAgent:
         self.identity = self.identity_manager.load_or_create_identity()
         self.terminal_executor = TerminalExecutor()
         self.appsettings_reader = AppSettingsReader()
+        self.sql_executor = SqlExecutor()
         
     async def run_forever(self) -> None:
         """
@@ -114,6 +116,9 @@ class MoonHardClientAgent:
 
             elif message_type == "terminal_autocomplete":
                 await self._handle_terminal_autocomplete(websocket, payload)
+                
+            elif message_type == "sql_execute":
+                await self._handle_sql_execute(websocket, payload)
             
     async def _send_heartbeat_forever(self, websocket) -> None:
         """
@@ -229,3 +234,82 @@ class MoonHardClientAgent:
             }
 
             await websocket.send(json.dumps(message, ensure_ascii=False))
+            
+    async def _handle_sql_execute(self, websocket, payload: dict) -> None:
+        """
+        Εκτελεί SQL query χρησιμοποιώντας BOConnection ID από appsettings.production.json.
+        """
+
+        request_id = payload.get("request_id", "")
+        bo_connection_id = int(payload.get("bo_connection_id", 1))
+        sql_text = payload.get("sql_text", "")
+        timeout = int(payload.get("timeout", 60))
+
+        logger.info(
+            "Λήφθηκε SQL execute request. request_id=%s bo_connection_id=%s",
+            request_id,
+            bo_connection_id
+        )
+
+        try:
+            appsettings_data = self.appsettings_reader.read_appsettings_production()
+            bo_connections = appsettings_data.get("bo_connections") or []
+
+            selected_connection = self._get_bo_connection_by_id(
+                bo_connections=bo_connections,
+                bo_connection_id=bo_connection_id
+            )
+
+            if not selected_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} was not found.")
+
+            database_connection = selected_connection.get("DatabaseConnection")
+
+            if not database_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} has no DatabaseConnection.")
+
+            execution_result = self.sql_executor.execute_sql(
+                connection_string=database_connection,
+                sql_text=sql_text,
+                timeout=timeout
+            )
+
+            result_message = {
+                "type": "sql_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                "success": execution_result.get("success"),
+                "error": execution_result.get("error"),
+                "batches": execution_result.get("batches", [])
+            }
+
+        except Exception as exc:
+            logger.exception("SQL execution request failed.")
+
+            result_message = {
+                "type": "sql_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                "success": False,
+                "error": str(exc),
+                "batches": []
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+    def _get_bo_connection_by_id(
+        self,
+        bo_connections: list[dict],
+        bo_connection_id: int
+    ) -> dict | None:
+        """
+        Βρίσκει BOConnection με βάση το ID.
+        """
+
+        for connection in bo_connections:
+            if int(connection.get("ID", -1)) == bo_connection_id:
+                return connection
+
+        return None

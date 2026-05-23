@@ -126,6 +126,27 @@ class WebSocketRoutes:
                     await self.broadcast_clients_list()
                     continue
 
+                if data.get("type") == "sql_result":
+                    request_id = data.get("request_id", "")
+
+                    dashboard_websocket = self.pending_terminal_commands.pop(
+                        request_id,
+                        None
+                    )
+
+                    if dashboard_websocket:
+                        await connection_manager.send_to_dashboard(
+                            dashboard_websocket,
+                            data
+                        )
+                    else:
+                        logger.warning(
+                            "No pending dashboard found for SQL result request_id=%s",
+                            request_id
+                        )
+
+                    continue
+
                 if data.get("type") == "terminal_result":
                     command_id = data.get("command_id", "")
 
@@ -390,6 +411,54 @@ class WebSocketRoutes:
                             {
                                 "type": "terminal_error",
                                 "command_id": command_id,
+                                "client_code": client_code,
+                                "message": "Client is not connected."
+                            }
+                        )
+
+                    continue
+
+                if data.get("type") == "sql_execute":
+                    request_id = data.get("request_id", "")
+                    client_code = data.get("client_code", "")
+                    bo_connection_id = data.get("bo_connection_id", 1)
+                    sql_text = data.get("sql_text", "")
+                    timeout = data.get("timeout", 60)
+
+                    if not request_id or not client_code or not sql_text:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "sql_error",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "message": "Missing request_id, client_code or sql_text."
+                            }
+                        )
+                        continue
+
+                    self.pending_terminal_commands[request_id] = websocket
+
+                    sent = await connection_manager.send_to_client(
+                        client_code,
+                        {
+                            "type": "sql_execute",
+                            "request_id": request_id,
+                            "client_code": client_code,
+                            "bo_connection_id": bo_connection_id,
+                            "sql_text": sql_text,
+                            "timeout": timeout
+                        }
+                    )
+
+                    if not sent:
+                        self.pending_terminal_commands.pop(request_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "sql_error",
+                                "request_id": request_id,
                                 "client_code": client_code,
                                 "message": "Client is not connected."
                             }

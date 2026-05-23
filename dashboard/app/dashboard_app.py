@@ -137,6 +137,20 @@ class MoonHardDashboardApp(ctk.CTk):
 
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_appsettings_result(payload)
+                
+        elif message_type == "sql_result":
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_sql_result(payload)
+
+        elif message_type == "sql_error":
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_sql_error(payload)
 
     def _set_connection_status_threadsafe(self, status: str) -> None:
         """
@@ -215,7 +229,8 @@ class MoonHardDashboardApp(ctk.CTk):
             self,
             client=client,
             on_rename_callback=self._rename_client,
-            on_terminal_command_callback=self._send_terminal_command
+            on_terminal_command_callback=self._send_terminal_command,
+            on_sql_execute_callback=self._send_sql_execute
         )
 
         self.manage_windows[client_code] = window
@@ -227,3 +242,20 @@ class MoonHardDashboardApp(ctk.CTk):
                     "client_code": client_code
                 }
             )
+            
+    def _send_sql_execute(self, payload: dict[str, Any]) -> None:
+        """
+        Στέλνει SQL execute request στον server.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Dashboard WebSocket is not connected.")
+            return
+
+        self.websocket_client.send_message(payload)
+
+        logger.info(
+            "SQL execute sent. client_code=%s bo_connection_id=%s",
+            payload.get("client_code"),
+            payload.get("bo_connection_id")
+        )

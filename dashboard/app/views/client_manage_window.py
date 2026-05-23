@@ -2,6 +2,7 @@ import uuid
 from typing import Callable
 
 import customtkinter as ctk
+from tkinter import filedialog
 
 
 class ClientManageWindow(ctk.CTkToplevel):
@@ -15,7 +16,9 @@ class ClientManageWindow(ctk.CTkToplevel):
         parent,
         client: dict,
         on_rename_callback: Callable[[str, str], None] | None = None,
-        on_terminal_command_callback: Callable[[dict], None] | None = None
+        on_terminal_command_callback: Callable[[dict], None] | None = None,
+        on_sql_execute_callback: Callable[[dict], None] | None = None
+        
     ) -> None:
         """
         Δημιουργεί το παράθυρο διαχείρισης client.
@@ -26,6 +29,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.client = client
         self.on_rename_callback = on_rename_callback
         self.on_terminal_command_callback = on_terminal_command_callback
+        self.on_sql_execute_callback = on_sql_execute_callback
 
         self.client_code = client.get("client_code", "")
         self.current_directory = ""
@@ -34,6 +38,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.appsettings_data: dict = {}
         self.bo_connections: list[dict] = []
         self.selected_bo_connection_id: int = 1
+        self.sql_history: list[str] = []
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
@@ -64,10 +69,14 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.terminal_tab.grid_rowconfigure(1, weight=1)
         self.appsettings_tab.grid_columnconfigure(0, weight=1)
         self.appsettings_tab.grid_rowconfigure(1, weight=1)
+        self.sql_tab = self.tabs.add("SQL")
+        self.sql_tab.grid_columnconfigure(0, weight=1)
+        self.sql_tab.grid_rowconfigure(2, weight=1)
 
         self._build_overview_tab()
         self._build_terminal_tab()
         self._build_appsettings_tab()
+        self._build_sql_tab()
 
     def _build_header(self) -> None:
         """
@@ -463,6 +472,13 @@ class ClientManageWindow(ctk.CTkToplevel):
             self.bo_connection_option.configure(values=["No BOConnections"])
             self.bo_connection_option.set("No BOConnections")
 
+        if bo_values:
+            self.sql_bo_option.configure(values=bo_values)
+            self.sql_bo_option.set(self.bo_connection_option.get())
+        else:
+            self.sql_bo_option.configure(values=["No BOConnections"])
+            self.sql_bo_option.set("No BOConnections")
+
         self.appsettings_status_label.configure(
             text=f"Loaded from: {file_path} | Last read: {last_read_at}"
         )
@@ -717,3 +733,201 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.appsettings_details_box.delete("1.0", "end")
         self.appsettings_details_box.insert("end", text)
         self.appsettings_details_box.configure(state="disabled")
+        
+    def _build_sql_tab(self) -> None:
+        """
+        Δημιουργεί SQL tab για εκτέλεση queries και .sql files.
+        """
+
+        top_frame = ctk.CTkFrame(self.sql_tab, corner_radius=16)
+        top_frame.grid(row=0, column=0, padx=15, pady=15, sticky="ew")
+        top_frame.grid_columnconfigure(1, weight=1)
+
+        title = ctk.CTkLabel(
+            top_frame,
+            text="SQL Server Query Executor",
+            font=("Segoe UI", 20, "bold")
+        )
+        title.grid(row=0, column=0, columnspan=4, padx=18, pady=(18, 8), sticky="w")
+
+        bo_label = ctk.CTkLabel(
+            top_frame,
+            text="BOConnection:",
+            font=("Segoe UI", 14, "bold")
+        )
+        bo_label.grid(row=1, column=0, padx=(18, 10), pady=(5, 18), sticky="w")
+
+        self.sql_bo_option = ctk.CTkOptionMenu(
+            top_frame,
+            values=["ID 1"],
+            command=self._on_sql_bo_selected
+        )
+        self.sql_bo_option.set("ID 1")
+        self.sql_bo_option.grid(row=1, column=1, padx=(0, 10), pady=(5, 18), sticky="w")
+
+        load_file_button = ctk.CTkButton(
+            top_frame,
+            text="Load .sql",
+            width=100,
+            command=self._load_sql_file
+        )
+        load_file_button.grid(row=1, column=2, padx=(0, 10), pady=(5, 18))
+
+        execute_button = ctk.CTkButton(
+            top_frame,
+            text="Execute",
+            width=100,
+            command=self.execute_sql
+        )
+        execute_button.grid(row=1, column=3, padx=(0, 18), pady=(5, 18))
+
+        self.sql_editor = ctk.CTkTextbox(
+            self.sql_tab,
+            font=("Consolas", 13),
+            wrap="none"
+        )
+        self.sql_editor.grid(row=1, column=0, padx=15, pady=(0, 10), sticky="nsew")
+        self.sql_editor.insert("1.0", "SELECT TOP 10 * FROM INFORMATION_SCHEMA.TABLES;")
+
+        self.sql_result_box = ctk.CTkTextbox(
+            self.sql_tab,
+            font=("Consolas", 13),
+            wrap="none"
+        )
+        self.sql_result_box.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="nsew")
+        self.sql_result_box.configure(state="disabled")
+        
+    def _on_sql_bo_selected(self, selected_value: str) -> None:
+        """
+        Επιλέγει BOConnection ID για SQL εκτέλεση.
+        """
+
+        connection_id = self._extract_bo_id_from_option(selected_value)
+
+        if connection_id is not None:
+            self.selected_bo_connection_id = connection_id
+
+    def _load_sql_file(self) -> None:
+        """
+        Φορτώνει .sql αρχείο στο SQL editor.
+        """
+
+        file_path = filedialog.askopenfilename(
+            title="Select SQL file",
+            filetypes=[("SQL files", "*.sql"), ("All files", "*.*")]
+        )
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8-sig") as file:
+                content = file.read()
+
+            self.sql_editor.delete("1.0", "end")
+            self.sql_editor.insert("1.0", content)
+            self._set_sql_result_text(f"Loaded SQL file:\n{file_path}\n")
+
+        except Exception as exc:
+            self._set_sql_result_text(f"Failed to load SQL file:\n{exc}\n")
+
+    def execute_sql(self) -> None:
+        """
+        Στέλνει SQL query για εκτέλεση στον client.
+        """
+
+        sql_text = self.sql_editor.get("1.0", "end").strip()
+
+        if not sql_text:
+            self._set_sql_result_text("SQL text is empty.\n")
+            return
+
+        request_id = str(uuid.uuid4())
+
+        self._set_sql_result_text(
+            f"Executing SQL on BOConnection ID {self.selected_bo_connection_id}...\n"
+        )
+
+        if self.on_sql_execute_callback:
+            self.on_sql_execute_callback(
+                {
+                    "type": "sql_execute",
+                    "request_id": request_id,
+                    "client_code": self.client_code,
+                    "bo_connection_id": self.selected_bo_connection_id,
+                    "sql_text": sql_text,
+                    "timeout": 120
+                }
+            )
+
+    def handle_sql_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτελέσματα SQL εκτέλεσης.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        success = payload.get("success")
+        error = payload.get("error")
+        batches = payload.get("batches") or []
+
+        lines: list[str] = []
+
+        lines.append(f"Success: {success}")
+        lines.append(f"BOConnection ID: {payload.get('bo_connection_id')}")
+
+        if error:
+            lines.append(f"Error: {error}")
+
+        lines.append("")
+
+        for batch in batches:
+            lines.append(f"=== Batch {batch.get('batch_index')} ===")
+
+            if batch.get("error"):
+                lines.append(f"Batch error: {batch.get('error')}")
+
+            result_sets = batch.get("result_sets") or []
+
+            if not result_sets:
+                lines.append(f"Rows affected: {batch.get('rowcount')}")
+                lines.append("")
+                continue
+
+            for result_index, result_set in enumerate(result_sets, start=1):
+                columns = result_set.get("columns") or []
+                rows = result_set.get("rows") or []
+
+                lines.append(f"--- Result Set {result_index} | Rows: {len(rows)} ---")
+                lines.append(" | ".join(columns))
+                lines.append("-" * 100)
+
+                for row in rows[:500]:
+                    lines.append(" | ".join(str(value) for value in row))
+
+                if len(rows) > 500:
+                    lines.append(f"... truncated. Showing first 500 of {len(rows)} rows.")
+
+                lines.append("")
+
+        self._set_sql_result_text("\n".join(lines))
+
+    def handle_sql_error(self, payload: dict) -> None:
+        """
+        Εμφανίζει SQL routing/server error.
+        """
+
+        self._set_sql_result_text(
+            f"SQL ERROR:\n{payload.get('message', 'Unknown SQL error.')}\n"
+        )
+
+    def _set_sql_result_text(self, text: str) -> None:
+        """
+        Ενημερώνει το SQL result textbox.
+        """
+
+        self.sql_result_box.configure(state="normal")
+        self.sql_result_box.delete("1.0", "end")
+        self.sql_result_box.insert("end", text)
+        self.sql_result_box.configure(state="disabled")
