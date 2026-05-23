@@ -1,0 +1,3 @@
+customtkinter
+websockets
+python-dotenv
