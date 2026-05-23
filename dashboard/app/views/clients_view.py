@@ -6,7 +6,7 @@ class ClientsView(ctk.CTkFrame):
     Προβολή λίστας clients στο dashboard.
     """
 
-    def __init__(self, parent) -> None:
+    def __init__(self, parent, on_rename_callback=None) -> None:
         """
         Δημιουργεί το UI της λίστας clients.
         """
@@ -14,7 +14,8 @@ class ClientsView(ctk.CTkFrame):
         super().__init__(parent, corner_radius=18)
 
         self.client_rows: dict[str, ctk.CTkFrame] = {}
-
+        self.on_rename_callback = on_rename_callback
+        
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -115,3 +116,86 @@ class ClientsView(ctk.CTkFrame):
             font=("Segoe UI", 13, "bold")
         )
         status_text.grid(row=0, column=2, padx=15, pady=12, sticky="e")
+
+        rename_button = ctk.CTkButton(
+            row,
+            text="Rename",
+            width=90,
+            command=lambda c=client: self._open_rename_dialog(c)
+        )
+        rename_button.grid(row=0, column=3, padx=(0, 15), pady=12, sticky="e")
+
+    def _open_rename_dialog(self, client: dict) -> None:
+        """
+        Ανοίγει παράθυρο για αλλαγή φιλικού ονόματος client.
+        """
+
+        client_code = client.get("client_code", "")
+        current_name = client.get("display_name") or client.get("pc_name") or ""
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Rename Client")
+        dialog.geometry("420x190")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+
+        title_label = ctk.CTkLabel(
+            dialog,
+            text="Rename Client",
+            font=("Segoe UI", 20, "bold")
+        )
+        title_label.pack(padx=20, pady=(20, 8), anchor="w")
+
+        name_entry = ctk.CTkEntry(
+            dialog,
+            placeholder_text="New display name"
+        )
+        name_entry.pack(padx=20, pady=8, fill="x")
+        name_entry.insert(0, current_name)
+        name_entry.focus_set()
+
+        error_label = ctk.CTkLabel(
+            dialog,
+            text="",
+            text_color="#EF4444",
+            font=("Segoe UI", 12)
+        )
+        error_label.pack(padx=20, pady=(0, 8), anchor="w")
+
+        def save_name() -> None:
+            """
+            Στέλνει το νέο όνομα στο callback του dashboard.
+            """
+
+            new_name = name_entry.get().strip()
+
+            if not new_name:
+                error_label.configure(text="Το όνομα δεν μπορεί να είναι κενό.")
+                return
+
+            if self.on_rename_callback:
+                self.on_rename_callback(client_code, new_name)
+
+            dialog.destroy()
+
+        buttons_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        buttons_frame.pack(padx=20, pady=(5, 15), fill="x")
+
+        cancel_button = ctk.CTkButton(
+            buttons_frame,
+            text="Cancel",
+            width=100,
+            command=dialog.destroy
+        )
+        cancel_button.pack(side="right", padx=(8, 0))
+
+        save_button = ctk.CTkButton(
+            buttons_frame,
+            text="Save",
+            width=100,
+            command=save_name
+        )
+        save_button.pack(side="right")
+
+        dialog.bind("<Return>", lambda _event: save_name())
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())

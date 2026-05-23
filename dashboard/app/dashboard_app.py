@@ -62,7 +62,10 @@ class MoonHardDashboardApp(ctk.CTk):
         )
         self.status_label.grid(row=0, column=1, padx=25, pady=18, sticky="e")
 
-        self.clients_view = ClientsView(self)
+        self.clients_view = ClientsView(
+            self,
+            on_rename_callback=self._rename_client
+        )
         self.clients_view.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
 
     def _start_websocket(self) -> None:
@@ -98,6 +101,12 @@ class MoonHardDashboardApp(ctk.CTk):
             self.clients_view.update_clients(clients)
             logger.info("Dashboard clients list updated. Count: %s", len(clients))
 
+        elif message_type == "rename_client_success":
+            logger.info("Client renamed successfully.")
+
+        elif message_type == "rename_client_error":
+            logger.error("Client rename failed: %s", payload.get("message"))
+
     def _set_connection_status_threadsafe(self, status: str) -> None:
         """
         Μεταφέρει την αλλαγή κατάστασης σύνδεσης στο κύριο GUI thread.
@@ -114,3 +123,25 @@ class MoonHardDashboardApp(ctk.CTk):
             self.websocket_client.stop()
 
         self.destroy()
+
+    def _rename_client(self, client_code: str, display_name: str) -> None:
+        """
+        Στέλνει αίτημα αλλαγής φιλικού ονόματος client στον server.
+        """
+
+        if not self.websocket_client:
+            return
+
+        self.websocket_client.send_message(
+            {
+                "type": "rename_client",
+                "client_code": client_code,
+                "display_name": display_name
+            }
+        )
+
+        logger.info(
+            "Rename client request sent. client_code=%s display_name=%s",
+            client_code,
+            display_name
+        )

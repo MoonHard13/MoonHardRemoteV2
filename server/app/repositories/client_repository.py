@@ -174,4 +174,39 @@ class ClientRepository:
             .execute()
         )
 
-        return response.data[0] if response.data else {}    
+        return response.data[0] if response.data else {}
+
+    def rename_client(self, client_code: str, display_name: str) -> dict[str, Any]:
+        """
+        Ενημερώνει το φιλικό όνομα ενός client στη βάση.
+        Δεν αλλάζει το πραγματικό Windows pc_name.
+        """
+
+        if not client_code:
+            raise ValueError("Missing client_code.")
+
+        clean_display_name = display_name.strip()
+
+        if not clean_display_name:
+            raise ValueError("Display name cannot be empty.")
+
+        logger.info(
+            "Renaming client %s to display_name=%s",
+            client_code,
+            clean_display_name
+        )
+
+        response = (
+            self.db
+            .table("clients")
+            .update({
+                "display_name": clean_display_name
+            })
+            .eq("client_code", client_code)
+            .execute()
+        )
+
+        if not response.data:
+            raise RuntimeError("Client rename returned no data.")
+
+        return response.data[0]

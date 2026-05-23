@@ -185,6 +185,40 @@ class WebSocketRoutes:
 
                 logger.info("Dashboard message received: %s", data)
 
+                if data.get("type") == "rename_client":
+                    client_code = data.get("client_code", "")
+                    display_name = data.get("display_name", "")
+
+                    try:
+                        renamed_client = self.client_repository.rename_client(
+                            client_code=client_code,
+                            display_name=display_name
+                        )
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "rename_client_success",
+                                "message": "Client renamed successfully.",
+                                "client": renamed_client
+                            }
+                        )
+
+                        await self.broadcast_clients_list()
+
+                    except Exception as exc:
+                        logger.exception("Failed to rename client.")
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "rename_client_error",
+                                "message": str(exc)
+                            }
+                        )
+
+                    continue
+
                 await connection_manager.send_to_dashboard(
                     websocket,
                     {
