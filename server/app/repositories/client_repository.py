@@ -265,7 +265,12 @@ class ClientRepository:
                     "database_name": appsettings_data.get("database_name"),
                     "database_user": appsettings_data.get("database_user"),
                     "database_password": appsettings_data.get("database_password"),
-                    "last_read_at": appsettings_data.get("last_read_at")
+                    "last_read_at": appsettings_data.get("last_read_at"),
+                    "selected_bo_connection_id": appsettings_data.get("selected_bo_connection_id", 1),
+                    "bo_connections": appsettings_data.get("bo_connections"),
+                    "fo_connections": appsettings_data.get("fo_connections"),
+                    "provider_connections": appsettings_data.get("provider_connections"),
+                    "appsettings_summary": appsettings_data.get("appsettings_summary")
                 },
                 on_conflict="client_code"
             )

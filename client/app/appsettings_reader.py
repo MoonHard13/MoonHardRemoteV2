@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class AppSettingsReader:
     """
-    Διαβάζει το appsettings.production.json από τον client υπολογιστή.
+    Διαβάζει μόνο το appsettings.production.json από τον client υπολογιστή.
     Αποθηκεύει όλα τα δεδομένα χωρίς masking.
     """
 
@@ -41,6 +41,11 @@ class AppSettingsReader:
             "file_path": None,
             "raw_json": None,
             "raw_text": None,
+            "selected_bo_connection_id": 1,
+            "bo_connections": [],
+            "fo_connections": [],
+            "provider_connections": [],
+            "appsettings_summary": {},
             "database_connection": None,
             "database_server": None,
             "database_name": None,
@@ -59,14 +64,45 @@ class AppSettingsReader:
         raw_text = file_path.read_text(encoding="utf-8-sig")
         raw_json = json.loads(raw_text)
 
-        database_connection = self._extract_database_connection(raw_json)
+        bo_connections = self._extract_list_from_appsettings(raw_json, "BOConnections")
+        fo_connections = self._extract_list_from_appsettings(raw_json, "FOConnections")
+        provider_connections = self._extract_list_from_appsettings(raw_json, "ProviderConnections")
+
+        selected_bo_connection_id = 1
+        selected_bo_connection = self._get_bo_connection_by_id(
+            bo_connections=bo_connections,
+            selected_id=selected_bo_connection_id
+        )
+
+        database_connection = None
+
+        if selected_bo_connection:
+            database_connection = selected_bo_connection.get("DatabaseConnection")
+
         connection_parts = self._parse_connection_string(database_connection)
+
+        app_settings = raw_json.get("AppSettings", {})
+
+        appsettings_summary = {
+            "AllowedHosts": raw_json.get("AllowedHosts"),
+            "MaxRetries": app_settings.get("MaxRetries") if isinstance(app_settings, dict) else None,
+            "MaxWaitTimePerInvoice": app_settings.get("MaxWaitTimePerInvoice") if isinstance(app_settings, dict) else None,
+            "initialDate": app_settings.get("initialDate") if isinstance(app_settings, dict) else None,
+            "BOConnectionIDs": [item.get("ID") for item in bo_connections],
+            "FOConnectionIDs": [item.get("ID") for item in fo_connections],
+            "ProviderConnectionIDs": [item.get("ID") for item in provider_connections],
+        }
 
         return {
             "file_found": True,
             "file_path": str(file_path),
             "raw_json": raw_json,
             "raw_text": raw_text,
+            "selected_bo_connection_id": selected_bo_connection_id,
+            "bo_connections": bo_connections,
+            "fo_connections": fo_connections,
+            "provider_connections": provider_connections,
+            "appsettings_summary": appsettings_summary,
             "database_connection": database_connection,
             "database_server": connection_parts.get("server"),
             "database_name": connection_parts.get("database"),
@@ -75,22 +111,42 @@ class AppSettingsReader:
             "last_read_at": datetime.now(timezone.utc).isoformat()
         }
 
-    def _extract_database_connection(self, raw_json: dict[str, Any]) -> str | None:
+    def _extract_list_from_appsettings(
+        self,
+        raw_json: dict[str, Any],
+        key: str
+    ) -> list[dict[str, Any]]:
         """
-        Εξάγει το BOConnections[0].DatabaseConnection αν υπάρχει.
+        Εξάγει λίστα από AppSettings με βάση το key.
         """
 
-        bo_connections = raw_json.get("BOConnections")
+        app_settings = raw_json.get("AppSettings", {})
 
-        if not isinstance(bo_connections, list) or not bo_connections:
-            return None
+        if not isinstance(app_settings, dict):
+            return []
 
-        first_connection = bo_connections[0]
+        value = app_settings.get(key, [])
 
-        if not isinstance(first_connection, dict):
-            return None
+        if not isinstance(value, list):
+            return []
 
-        return first_connection.get("DatabaseConnection")
+        return value
+
+    def _get_bo_connection_by_id(
+        self,
+        bo_connections: list[dict[str, Any]],
+        selected_id: int
+    ) -> dict[str, Any] | None:
+        """
+        Επιλέγει BOConnection με βάση το ID.
+        Default είναι ID = 1.
+        """
+
+        for connection in bo_connections:
+            if connection.get("ID") == selected_id:
+                return connection
+
+        return bo_connections[0] if bo_connections else None
 
     def _parse_connection_string(self, connection_string: str | None) -> dict[str, str | None]:
         """
@@ -136,14 +192,11 @@ class AppSettingsReader:
             "address": "server",
             "addr": "server",
             "network address": "server",
-
             "database": "database",
             "initial catalog": "database",
-
             "user id": "user_id",
             "uid": "user_id",
             "user": "user_id",
-
             "password": "password",
             "pwd": "password"
         }
