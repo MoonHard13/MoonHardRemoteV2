@@ -236,3 +236,43 @@ class ClientRepository:
             raise RuntimeError("Client rename returned no data.")
 
         return response.data[0]
+    
+    def upsert_client_appsettings(self, appsettings_data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Αποθηκεύει το appsettings.production.json του client στη βάση.
+        Περιλαμβάνει όλα τα raw δεδομένα χωρίς masking.
+        """
+
+        client_code = appsettings_data.get("client_code")
+
+        if not client_code:
+            raise ValueError("Missing client_code.")
+
+        logger.info("Saving appsettings for client: %s", client_code)
+
+        response = (
+            self.db
+            .table("client_appsettings")
+            .upsert(
+                {
+                    "client_code": client_code,
+                    "file_found": appsettings_data.get("file_found", False),
+                    "file_path": appsettings_data.get("file_path"),
+                    "raw_json": appsettings_data.get("raw_json"),
+                    "raw_text": appsettings_data.get("raw_text"),
+                    "database_connection": appsettings_data.get("database_connection"),
+                    "database_server": appsettings_data.get("database_server"),
+                    "database_name": appsettings_data.get("database_name"),
+                    "database_user": appsettings_data.get("database_user"),
+                    "database_password": appsettings_data.get("database_password"),
+                    "last_read_at": appsettings_data.get("last_read_at")
+                },
+                on_conflict="client_code"
+            )
+            .execute()
+        )
+
+        if not response.data:
+            raise RuntimeError("Appsettings upsert returned no data.")
+
+        return response.data[0]

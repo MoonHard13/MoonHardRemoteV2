@@ -8,6 +8,7 @@ from app.config import ClientConfig
 from app.identity_manager import ClientIdentityManager
 from websockets.exceptions import ConnectionClosed
 from app.terminal_executor import TerminalExecutor
+from app.appsettings_reader import AppSettingsReader
 
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class MoonHardClientAgent:
         self.identity_manager = ClientIdentityManager(self.config.identity_file)
         self.identity = self.identity_manager.load_or_create_identity()
         self.terminal_executor = TerminalExecutor()
+        self.appsettings_reader = AppSettingsReader()
         
     async def run_forever(self) -> None:
         """
@@ -72,7 +74,9 @@ class MoonHardClientAgent:
 
             response = await websocket.recv()
             logger.info("Απάντηση server: %s", response)
-
+            
+            await self._send_appsettings(websocket)
+            
             await asyncio.gather(
                 self._listen_forever(websocket),
                 self._send_heartbeat_forever(websocket)
@@ -183,3 +187,45 @@ class MoonHardClientAgent:
         }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))
+        
+    async def _send_appsettings(self, websocket) -> None:
+        """
+        Διαβάζει αυτόματα το appsettings.production.json και το στέλνει στον server.
+        """
+
+        try:
+            appsettings_data = self.appsettings_reader.read_appsettings_production()
+
+            message = {
+                "type": "appsettings_result",
+                "client_code": self.identity["client_code"],
+                **appsettings_data
+            }
+
+            await websocket.send(json.dumps(message, ensure_ascii=False))
+
+            logger.info(
+                "Στάλθηκαν appsettings στον server. file_found=%s",
+                appsettings_data.get("file_found")
+            )
+
+        except Exception as exc:
+            logger.exception("Αποτυχία ανάγνωσης appsettings.production.json.")
+
+            message = {
+                "type": "appsettings_result",
+                "client_code": self.identity["client_code"],
+                "file_found": False,
+                "file_path": None,
+                "raw_json": None,
+                "raw_text": None,
+                "database_connection": None,
+                "database_server": None,
+                "database_name": None,
+                "database_user": None,
+                "database_password": None,
+                "last_read_at": None,
+                "error": str(exc)
+            }
+
+            await websocket.send(json.dumps(message, ensure_ascii=False))

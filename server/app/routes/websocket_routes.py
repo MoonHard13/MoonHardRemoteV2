@@ -113,6 +113,19 @@ class WebSocketRoutes:
                     await self.broadcast_clients_list()
                     continue
 
+                if data.get("type") == "appsettings_result":
+                    saved_appsettings = self.client_repository.upsert_client_appsettings(data)
+
+                    await websocket.send_json({
+                        "type": "appsettings_saved",
+                        "client_code": client_code,
+                        "success": True,
+                        "appsettings": saved_appsettings
+                    })
+
+                    await self.broadcast_clients_list()
+                    continue
+
                 if data.get("type") == "terminal_result":
                     command_id = data.get("command_id", "")
 
