@@ -22,6 +22,21 @@ class WebSocketRoutes:
         """
 
         self.client_repository = ClientRepository()
+
+    async def broadcast_clients_list(self) -> None:
+        """
+        Στέλνει την τρέχουσα λίστα clients σε όλα τα ενεργά dashboards.
+        """
+
+        clients = self.client_repository.get_all_clients()
+
+        await connection_manager.broadcast_to_dashboards(
+            {
+                "type": "clients_list",
+                "count": len(clients),
+                "clients": clients
+            }
+        )
         
     async def client_socket(self, websocket: WebSocket) -> None:
         """
@@ -66,6 +81,8 @@ class WebSocketRoutes:
                 "client": saved_client
             })
 
+            await self.broadcast_clients_list()
+
             while True:
                 data = await websocket.receive_json()
 
@@ -82,13 +99,15 @@ class WebSocketRoutes:
             if client_code:
                 connection_manager.disconnect_client(client_code)
                 self.client_repository.mark_client_offline(client_code)
-
+                await self.broadcast_clients_list()
+                
         except Exception:
             logger.exception("Unexpected client WebSocket error.")
 
             if client_code:
                 connection_manager.disconnect_client(client_code)
                 self.client_repository.mark_client_offline(client_code)       
+                await self.broadcast_clients_list()
 
     async def dashboard_socket(self, websocket: WebSocket) -> None:
         """
@@ -151,7 +170,8 @@ def websocket_route_test() -> dict:
     return {
         "success": True,
         "message": "websocket_routes.py loaded successfully",
-        "dashboard_ws": "/ws/dashboard"
+        "dashboard_ws": "/ws/dashboard",
+        "client_ws": "/ws/client"
     }
 
 
