@@ -280,49 +280,67 @@ class WebSocketRoutes:
 
                     self.pending_terminal_commands[command_id] = websocket
 
-                    if data.get("type") == "terminal_autocomplete":
-                        request_id = data.get("request_id", "")
-                        client_code = data.get("client_code", "")
-                        shell = data.get("shell", "cmd")
-                        command_text = data.get("command_text", "")
+                if data.get("type") == "terminal_autocomplete":
+                    request_id = data.get("request_id", "")
+                    client_code = data.get("client_code", "")
+                    shell = data.get("shell", "cmd")
+                    command_text = data.get("command_text", "")
 
-                        if not request_id or not client_code:
-                            await connection_manager.send_to_dashboard(
-                                websocket,
-                                {
-                                    "type": "terminal_autocomplete_error",
-                                    "message": "Missing request_id or client_code."
-                                }
-                            )
-                            continue
-
-                        self.pending_terminal_commands[request_id] = websocket
-
-                        sent = await connection_manager.send_to_client(
-                            client_code,
+                    if not request_id or not client_code:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
                             {
-                                "type": "terminal_autocomplete",
+                                "type": "terminal_autocomplete_error",
+                                "message": "Missing request_id or client_code."
+                            }
+                        )
+                        continue
+
+                    self.pending_terminal_commands[request_id] = websocket
+
+                    sent = await connection_manager.send_to_client(
+                        client_code,
+                        {
+                            "type": "terminal_autocomplete",
+                            "request_id": request_id,
+                            "client_code": client_code,
+                            "shell": shell,
+                            "command_text": command_text
+                        }
+                    )
+
+                    if not sent:
+                        self.pending_terminal_commands.pop(request_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "terminal_autocomplete_error",
                                 "request_id": request_id,
                                 "client_code": client_code,
-                                "shell": shell,
-                                "command_text": command_text
+                                "message": "Client is not connected."
                             }
                         )
 
-                        if not sent:
-                            self.pending_terminal_commands.pop(request_id, None)
+                    continue
 
-                            await connection_manager.send_to_dashboard(
-                                websocket,
-                                {
-                                    "type": "terminal_autocomplete_error",
-                                    "request_id": request_id,
-                                    "client_code": client_code,
-                                    "message": "Client is not connected."
-                                }
-                            )
+                if data.get("type") == "terminal_command":
+                    command_id = data.get("command_id", "")
+                    client_code = data.get("client_code", "")
+                    shell = data.get("shell", "cmd")
+                    command = data.get("command", "")
 
+                    if not command_id or not client_code or not command:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "terminal_error",
+                                "message": "Missing command_id, client_code or command."
+                            }
+                        )
                         continue
+
+                    self.pending_terminal_commands[command_id] = websocket
 
                     sent = await connection_manager.send_to_client(
                         client_code,
