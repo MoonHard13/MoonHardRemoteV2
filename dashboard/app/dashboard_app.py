@@ -6,6 +6,7 @@ import customtkinter as ctk
 from app.config import DashboardConfig
 from app.views.clients_view import ClientsView
 from app.websocket_client import DashboardWebSocketClient
+from app.views.terminal_view import TerminalView
 
 
 logger = logging.getLogger(__name__)
@@ -62,11 +63,29 @@ class MoonHardDashboardApp(ctk.CTk):
         )
         self.status_label.grid(row=0, column=1, padx=25, pady=18, sticky="e")
 
+        self.main_tabs = ctk.CTkTabview(self, corner_radius=18)
+        self.main_tabs.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
+
+        self.clients_tab = self.main_tabs.add("Clients")
+        self.terminal_tab = self.main_tabs.add("Terminal")
+
+        self.clients_tab.grid_columnconfigure(0, weight=1)
+        self.clients_tab.grid_rowconfigure(0, weight=1)
+
+        self.terminal_tab.grid_columnconfigure(0, weight=1)
+        self.terminal_tab.grid_rowconfigure(0, weight=1)
+
         self.clients_view = ClientsView(
-            self,
+            self.clients_tab,
             on_rename_callback=self._rename_client
         )
-        self.clients_view.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
+        self.clients_view.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+
+        self.terminal_view = TerminalView(
+            self.terminal_tab,
+            on_command_callback=self._send_terminal_command
+        )
+        self.terminal_view.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
     def _start_websocket(self) -> None:
         """
@@ -98,7 +117,10 @@ class MoonHardDashboardApp(ctk.CTk):
 
         if message_type == "clients_list":
             clients = payload.get("clients", [])
+
             self.clients_view.update_clients(clients)
+            self.terminal_view.update_clients(clients)
+
             logger.info("Dashboard clients list updated. Count: %s", len(clients))
 
         elif message_type == "rename_client_success":
@@ -106,6 +128,12 @@ class MoonHardDashboardApp(ctk.CTk):
 
         elif message_type == "rename_client_error":
             logger.error("Client rename failed: %s", payload.get("message"))
+
+        elif message_type == "terminal_result":
+            self.terminal_view.handle_terminal_result(payload)
+
+        elif message_type == "terminal_error":
+            self.terminal_view.handle_terminal_error(payload)
 
     def _set_connection_status_threadsafe(self, status: str) -> None:
         """
@@ -144,4 +172,22 @@ class MoonHardDashboardApp(ctk.CTk):
             "Rename client request sent. client_code=%s display_name=%s",
             client_code,
             display_name
+        )
+        
+    def _send_terminal_command(self, payload: dict[str, Any]) -> None:
+        """
+        Στέλνει terminal command στον server για εκτέλεση στον επιλεγμένο client.
+        """
+
+        if not self.websocket_client:
+            self.terminal_view.append_output("Dashboard WebSocket is not connected.\n")
+            return
+
+        self.websocket_client.send_message(payload)
+
+        logger.info(
+            "Terminal command sent. client_code=%s shell=%s command=%s",
+            payload.get("client_code"),
+            payload.get("shell"),
+            payload.get("command")
         )
