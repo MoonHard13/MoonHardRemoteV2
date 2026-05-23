@@ -90,7 +90,7 @@ class ClientRepository:
     def upsert_connected_client(self, client_data: dict[str, Any]) -> dict[str, Any]:
         """
         Δημιουργεί ή ενημερώνει έναν πραγματικό client που συνδέθηκε μέσω WebSocket.
-        Αν ο client υπάρχει ήδη, κρατάει το υπάρχον display_name ώστε να μην χάνεται το rename.
+        Αν ο client υπάρχει ήδη, δεν αλλάζει ποτέ το display_name.
         """
 
         client_code = client_data.get("client_code")
@@ -105,7 +105,7 @@ class ClientRepository:
         existing_response = (
             self.db
             .table("clients")
-            .select("display_name")
+            .select("id, display_name")
             .eq("client_code", client_code)
             .execute()
         )
@@ -113,28 +113,38 @@ class ClientRepository:
         existing_clients = existing_response.data or []
 
         if existing_clients:
-            display_name = existing_clients[0].get("display_name")
+            response = (
+                self.db
+                .table("clients")
+                .update({
+                    "pc_name": client_data.get("pc_name", "UNKNOWN-PC"),
+                    "username": client_data.get("username"),
+                    "app_version": client_data.get("app_version"),
+                    "status": "online",
+                    "last_seen": now_utc,
+                    "connected_at": now_utc,
+                    "disconnected_at": None
+                })
+                .eq("client_code", client_code)
+                .execute()
+            )
         else:
-            display_name = client_data.get("display_name") or client_data.get("pc_name")
-
-        upsert_data = {
-            "client_code": client_code,
-            "display_name": display_name,
-            "pc_name": client_data.get("pc_name", "UNKNOWN-PC"),
-            "username": client_data.get("username"),
-            "app_version": client_data.get("app_version"),
-            "status": "online",
-            "last_seen": now_utc,
-            "connected_at": now_utc,
-            "disconnected_at": None
-        }
-
-        response = (
-            self.db
-            .table("clients")
-            .upsert(upsert_data, on_conflict="client_code")
-            .execute()
-        )
+            response = (
+                self.db
+                .table("clients")
+                .insert({
+                    "client_code": client_code,
+                    "display_name": client_data.get("display_name") or client_data.get("pc_name"),
+                    "pc_name": client_data.get("pc_name", "UNKNOWN-PC"),
+                    "username": client_data.get("username"),
+                    "app_version": client_data.get("app_version"),
+                    "status": "online",
+                    "last_seen": now_utc,
+                    "connected_at": now_utc,
+                    "disconnected_at": None
+                })
+                .execute()
+            )
 
         if not response.data:
             raise RuntimeError("Client upsert returned no data.")
