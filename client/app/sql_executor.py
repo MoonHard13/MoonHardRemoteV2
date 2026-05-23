@@ -138,6 +138,7 @@ class SqlExecutor:
     def _to_odbc_connection_string(self, connection_string: str) -> str:
         """
         Μετατρέπει SQL Server connection string σε ODBC connection string.
+        Υποστηρίζει SQL Server 2012 μέχρι νεότερες εκδόσεις, ανάλογα με τον διαθέσιμο ODBC driver.
         """
 
         parts = self._parse_connection_string(connection_string)
@@ -156,21 +157,24 @@ class SqlExecutor:
 
         driver = self._get_available_sql_driver()
 
-        return (
-            f"DRIVER={{{driver}}};"
-            f"SERVER={server};"
-            f"DATABASE={database};"
-            f"UID={user_id};"
-            f"PWD={password};"
-            f"TrustServerCertificate={trust_server_certificate};"
-        )
+        connection_parts = [
+            f"DRIVER={{{driver}}}",
+            f"SERVER={server}",
+            f"DATABASE={database}",
+            f"UID={user_id}",
+            f"PWD={password}",
+            "Encrypt=no",
+            f"TrustServerCertificate={trust_server_certificate}",
+        ]
+
+        return ";".join(connection_parts) + ";"
 
     def _get_available_sql_driver(self) -> str:
         """
-        Επιλέγει διαθέσιμο SQL Server ODBC driver.
+        Επιλέγει τον καλύτερο διαθέσιμο SQL Server ODBC driver.
         """
 
-        drivers = pyodbc.drivers()
+        installed_drivers = pyodbc.drivers()
 
         preferred_drivers = [
             "ODBC Driver 18 for SQL Server",
@@ -180,11 +184,11 @@ class SqlExecutor:
         ]
 
         for driver in preferred_drivers:
-            if driver in drivers:
+            if driver in installed_drivers:
                 return driver
 
         raise RuntimeError(
-            "No SQL Server ODBC driver found. Install ODBC Driver 17 or 18 for SQL Server."
+            "No SQL Server ODBC driver found. Install Microsoft ODBC Driver 17 or 18 for SQL Server."
         )
 
     def _parse_connection_string(self, connection_string: str) -> dict[str, str]:
