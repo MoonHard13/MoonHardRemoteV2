@@ -6,7 +6,7 @@ class ClientsView(ctk.CTkFrame):
     Προβολή λίστας clients στο dashboard.
     """
 
-    def __init__(self, parent, on_rename_callback=None) -> None:
+    def __init__(self, parent, on_manage_callback=None) -> None:
         """
         Δημιουργεί το UI της λίστας clients.
         """
@@ -14,7 +14,7 @@ class ClientsView(ctk.CTkFrame):
         super().__init__(parent, corner_radius=18)
 
         self.client_rows: dict[str, ctk.CTkFrame] = {}
-        self.on_rename_callback = on_rename_callback
+        self.on_manage_callback = on_manage_callback
         
         self._build_ui()
 
@@ -117,13 +117,13 @@ class ClientsView(ctk.CTkFrame):
         )
         status_text.grid(row=0, column=2, padx=15, pady=12, sticky="e")
 
-        rename_button = ctk.CTkButton(
+        manage_button = ctk.CTkButton(
             row,
-            text="Rename",
-            width=90,
-            command=lambda c=client: self._open_rename_dialog(c)
+            text="Manage",
+            width=100,
+            command=lambda c=client: self._open_manage_callback(c)
         )
-        rename_button.grid(row=0, column=3, padx=(0, 15), pady=12, sticky="e")
+        manage_button.grid(row=0, column=3, padx=(0, 15), pady=12, sticky="e")
 
     def _open_rename_dialog(self, client: dict) -> None:
         """
@@ -199,3 +199,11 @@ class ClientsView(ctk.CTkFrame):
 
         dialog.bind("<Return>", lambda _event: save_name())
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        
+    def _open_manage_callback(self, client: dict) -> None:
+        """
+        Ενημερώνει το dashboard ότι ο χρήστης θέλει να διαχειριστεί συγκεκριμένο client.
+        """
+
+        if self.on_manage_callback:
+            self.on_manage_callback(client)

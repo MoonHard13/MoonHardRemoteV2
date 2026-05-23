@@ -6,7 +6,7 @@ import customtkinter as ctk
 from app.config import DashboardConfig
 from app.views.clients_view import ClientsView
 from app.websocket_client import DashboardWebSocketClient
-from app.views.terminal_view import TerminalView
+from app.views.client_manage_window import ClientManageWindow
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,8 @@ class MoonHardDashboardApp(ctk.CTk):
 
         self.config_data = DashboardConfig()
         self.websocket_client: DashboardWebSocketClient | None = None
-
+        self.manage_windows: dict[str, ClientManageWindow] = {}
+        
         self.title(self.config_data.app_name)
         self.geometry("1100x700")
         self.minsize(900, 600)
@@ -63,29 +64,11 @@ class MoonHardDashboardApp(ctk.CTk):
         )
         self.status_label.grid(row=0, column=1, padx=25, pady=18, sticky="e")
 
-        self.main_tabs = ctk.CTkTabview(self, corner_radius=18)
-        self.main_tabs.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
-
-        self.clients_tab = self.main_tabs.add("Clients")
-        self.terminal_tab = self.main_tabs.add("Terminal")
-
-        self.clients_tab.grid_columnconfigure(0, weight=1)
-        self.clients_tab.grid_rowconfigure(0, weight=1)
-
-        self.terminal_tab.grid_columnconfigure(0, weight=1)
-        self.terminal_tab.grid_rowconfigure(0, weight=1)
-
         self.clients_view = ClientsView(
-            self.clients_tab,
-            on_rename_callback=self._rename_client
+            self,
+            on_manage_callback=self._open_manage_window
         )
-        self.clients_view.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-
-        self.terminal_view = TerminalView(
-            self.terminal_tab,
-            on_command_callback=self._send_terminal_command
-        )
-        self.terminal_view.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        self.clients_view.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
 
     def _start_websocket(self) -> None:
         """
@@ -119,7 +102,6 @@ class MoonHardDashboardApp(ctk.CTk):
             clients = payload.get("clients", [])
 
             self.clients_view.update_clients(clients)
-            self.terminal_view.update_clients(clients)
 
             logger.info("Dashboard clients list updated. Count: %s", len(clients))
 
@@ -130,10 +112,18 @@ class MoonHardDashboardApp(ctk.CTk):
             logger.error("Client rename failed: %s", payload.get("message"))
 
         elif message_type == "terminal_result":
-            self.terminal_view.handle_terminal_result(payload)
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_terminal_result(payload)
 
         elif message_type == "terminal_error":
-            self.terminal_view.handle_terminal_error(payload)
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_terminal_error(payload)
 
         elif message_type == "terminal_autocomplete_result":
             self.terminal_view.handle_autocomplete_result(payload)
@@ -186,7 +176,7 @@ class MoonHardDashboardApp(ctk.CTk):
         """
 
         if not self.websocket_client:
-            self.terminal_view.append_output("Dashboard WebSocket is not connected.\n")
+            logger.warning("Dashboard WebSocket is not connected.")
             return
 
         self.websocket_client.send_message(payload)
@@ -197,3 +187,28 @@ class MoonHardDashboardApp(ctk.CTk):
             payload.get("shell"),
             payload.get("command")
         )
+        
+    def _open_manage_window(self, client: dict) -> None:
+        """
+        Ανοίγει παράθυρο διαχείρισης για συγκεκριμένο client.
+        """
+
+        client_code = client.get("client_code", "")
+
+        if not client_code:
+            return
+
+        existing_window = self.manage_windows.get(client_code)
+
+        if existing_window and existing_window.winfo_exists():
+            existing_window.focus()
+            return
+
+        window = ClientManageWindow(
+            self,
+            client=client,
+            on_rename_callback=self._rename_client,
+            on_terminal_command_callback=self._send_terminal_command
+        )
+
+        self.manage_windows[client_code] = window
