@@ -38,42 +38,6 @@ class ClientRepository:
 
         return response.data or []
 
-    def upsert_connected_client(self, client_data: dict[str, Any]) -> dict[str, Any]:
-        """
-        Δημιουργεί ή ενημερώνει έναν πραγματικό client που συνδέθηκε μέσω WebSocket.
-        """
-
-        client_code = client_data.get("client_code")
-
-        if not client_code:
-            raise ValueError("Missing client_code.")
-
-        logger.info("Upserting connected client: %s", client_code)
-
-        upsert_data = {
-            "client_code": client_code,
-            "display_name": client_data.get("display_name") or client_data.get("pc_name"),
-            "pc_name": client_data.get("pc_name", "UNKNOWN-PC"),
-            "username": client_data.get("username"),
-            "app_version": client_data.get("app_version"),
-            "status": "online",
-            "last_seen": "now()",
-            "connected_at": "now()",
-            "disconnected_at": None
-        }
-
-        response = (
-            self.db
-            .table("clients")
-            .upsert(upsert_data, on_conflict="client_code")
-            .execute()
-        )
-
-        if not response.data:
-            raise RuntimeError("Client upsert returned no data.")
-
-        return response.data[0]
-
     def upsert_test_client(self) -> dict[str, Any]:
         """
         Δημιουργεί ή ενημερώνει έναν δοκιμαστικό client.

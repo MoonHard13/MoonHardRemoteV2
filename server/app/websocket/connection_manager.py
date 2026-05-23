@@ -49,10 +49,10 @@ class ConnectionManager:
 
     async def connect_client(self, client_code: str, websocket: WebSocket) -> None:
         """
-        Αποδέχεται και αποθηκεύει μια νέα WebSocket σύνδεση client.
+        Αποθηκεύει μια ήδη αποδεκτή WebSocket σύνδεση client.
+        Το accept γίνεται μέσα στο client_socket, πριν ληφθεί το πρώτο register μήνυμα.
         """
 
-        await websocket.accept()
         self.client_connections[client_code] = websocket
 
         logger.info(
