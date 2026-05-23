@@ -7,7 +7,7 @@ import customtkinter as ctk
 class ClientManageWindow(ctk.CTkToplevel):
     """
     Παράθυρο διαχείρισης ενός συγκεκριμένου client.
-    Περιλαμβάνει rename και remote terminal για τον συγκεκριμένο client.
+    Οι λειτουργίες είναι οργανωμένες σε tabs.
     """
 
     def __init__(
@@ -33,19 +33,39 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.history_index: int | None = None
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
-        self.geometry("950x650")
-        self.minsize(850, 550)
+        self.geometry("1000x700")
+        self.minsize(900, 600)
         self.grab_set()
 
         self._build_ui()
 
     def _build_ui(self) -> None:
         """
-        Δημιουργεί το UI του παραθύρου.
+        Δημιουργεί το βασικό UI με tabs.
         """
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        self._build_header()
+
+        self.tabs = ctk.CTkTabview(self, corner_radius=16)
+        self.tabs.grid(row=1, column=0, padx=20, pady=(0, 20), sticky="nsew")
+
+        self.overview_tab = self.tabs.add("Overview")
+        self.terminal_tab = self.tabs.add("Terminal")
+
+        self.overview_tab.grid_columnconfigure(0, weight=1)
+        self.terminal_tab.grid_columnconfigure(0, weight=1)
+        self.terminal_tab.grid_rowconfigure(1, weight=1)
+
+        self._build_overview_tab()
+        self._build_terminal_tab()
+
+    def _build_header(self) -> None:
+        """
+        Δημιουργεί την κεφαλίδα του παραθύρου.
+        """
 
         display_name = self.client.get("display_name") or self.client.get("pc_name") or "-"
         pc_name = self.client.get("pc_name", "-")
@@ -53,7 +73,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         status = self.client.get("status", "-")
 
         header = ctk.CTkFrame(self, corner_radius=16)
-        header.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
+        header.grid(row=0, column=0, padx=20, pady=20, sticky="ew")
         header.grid_columnconfigure(0, weight=1)
 
         title = ctk.CTkLabel(
@@ -71,57 +91,99 @@ class ClientManageWindow(ctk.CTkToplevel):
         )
         info.grid(row=1, column=0, padx=18, pady=(0, 14), sticky="w")
 
-        actions = ctk.CTkFrame(self, corner_radius=16)
-        actions.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
-        actions.grid_columnconfigure(0, weight=1)
+    def _build_overview_tab(self) -> None:
+        """
+        Δημιουργεί το Overview tab με βασικές πληροφορίες και rename.
+        """
+
+        frame = ctk.CTkFrame(self.overview_tab, corner_radius=16)
+        frame.grid(row=0, column=0, padx=15, pady=15, sticky="ew")
+        frame.grid_columnconfigure(0, weight=1)
+
+        title = ctk.CTkLabel(
+            frame,
+            text="Client Information",
+            font=("Segoe UI", 20, "bold")
+        )
+        title.grid(row=0, column=0, columnspan=2, padx=18, pady=(18, 8), sticky="w")
+
+        display_name = self.client.get("display_name") or self.client.get("pc_name") or "-"
+        pc_name = self.client.get("pc_name", "-")
+        username = self.client.get("username", "-")
+        app_version = self.client.get("app_version", "-")
+        last_seen = self.client.get("last_seen", "-")
+
+        info_text = (
+            f"Display name: {display_name}\n"
+            f"PC name: {pc_name}\n"
+            f"Username: {username}\n"
+            f"App version: {app_version}\n"
+            f"Last seen: {last_seen}"
+        )
+
+        info_label = ctk.CTkLabel(
+            frame,
+            text=info_text,
+            font=("Segoe UI", 14),
+            justify="left",
+            anchor="w"
+        )
+        info_label.grid(row=1, column=0, columnspan=2, padx=18, pady=(0, 18), sticky="w")
+
+        rename_title = ctk.CTkLabel(
+            frame,
+            text="Rename Client",
+            font=("Segoe UI", 18, "bold")
+        )
+        rename_title.grid(row=2, column=0, columnspan=2, padx=18, pady=(8, 8), sticky="w")
 
         self.rename_entry = ctk.CTkEntry(
-            actions,
+            frame,
             placeholder_text="Friendly name"
         )
-        self.rename_entry.grid(row=0, column=0, padx=15, pady=15, sticky="ew")
+        self.rename_entry.grid(row=3, column=0, padx=(18, 10), pady=(0, 18), sticky="ew")
         self.rename_entry.insert(0, display_name)
 
         rename_button = ctk.CTkButton(
-            actions,
+            frame,
             text="Save Name",
             width=120,
             command=self._save_name
         )
-        rename_button.grid(row=0, column=1, padx=(0, 15), pady=15)
+        rename_button.grid(row=3, column=1, padx=(0, 18), pady=(0, 18), sticky="e")
 
-        terminal = ctk.CTkFrame(self, corner_radius=16)
-        terminal.grid(row=2, column=0, padx=20, pady=(10, 20), sticky="nsew")
-        terminal.grid_columnconfigure(0, weight=1)
-        terminal.grid_rowconfigure(1, weight=1)
+    def _build_terminal_tab(self) -> None:
+        """
+        Δημιουργεί το Terminal tab.
+        """
 
-        terminal_top = ctk.CTkFrame(terminal, fg_color="transparent")
-        terminal_top.grid(row=0, column=0, padx=15, pady=(15, 8), sticky="ew")
-        terminal_top.grid_columnconfigure(0, weight=1)
+        top_frame = ctk.CTkFrame(self.terminal_tab, fg_color="transparent")
+        top_frame.grid(row=0, column=0, padx=15, pady=(15, 8), sticky="ew")
+        top_frame.grid_columnconfigure(0, weight=1)
 
-        terminal_title = ctk.CTkLabel(
-            terminal_top,
+        title = ctk.CTkLabel(
+            top_frame,
             text="Remote Terminal",
-            font=("Segoe UI", 18, "bold")
+            font=("Segoe UI", 20, "bold")
         )
-        terminal_title.grid(row=0, column=0, sticky="w")
+        title.grid(row=0, column=0, sticky="w")
 
         self.shell_option = ctk.CTkOptionMenu(
-            terminal_top,
+            top_frame,
             values=["cmd", "powershell"]
         )
         self.shell_option.set("cmd")
         self.shell_option.grid(row=0, column=1, sticky="e")
 
         self.output_box = ctk.CTkTextbox(
-            terminal,
+            self.terminal_tab,
             font=("Consolas", 13),
             wrap="word"
         )
         self.output_box.grid(row=1, column=0, padx=15, pady=(0, 10), sticky="nsew")
         self.output_box.configure(state="disabled")
 
-        bottom = ctk.CTkFrame(terminal, fg_color="transparent")
+        bottom = ctk.CTkFrame(self.terminal_tab, fg_color="transparent")
         bottom.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="ew")
         bottom.grid_columnconfigure(0, weight=1)
 
