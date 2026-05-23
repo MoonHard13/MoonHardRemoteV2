@@ -114,5 +114,32 @@ class ConnectionManager:
 
         return len(self.dashboard_connections)
 
+    async def send_to_client(self, client_code: str, message: dict[str, Any]) -> bool:
+        """
+        Στέλνει μήνυμα JSON σε συγκεκριμένο online client.
+        Επιστρέφει True αν στάλθηκε επιτυχώς.
+        """
+
+        client_websocket = self.client_connections.get(client_code)
+
+        if not client_websocket:
+            logger.warning("Client is not connected: %s", client_code)
+            return False
+
+        try:
+            await client_websocket.send_json(message)
+            return True
+
+        except Exception:
+            logger.exception("Failed to send message to client: %s", client_code)
+            self.disconnect_client(client_code)
+            return False
+
+    def is_client_connected(self, client_code: str) -> bool:
+        """
+        Ελέγχει αν ένας client είναι online στο WebSocket memory state.
+        """
+
+        return client_code in self.client_connections
 
 connection_manager = ConnectionManager()

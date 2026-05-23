@@ -25,7 +25,8 @@ class WebSocketRoutes:
 
         self.client_repository = ClientRepository()
         self.config = AppConfig()
-        
+        self.pending_terminal_commands: dict[str, WebSocket] = {}
+
     async def broadcast_clients_list(self) -> None:
         """
         Στέλνει την τρέχουσα λίστα clients σε όλα τα ενεργά dashboards.
@@ -110,6 +111,27 @@ class WebSocketRoutes:
                     })
 
                     await self.broadcast_clients_list()
+                    continue
+
+                if data.get("type") == "terminal_result":
+                    command_id = data.get("command_id", "")
+
+                    dashboard_websocket = self.pending_terminal_commands.pop(
+                        command_id,
+                        None
+                    )
+
+                    if dashboard_websocket:
+                        await connection_manager.send_to_dashboard(
+                            dashboard_websocket,
+                            data
+                        )
+                    else:
+                        logger.warning(
+                            "No pending dashboard found for terminal result command_id=%s",
+                            command_id
+                        )
+
                     continue
 
                 await websocket.send_json({
@@ -214,6 +236,50 @@ class WebSocketRoutes:
                             {
                                 "type": "rename_client_error",
                                 "message": str(exc)
+                            }
+                        )
+
+                    continue
+
+                if data.get("type") == "terminal_command":
+                    command_id = data.get("command_id", "")
+                    client_code = data.get("client_code", "")
+                    shell = data.get("shell", "cmd")
+                    command = data.get("command", "")
+
+                    if not command_id or not client_code or not command:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "terminal_error",
+                                "message": "Missing command_id, client_code or command."
+                            }
+                        )
+                        continue
+
+                    self.pending_terminal_commands[command_id] = websocket
+
+                    sent = await connection_manager.send_to_client(
+                        client_code,
+                        {
+                            "type": "terminal_command",
+                            "command_id": command_id,
+                            "client_code": client_code,
+                            "shell": shell,
+                            "command": command
+                        }
+                    )
+
+                    if not sent:
+                        self.pending_terminal_commands.pop(command_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "terminal_error",
+                                "command_id": command_id,
+                                "client_code": client_code,
+                                "message": "Client is not connected."
                             }
                         )
 

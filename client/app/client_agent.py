@@ -99,6 +99,12 @@ class MoonHardClientAgent:
         while True:
             message = await websocket.recv()
             logger.info("Μήνυμα από server: %s", message)
+
+            payload = json.loads(message)
+            message_type = payload.get("type")
+
+            if message_type == "terminal_command":
+                await self._handle_terminal_command(websocket, payload)
             
     async def _send_heartbeat_forever(self, websocket) -> None:
         """
@@ -119,3 +125,34 @@ class MoonHardClientAgent:
                 "Στάλθηκε heartbeat για client_code=%s",
                 self.identity["client_code"]
             )
+
+    async def _handle_terminal_command(self, websocket, payload: dict) -> None:
+        """
+        Προσωρινός handler για terminal commands.
+        Προς το παρόν δεν εκτελεί πραγματική εντολή, απλώς επιβεβαιώνει routing.
+        """
+
+        command_id = payload.get("command_id", "")
+        shell = payload.get("shell", "cmd")
+        command = payload.get("command", "")
+
+        logger.info(
+            "Λήφθηκε terminal command. command_id=%s shell=%s command=%s",
+            command_id,
+            shell,
+            command
+        )
+
+        result_message = {
+            "type": "terminal_result",
+            "command_id": command_id,
+            "client_code": self.identity["client_code"],
+            "shell": shell,
+            "command": command,
+            "stdout": f"Routing OK. Client received command: {command}",
+            "stderr": "",
+            "exit_code": 0,
+            "current_directory": ""
+        }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
