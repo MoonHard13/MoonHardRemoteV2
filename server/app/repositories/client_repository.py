@@ -90,6 +90,7 @@ class ClientRepository:
     def upsert_connected_client(self, client_data: dict[str, Any]) -> dict[str, Any]:
         """
         Δημιουργεί ή ενημερώνει έναν πραγματικό client που συνδέθηκε μέσω WebSocket.
+        Αν ο client υπάρχει ήδη, κρατάει το υπάρχον display_name ώστε να μην χάνεται το rename.
         """
 
         client_code = client_data.get("client_code")
@@ -101,9 +102,24 @@ class ClientRepository:
 
         now_utc = datetime.now(timezone.utc).isoformat()
 
+        existing_response = (
+            self.db
+            .table("clients")
+            .select("display_name")
+            .eq("client_code", client_code)
+            .execute()
+        )
+
+        existing_clients = existing_response.data or []
+
+        if existing_clients:
+            display_name = existing_clients[0].get("display_name")
+        else:
+            display_name = client_data.get("display_name") or client_data.get("pc_name")
+
         upsert_data = {
             "client_code": client_code,
-            "display_name": client_data.get("display_name") or client_data.get("pc_name"),
+            "display_name": display_name,
             "pc_name": client_data.get("pc_name", "UNKNOWN-PC"),
             "username": client_data.get("username"),
             "app_version": client_data.get("app_version"),
