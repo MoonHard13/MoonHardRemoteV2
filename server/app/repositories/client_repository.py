@@ -150,3 +150,28 @@ class ClientRepository:
         )
 
         return response.data[0] if response.data else {}
+    
+    def update_client_heartbeat(self, client_code: str) -> dict[str, Any]:
+        """
+        Ενημερώνει το last_seen ενός client που παραμένει συνδεδεμένος.
+        """
+
+        if not client_code:
+            raise ValueError("Missing client_code.")
+
+        logger.info("Updating heartbeat for client: %s", client_code)
+
+        now_utc = datetime.now(timezone.utc).isoformat()
+
+        response = (
+            self.db
+            .table("clients")
+            .update({
+                "status": "online",
+                "last_seen": now_utc
+            })
+            .eq("client_code", client_code)
+            .execute()
+        )
+
+        return response.data[0] if response.data else {}    

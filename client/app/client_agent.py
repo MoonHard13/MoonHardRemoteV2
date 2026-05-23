@@ -61,7 +61,10 @@ class MoonHardClientAgent:
             response = await websocket.recv()
             logger.info("Απάντηση server: %s", response)
 
-            await self._listen_forever(websocket)
+            await asyncio.gather(
+                self._listen_forever(websocket),
+                self._send_heartbeat_forever(websocket)
+            )
 
     def _create_register_message(self) -> dict:
         """
@@ -85,3 +88,23 @@ class MoonHardClientAgent:
         while True:
             message = await websocket.recv()
             logger.info("Μήνυμα από server: %s", message)
+            
+    async def _send_heartbeat_forever(self, websocket) -> None:
+        """
+        Στέλνει περιοδικό heartbeat στον server για να ενημερώνεται το last_seen.
+        """
+
+        while True:
+            await asyncio.sleep(self.config.heartbeat_seconds)
+
+            heartbeat_message = {
+                "type": "heartbeat",
+                "client_code": self.identity["client_code"]
+            }
+
+            await websocket.send(json.dumps(heartbeat_message, ensure_ascii=False))
+
+            logger.info(
+                "Στάλθηκε heartbeat για client_code=%s",
+                self.identity["client_code"]
+            )            

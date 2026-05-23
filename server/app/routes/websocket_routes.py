@@ -88,6 +88,18 @@ class WebSocketRoutes:
 
                 logger.info("Client message received from %s: %s", client_code, data)
 
+                if data.get("type") == "heartbeat":
+                    updated_client = self.client_repository.update_client_heartbeat(client_code)
+
+                    await websocket.send_json({
+                        "type": "heartbeat_ack",
+                        "client_code": client_code,
+                        "last_seen": updated_client.get("last_seen")
+                    })
+
+                    await self.broadcast_clients_list()
+                    continue
+
                 await websocket.send_json({
                     "type": "echo",
                     "received": data

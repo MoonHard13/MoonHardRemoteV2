@@ -33,3 +33,4 @@ class ClientConfig:
         self.identity_file = self.program_data_dir / "client_identity.json"
         self.log_dir = self.program_data_dir / "logs"
         self.reconnect_seconds = 5
+        self.heartbeat_seconds = 30
