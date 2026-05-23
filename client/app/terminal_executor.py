@@ -259,3 +259,113 @@ class TerminalExecutor:
             "exit_code": exit_code,
             "current_directory": str(self.current_directories[shell])
         }
+        
+    def get_autocomplete_matches(self, shell: str, command_text: str) -> dict:
+        """
+        Επιστρέφει autocomplete προτάσεις για αρχεία/φακέλους με βάση το current directory.
+        """
+
+        normalized_shell = self._normalize_shell(shell)
+        current_dir = self.current_directories[normalized_shell]
+
+        raw_text = command_text or ""
+        search_token = self._extract_last_token(raw_text)
+
+        token_without_quotes = search_token.strip().strip('"')
+
+        if not token_without_quotes:
+            search_dir = current_dir
+            prefix = ""
+        else:
+            token_path = Path(token_without_quotes)
+
+            if token_path.is_absolute():
+                search_dir = token_path.parent
+                prefix = token_path.name
+            else:
+                search_dir = (current_dir / token_path.parent).resolve()
+                prefix = token_path.name
+
+        matches: list[dict] = []
+
+        try:
+            if not search_dir.exists() or not search_dir.is_dir():
+                return {
+                    "shell": normalized_shell,
+                    "command_text": command_text,
+                    "search_token": search_token,
+                    "matches": [],
+                    "current_directory": str(current_dir)
+                }
+
+            for item in search_dir.iterdir():
+                item_name = item.name
+
+                if not item_name.lower().startswith(prefix.lower()):
+                    continue
+
+                display_name = item_name + ("\\" if item.is_dir() else "")
+
+                if " " in display_name:
+                    insert_value = f'"{display_name}"'
+                else:
+                    insert_value = display_name
+
+                matches.append(
+                    {
+                        "name": item_name,
+                        "insert_value": insert_value,
+                        "is_dir": item.is_dir(),
+                        "full_path": str(item)
+                    }
+                )
+
+            matches.sort(key=lambda item: (not item["is_dir"], item["name"].lower()))
+
+            return {
+                "shell": normalized_shell,
+                "command_text": command_text,
+                "search_token": search_token,
+                "matches": matches[:50],
+                "current_directory": str(current_dir)
+            }
+
+        except Exception as exc:
+            logger.exception("Autocomplete failed.")
+
+            return {
+                "shell": normalized_shell,
+                "command_text": command_text,
+                "search_token": search_token,
+                "matches": [],
+                "error": str(exc),
+                "current_directory": str(current_dir)
+            }
+
+    def _extract_last_token(self, command_text: str) -> str:
+        """
+        Παίρνει το τελευταίο κομμάτι της εντολής για autocomplete.
+        Υποστηρίζει απλές εντολές με κενά και quotes.
+        """
+
+        text = command_text.rstrip()
+
+        if not text:
+            return ""
+
+        if '"' in text:
+            last_quote_index = text.rfind('"')
+
+            if last_quote_index != -1:
+                before_last_quote = text[:last_quote_index]
+                previous_quote_index = before_last_quote.rfind('"')
+
+                if previous_quote_index != -1:
+                    return text[previous_quote_index + 1:last_quote_index]
+
+        parts = text.split()
+
+        if not parts:
+            return ""
+
+        return parts[-1]

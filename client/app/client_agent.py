@@ -107,6 +107,9 @@ class MoonHardClientAgent:
 
             if message_type == "terminal_command":
                 await self._handle_terminal_command(websocket, payload)
+
+            elif message_type == "terminal_autocomplete":
+                await self._handle_terminal_autocomplete(websocket, payload)
             
     async def _send_heartbeat_forever(self, websocket) -> None:
         """
@@ -154,6 +157,29 @@ class MoonHardClientAgent:
             "command_id": command_id,
             "client_code": self.identity["client_code"],
             **execution_result
+        }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+        
+    async def _handle_terminal_autocomplete(self, websocket, payload: dict) -> None:
+        """
+        Υπολογίζει autocomplete προτάσεις για το Remote Terminal.
+        """
+
+        request_id = payload.get("request_id", "")
+        shell = payload.get("shell", "cmd")
+        command_text = payload.get("command_text", "")
+
+        autocomplete_result = self.terminal_executor.get_autocomplete_matches(
+            shell=shell,
+            command_text=command_text
+        )
+
+        result_message = {
+            "type": "terminal_autocomplete_result",
+            "request_id": request_id,
+            "client_code": self.identity["client_code"],
+            **autocomplete_result
         }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))

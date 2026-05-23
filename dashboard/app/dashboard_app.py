@@ -135,6 +135,12 @@ class MoonHardDashboardApp(ctk.CTk):
         elif message_type == "terminal_error":
             self.terminal_view.handle_terminal_error(payload)
 
+        elif message_type == "terminal_autocomplete_result":
+            self.terminal_view.handle_autocomplete_result(payload)
+
+        elif message_type == "terminal_autocomplete_error":
+            self.terminal_view.handle_autocomplete_error(payload)
+
     def _set_connection_status_threadsafe(self, status: str) -> None:
         """
         Μεταφέρει την αλλαγή κατάστασης σύνδεσης στο κύριο GUI thread.

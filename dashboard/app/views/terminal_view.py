@@ -25,6 +25,7 @@ class TerminalView(ctk.CTkFrame):
         self.client_name_to_code: dict[str, str] = {}
         self.selected_client_code: str = ""
         self.current_directory: str = ""
+        self.pending_autocomplete_request_id: str = ""
         self.command_history: list[str] = []
         self.history_index: int | None = None
 
@@ -91,6 +92,7 @@ class TerminalView(ctk.CTkFrame):
         self.command_entry.bind("<Return>", lambda _event: self.send_command())
         self.command_entry.bind("<Up>", self._show_previous_command)
         self.command_entry.bind("<Down>", self._show_next_command)
+        self.command_entry.bind("<Tab>", self.request_autocomplete)
 
         send_button = ctk.CTkButton(
             bottom_frame,
@@ -297,3 +299,115 @@ class TerminalView(ctk.CTkFrame):
         self.command_entry.delete(0, "end")
         self.command_entry.insert(0, command)
         self.command_entry.icursor("end")
+        
+    def request_autocomplete(self, _event=None) -> str:
+        """
+        Ζητάει autocomplete προτάσεις από τον selected client όταν πατηθεί TAB.
+        """
+
+        if not self.selected_client_code:
+            self.append_output("No online client selected for autocomplete.\n")
+            return "break"
+
+        command_text = self.command_entry.get()
+        request_id = str(uuid.uuid4())
+
+        self.pending_autocomplete_request_id = request_id
+
+        if self.on_command_callback:
+            self.on_command_callback(
+                {
+                    "type": "terminal_autocomplete",
+                    "request_id": request_id,
+                    "client_code": self.selected_client_code,
+                    "shell": self.shell_option.get(),
+                    "command_text": command_text
+                }
+            )
+
+        return "break"
+
+    def handle_autocomplete_result(self, payload: dict) -> None:
+        """
+        Εφαρμόζει autocomplete αποτέλεσμα στο command input.
+        """
+
+        request_id = payload.get("request_id", "")
+
+        if request_id != self.pending_autocomplete_request_id:
+            return
+
+        matches = payload.get("matches", [])
+        command_text = payload.get("command_text", "")
+
+        if not matches:
+            return
+
+        if len(matches) == 1:
+            completed_text = self._replace_last_token(
+                command_text=command_text,
+                new_token=matches[0].get("insert_value", "")
+            )
+
+            self._set_command_entry(completed_text)
+            return
+
+        common_prefix = self._get_common_prefix(
+            [match.get("insert_value", "") for match in matches]
+        )
+
+        if common_prefix:
+            completed_text = self._replace_last_token(
+                command_text=command_text,
+                new_token=common_prefix
+            )
+
+            self._set_command_entry(completed_text)
+
+        self.append_output("\nAutocomplete matches:\n")
+
+        for match in matches:
+            item_type = "<DIR>" if match.get("is_dir") else "     "
+            self.append_output(f"{item_type} {match.get('name')}\n")
+
+    def handle_autocomplete_error(self, payload: dict) -> None:
+        """
+        Εμφανίζει σφάλμα autocomplete.
+        """
+
+        self.append_output(
+            f"Autocomplete error: {payload.get('message', 'Unknown error.')}\n"
+        )
+
+    def _replace_last_token(self, command_text: str, new_token: str) -> str:
+        """
+        Αντικαθιστά το τελευταίο token της εντολής με το autocomplete αποτέλεσμα.
+        """
+
+        stripped_text = command_text.rstrip()
+
+        if not stripped_text:
+            return new_token
+
+        last_space_index = stripped_text.rfind(" ")
+
+        if last_space_index == -1:
+            return new_token
+
+        return stripped_text[:last_space_index + 1] + new_token
+
+    def _get_common_prefix(self, values: list[str]) -> str:
+        """
+        Βρίσκει κοινό prefix μεταξύ πολλών autocomplete αποτελεσμάτων.
+        """
+
+        if not values:
+            return ""
+
+        common_prefix = values[0]
+
+        for value in values[1:]:
+            while not value.lower().startswith(common_prefix.lower()) and common_prefix:
+                common_prefix = common_prefix[:-1]
+
+        return common_prefix
