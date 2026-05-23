@@ -4,6 +4,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.websocket.connection_manager import connection_manager
 from app.repositories.client_repository import ClientRepository
+from fastapi import Header, HTTPException
+from app.config import AppConfig
 
 
 router = APIRouter(tags=["WebSocket"])
@@ -22,7 +24,8 @@ class WebSocketRoutes:
         """
 
         self.client_repository = ClientRepository()
-
+        self.config = AppConfig()
+        
     async def broadcast_clients_list(self) -> None:
         """
         Στέλνει την τρέχουσα λίστα clients σε όλα τα ενεργά dashboards.
@@ -50,6 +53,15 @@ class WebSocketRoutes:
             await websocket.accept()
 
             first_message = await websocket.receive_json()
+
+            if first_message.get("token") != self.config.client_token:
+                logger.warning("Client authentication failed.")
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Authentication failed."
+                })
+                await websocket.close()
+                return
 
             logger.info("Client first message received: %s", first_message)
 
@@ -123,29 +135,37 @@ class WebSocketRoutes:
 
     async def dashboard_socket(self, websocket: WebSocket) -> None:
         """
-        Δοκιμαστικό WebSocket endpoint για dashboard.
-        Αποδέχεται σύνδεση και απαντάει σε test μηνύματα.
+        WebSocket endpoint για dashboard.
+        Αποδέχεται σύνδεση, ελέγχει token και στέλνει την τρέχουσα λίστα clients.
         """
 
         await connection_manager.connect_dashboard(websocket)
 
         try:
+            auth_message = await websocket.receive_json()
+
+            if (
+                auth_message.get("type") != "authenticate"
+                or auth_message.get("token") != self.config.dashboard_token
+            ):
+                logger.warning("Dashboard authentication failed.")
+
+                await connection_manager.send_to_dashboard(
+                    websocket,
+                    {
+                        "type": "error",
+                        "message": "Authentication failed."
+                    }
+                )
+
+                await websocket.close()
+                return
+
             await connection_manager.send_to_dashboard(
                 websocket,
                 {
                     "type": "dashboard_connected",
                     "message": "Dashboard WebSocket connected successfully."
-                }
-            )
-
-            clients = self.client_repository.get_all_clients()
-
-            await connection_manager.send_to_dashboard(
-                websocket,
-                {
-                    "type": "clients_list",
-                    "count": len(clients),
-                    "clients": clients
                 }
             )
 
@@ -174,10 +194,16 @@ websocket_routes = WebSocketRoutes()
 
 
 @router.get("/api/ws-test")
-def websocket_route_test() -> dict:
+def websocket_route_test(x_admin_token: str = Header(default="")) -> dict:
     """
-    Προσωρινό HTTP endpoint για να ελέγξουμε ότι φορτώθηκε το websocket_routes.py.
+    Προσωρινό HTTP endpoint για έλεγχο WebSocket routes.
+    Προστατεύεται με admin token.
     """
+
+    config = AppConfig()
+
+    if x_admin_token != config.admin_token:
+        raise HTTPException(status_code=401, detail="Unauthorized.")
 
     return {
         "success": True,

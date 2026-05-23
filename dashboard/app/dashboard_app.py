@@ -72,6 +72,7 @@ class MoonHardDashboardApp(ctk.CTk):
 
         self.websocket_client = DashboardWebSocketClient(
             websocket_url=self.config_data.dashboard_websocket_url,
+            dashboard_token=self.config_data.dashboard_token,
             on_message_callback=self._handle_websocket_message_threadsafe,
             on_status_callback=self._set_connection_status_threadsafe
         )

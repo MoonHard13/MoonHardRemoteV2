@@ -19,6 +19,7 @@ class DashboardWebSocketClient:
     def __init__(
         self,
         websocket_url: str,
+        dashboard_token: str,
         on_message_callback: Callable[[dict[str, Any]], None],
         on_status_callback: Callable[[str], None]
     ) -> None:
@@ -27,6 +28,7 @@ class DashboardWebSocketClient:
         """
 
         self.websocket_url = websocket_url
+        self.dashboard_token = dashboard_token
         self.on_message_callback = on_message_callback
         self.on_status_callback = on_status_callback
         self._thread: threading.Thread | None = None
@@ -71,16 +73,18 @@ class DashboardWebSocketClient:
             try:
                 self.on_status_callback("Σύνδεση...")
 
+                
                 async with websockets.connect(self.websocket_url) as websocket:
                     logger.info("Dashboard WebSocket connected.")
+
+                    auth_message = {
+                        "type": "authenticate",
+                        "token": self.dashboard_token
+                    }
+
+                    await websocket.send(json.dumps(auth_message, ensure_ascii=False))
+
                     self.on_status_callback("Online")
-
-                    while not self._stop_event.is_set():
-                        message = await websocket.recv()
-                        payload = json.loads(message)
-
-                        logger.info("Dashboard received message: %s", payload)
-                        self.on_message_callback(payload)
 
             except Exception:
                 logger.exception("Dashboard WebSocket connection failed.")

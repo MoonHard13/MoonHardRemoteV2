@@ -6,6 +6,7 @@ import websockets
 
 from app.config import ClientConfig
 from app.identity_manager import ClientIdentityManager
+from websockets.exceptions import ConnectionClosed
 
 
 logger = logging.getLogger(__name__)
@@ -34,9 +35,18 @@ class MoonHardClientAgent:
             try:
                 await self._connect_once()
 
+            except ConnectionClosed as exc:
+                logger.warning(
+                    "Η WebSocket σύνδεση έκλεισε (%s). Νέα προσπάθεια σε %s δευτερόλεπτα.",
+                    exc,
+                    self.config.reconnect_seconds
+                )
+
+                await asyncio.sleep(self.config.reconnect_seconds)
+
             except Exception:
                 logger.exception(
-                    "Η σύνδεση απέτυχε. Νέα προσπάθεια σε %s δευτερόλεπτα.",
+                    "Η σύνδεση απέτυχε απρόσμενα. Νέα προσπάθεια σε %s δευτερόλεπτα.",
                     self.config.reconnect_seconds
                 )
 
@@ -73,11 +83,12 @@ class MoonHardClientAgent:
 
         return {
             "type": "register",
+            "token": self.config.client_token,
             "client_code": self.identity["client_code"],
             "display_name": self.identity.get("display_name"),
             "pc_name": self.identity.get("pc_name"),
             "username": self.identity.get("username"),
-            "app_version": self.config.app_version
+            "app_version": self.config.app_version,
         }
 
     async def _listen_forever(self, websocket) -> None:
