@@ -4,7 +4,6 @@ import logging
 import threading
 from collections.abc import Callable
 from typing import Any
-from websockets.asyncio.client import ClientConnection
 
 import websockets
 
@@ -77,6 +76,8 @@ class DashboardWebSocketClient:
 
                 
                 async with websockets.connect(self.websocket_url) as websocket:
+                    self.websocket = websocket
+
                     logger.info("Dashboard WebSocket connected.")
 
                     auth_message = {
@@ -95,8 +96,6 @@ class DashboardWebSocketClient:
                         logger.info("Dashboard received message: %s", payload)
                         self.on_message_callback(payload)
 
-                self.websocket = websocket
-
             except Exception:
                 logger.exception("Dashboard WebSocket connection failed.")
                 self.on_status_callback("Offline - επανασύνδεση...")
@@ -105,12 +104,6 @@ class DashboardWebSocketClient:
 
                 await asyncio.sleep(5)
 
-    async def _send_json_safe(self, message: dict[str, Any]) -> None:
-        """
-        Placeholder για μελλοντική αποστολή μηνυμάτων.
-        Προς το παρόν δεν χρησιμοποιείται επειδή το websocket είναι τοπική μεταβλητή.
-        """
-        
     def send_message(self, message: dict[str, Any]) -> None:
         """
         Στέλνει μήνυμα στον server από το GUI thread.
