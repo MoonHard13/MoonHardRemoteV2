@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+from datetime import datetime, timezone
 
 from app.database import database
 
@@ -36,6 +37,42 @@ class ClientRepository:
         )
 
         return response.data or []
+
+    def upsert_connected_client(self, client_data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Δημιουργεί ή ενημερώνει έναν πραγματικό client που συνδέθηκε μέσω WebSocket.
+        """
+
+        client_code = client_data.get("client_code")
+
+        if not client_code:
+            raise ValueError("Missing client_code.")
+
+        logger.info("Upserting connected client: %s", client_code)
+
+        upsert_data = {
+            "client_code": client_code,
+            "display_name": client_data.get("display_name") or client_data.get("pc_name"),
+            "pc_name": client_data.get("pc_name", "UNKNOWN-PC"),
+            "username": client_data.get("username"),
+            "app_version": client_data.get("app_version"),
+            "status": "online",
+            "last_seen": "now()",
+            "connected_at": "now()",
+            "disconnected_at": None
+        }
+
+        response = (
+            self.db
+            .table("clients")
+            .upsert(upsert_data, on_conflict="client_code")
+            .execute()
+        )
+
+        if not response.data:
+            raise RuntimeError("Client upsert returned no data.")
+
+        return response.data[0]
 
     def upsert_test_client(self) -> dict[str, Any]:
         """
@@ -85,3 +122,67 @@ class ClientRepository:
             "deleted": True,
             "data": response.data or []
         }
+        
+    def upsert_connected_client(self, client_data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Δημιουργεί ή ενημερώνει έναν πραγματικό client που συνδέθηκε μέσω WebSocket.
+        """
+
+        client_code = client_data.get("client_code")
+
+        if not client_code:
+            raise ValueError("Missing client_code.")
+
+        logger.info("Upserting connected client: %s", client_code)
+
+        now_utc = datetime.now(timezone.utc).isoformat()
+
+        upsert_data = {
+            "client_code": client_code,
+            "display_name": client_data.get("display_name") or client_data.get("pc_name"),
+            "pc_name": client_data.get("pc_name", "UNKNOWN-PC"),
+            "username": client_data.get("username"),
+            "app_version": client_data.get("app_version"),
+            "status": "online",
+            "last_seen": now_utc,
+            "connected_at": now_utc,
+            "disconnected_at": None
+        }
+
+        response = (
+            self.db
+            .table("clients")
+            .upsert(upsert_data, on_conflict="client_code")
+            .execute()
+        )
+
+        if not response.data:
+            raise RuntimeError("Client upsert returned no data.")
+
+        return response.data[0]
+
+    def mark_client_offline(self, client_code: str) -> dict[str, Any]:
+        """
+        Σημειώνει έναν client ως offline όταν κλείσει η WebSocket σύνδεση.
+        """
+
+        if not client_code:
+            raise ValueError("Missing client_code.")
+
+        logger.info("Marking client offline: %s", client_code)
+
+        now_utc = datetime.now(timezone.utc).isoformat()
+
+        response = (
+            self.db
+            .table("clients")
+            .update({
+                "status": "offline",
+                "disconnected_at": now_utc,
+                "last_seen": now_utc
+            })
+            .eq("client_code", client_code)
+            .execute()
+        )
+
+        return response.data[0] if response.data else {}
