@@ -1,64 +1,65 @@
 import asyncio
 import json
-import socket
-import getpass
 
 import websockets
 
 
-class ClientWebSocketTester:
+class DashboardWebSocketTester:
     """
-    Δοκιμαστικός WebSocket client για έλεγχο σύνδεσης client PC με Render server.
+    Δοκιμαστικός WebSocket client για έλεγχο σύνδεσης dashboard με Render server.
     """
 
     def __init__(self, websocket_url: str) -> None:
         """
-        Αρχικοποιεί το WebSocket URL.
+        Αρχικοποιεί το URL του WebSocket.
         """
 
         self.websocket_url = websocket_url
 
     async def run_test(self) -> None:
         """
-        Συνδέεται στο WebSocket και στέλνει register μήνυμα.
+        Συνδέεται στο WebSocket και διαβάζει τα πρώτα μηνύματα του server.
         """
 
         print(f"Connecting to: {self.websocket_url}")
 
         async with websockets.connect(self.websocket_url) as websocket:
-            register_message = {
-                "type": "register",
-                "client_code": "TEST-REAL-CLIENT-001",
-                "display_name": "Test Real Client",
-                "pc_name": socket.gethostname(),
-                "username": getpass.getuser(),
-                "app_version": "1.0.0"
-            }
+            connected_message = await websocket.recv()
+            print("\nServer connected message:")
+            print(connected_message)
 
-            await websocket.send(json.dumps(register_message))
+            clients_message = await websocket.recv()
+            print("\nServer clients list message:")
+            print(clients_message)
 
-            response = await websocket.recv()
-            print("Server response:")
-            print(response)
+            clients_payload = json.loads(clients_message)
+
+            if clients_payload.get("type") == "clients_list":
+                print(f"\nClients count: {clients_payload.get('count')}")
+
+                for client in clients_payload.get("clients", []):
+                    print(
+                        f"- {client.get('client_code')} | "
+                        f"{client.get('pc_name')} | "
+                        f"{client.get('status')} | "
+                        f"{client.get('last_seen')}"
+                    )
 
             test_message = {
-                "type": "ping",
-                "message": "Hello from test client"
+                "type": "test",
+                "message": "Hello from dashboard tester"
             }
 
             await websocket.send(json.dumps(test_message))
 
-            echo_response = await websocket.recv()
-            print("Server echo response:")
-            print(echo_response)
-
-            print("Keeping connection open for 10 seconds...")
-            await asyncio.sleep(10)
+            response = await websocket.recv()
+            print("\nServer echo response:")
+            print(response)
 
 
 if __name__ == "__main__":
-    tester = ClientWebSocketTester(
-        "wss://moonhardremotev2.onrender.com/ws/client"
+    tester = DashboardWebSocketTester(
+        "wss://moonhardremotev2.onrender.com/ws/dashboard"
     )
 
     asyncio.run(tester.run_test())

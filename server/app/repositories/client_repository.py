@@ -86,7 +86,7 @@ class ClientRepository:
             "deleted": True,
             "data": response.data or []
         }
-        
+
     def upsert_connected_client(self, client_data: dict[str, Any]) -> dict[str, Any]:
         """
         Δημιουργεί ή ενημερώνει έναν πραγματικό client που συνδέθηκε μέσω WebSocket.

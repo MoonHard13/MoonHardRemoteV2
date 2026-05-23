@@ -107,6 +107,17 @@ class WebSocketRoutes:
                 }
             )
 
+            clients = self.client_repository.get_all_clients()
+
+            await connection_manager.send_to_dashboard(
+                websocket,
+                {
+                    "type": "clients_list",
+                    "count": len(clients),
+                    "clients": clients
+                }
+            )
+
             while True:
                 data = await websocket.receive_json()
 
