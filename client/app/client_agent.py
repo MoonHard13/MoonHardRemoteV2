@@ -7,6 +7,7 @@ import websockets
 from app.config import ClientConfig
 from app.identity_manager import ClientIdentityManager
 from websockets.exceptions import ConnectionClosed
+from app.terminal_executor import TerminalExecutor
 
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,8 @@ class MoonHardClientAgent:
         self.config = ClientConfig()
         self.identity_manager = ClientIdentityManager(self.config.identity_file)
         self.identity = self.identity_manager.load_or_create_identity()
-
+        self.terminal_executor = TerminalExecutor()
+        
     async def run_forever(self) -> None:
         """
         Κρατάει τον client ενεργό και κάνει reconnect αν χαθεί η σύνδεση.
@@ -128,8 +130,7 @@ class MoonHardClientAgent:
 
     async def _handle_terminal_command(self, websocket, payload: dict) -> None:
         """
-        Προσωρινός handler για terminal commands.
-        Προς το παρόν δεν εκτελεί πραγματική εντολή, απλώς επιβεβαιώνει routing.
+        Εκτελεί πραγματική CMD/PowerShell εντολή και επιστρέφει αποτέλεσμα.
         """
 
         command_id = payload.get("command_id", "")
@@ -143,16 +144,16 @@ class MoonHardClientAgent:
             command
         )
 
+        execution_result = await self.terminal_executor.execute_command(
+            shell=shell,
+            command=command
+        )
+
         result_message = {
             "type": "terminal_result",
             "command_id": command_id,
             "client_code": self.identity["client_code"],
-            "shell": shell,
-            "command": command,
-            "stdout": f"Routing OK. Client received command: {command}",
-            "stderr": "",
-            "exit_code": 0,
-            "current_directory": ""
+            **execution_result
         }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))
