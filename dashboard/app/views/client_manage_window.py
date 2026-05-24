@@ -439,13 +439,32 @@ class ClientManageWindow(ctk.CTkToplevel):
         )
 
 
-    def _apply_autocomplete_match(self, match: str) -> None:
+    def _apply_autocomplete_match(self, match) -> None:
         """
-        Βάζει το autocomplete αποτέλεσμα στο terminal input.
+        Εφαρμόζει autocomplete κρατώντας το προηγούμενο command prefix.
+        Παράδειγμα:
+        cd de + Desktop\\ = cd Desktop\\
         """
 
+        current_text = self.command_entry.get()
+
+        if isinstance(match, dict):
+            insert_value = match.get("insert_value") or match.get("name") or ""
+        else:
+            insert_value = str(match)
+
+        if not insert_value:
+            return
+
+        command_prefix, _, partial_value = current_text.rpartition(" ")
+
+        if command_prefix:
+            new_text = f"{command_prefix} {insert_value}"
+        else:
+            new_text = insert_value
+
         self.command_entry.delete(0, "end")
-        self.command_entry.insert(0, match)
+        self.command_entry.insert(0, new_text)
         self.command_entry.icursor("end")
         
     def _build_appsettings_tab(self) -> None:
