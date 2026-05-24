@@ -119,6 +119,12 @@ class MoonHardClientAgent:
                 
             elif message_type == "sql_execute":
                 await self._handle_sql_execute(websocket, payload)
+
+            elif message_type == "sql_test_connection":
+                await self._handle_sql_test_connection(websocket, payload)
+
+            elif message_type == "sql_cancel":
+                await self._handle_sql_cancel(websocket, payload)
             
     async def _send_heartbeat_forever(self, websocket) -> None:
         """
@@ -269,6 +275,7 @@ class MoonHardClientAgent:
                 raise RuntimeError(f"BOConnection ID {bo_connection_id} has no DatabaseConnection.")
 
             execution_result = self.sql_executor.execute_sql(
+                request_id=request_id,
                 connection_string=database_connection,
                 sql_text=sql_text,
                 timeout=timeout
@@ -279,6 +286,8 @@ class MoonHardClientAgent:
                 "request_id": request_id,
                 "client_code": self.identity["client_code"],
                 "bo_connection_id": bo_connection_id,
+                "driver": execution_result.get("driver"),
+                "elapsed_ms": execution_result.get("elapsed_ms"),
                 "success": execution_result.get("success"),
                 "error": execution_result.get("error"),
                 "batches": execution_result.get("batches", [])
@@ -292,6 +301,8 @@ class MoonHardClientAgent:
                 "request_id": request_id,
                 "client_code": self.identity["client_code"],
                 "bo_connection_id": bo_connection_id,
+                "driver": execution_result.get("driver"),
+                "elapsed_ms": execution_result.get("elapsed_ms"),
                 "success": False,
                 "error": str(exc),
                 "batches": []
@@ -313,3 +324,76 @@ class MoonHardClientAgent:
                 return connection
 
         return None
+    
+    async def _handle_sql_test_connection(self, websocket, payload: dict) -> None:
+        """
+        Δοκιμάζει SQL σύνδεση για BOConnection ID.
+        """
+
+        request_id = payload.get("request_id", "")
+        bo_connection_id = int(payload.get("bo_connection_id", 1))
+        timeout = int(payload.get("timeout", 15))
+
+        try:
+            appsettings_data = self.appsettings_reader.read_appsettings_production()
+            bo_connections = appsettings_data.get("bo_connections") or []
+
+            selected_connection = self._get_bo_connection_by_id(
+                bo_connections=bo_connections,
+                bo_connection_id=bo_connection_id
+            )
+
+            if not selected_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} was not found.")
+
+            database_connection = selected_connection.get("DatabaseConnection")
+
+            if not database_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} has no DatabaseConnection.")
+
+            test_result = self.sql_executor.test_connection(
+                connection_string=database_connection,
+                timeout=timeout
+            )
+
+            result_message = {
+                "type": "sql_test_connection_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                **test_result
+            }
+
+        except Exception as exc:
+            logger.exception("SQL test connection request failed.")
+
+            result_message = {
+                "type": "sql_test_connection_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                "success": False,
+                "error": str(exc),
+                "driver": None,
+                "elapsed_ms": None
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+    async def _handle_sql_cancel(self, websocket, payload: dict) -> None:
+        """
+        Ακυρώνει ενεργό SQL query.
+        """
+
+        request_id = payload.get("request_id", "")
+
+        cancel_result = self.sql_executor.cancel_sql(request_id)
+
+        result_message = {
+            "type": "sql_cancel_result",
+            "request_id": request_id,
+            "client_code": self.identity["client_code"],
+            **cancel_result
+        }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
