@@ -126,9 +126,19 @@ class MoonHardDashboardApp(ctk.CTk):
                 manage_window.handle_terminal_error(payload)
 
         elif message_type == "terminal_autocomplete_result":
-            logger.info("Terminal autocomplete result received.")
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_terminal_autocomplete_result(payload)
 
         elif message_type == "terminal_autocomplete_error":
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_terminal_autocomplete_error(payload)
+
             logger.error("Terminal autocomplete error: %s", payload.get("message"))
             
         elif message_type == "client_appsettings_result":
@@ -222,6 +232,24 @@ class MoonHardDashboardApp(ctk.CTk):
             payload.get("shell"),
             payload.get("command")
         )
+
+    def _send_terminal_autocomplete(self, payload: dict[str, Any]) -> None:
+        """
+        Στέλνει terminal autocomplete request στον server.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Dashboard WebSocket is not connected.")
+            return
+
+        self.websocket_client.send_message(payload)
+
+        logger.info(
+            "Terminal autocomplete sent. client_code=%s shell=%s command_text=%s",
+            payload.get("client_code"),
+            payload.get("shell"),
+            payload.get("command_text")
+        )
         
     def _open_manage_window(self, client: dict) -> None:
         """
@@ -244,6 +272,7 @@ class MoonHardDashboardApp(ctk.CTk):
             client=client,
             on_rename_callback=self._rename_client,
             on_terminal_command_callback=self._send_terminal_command,
+            on_terminal_autocomplete_callback=self._send_terminal_autocomplete,
             on_sql_execute_callback=self._send_sql_execute
         )
 

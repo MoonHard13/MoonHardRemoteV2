@@ -1,5 +1,5 @@
 import uuid
-from typing import Callable
+from typing import Callable, Any
 
 import customtkinter as ctk
 from tkinter import filedialog, ttk
@@ -17,6 +17,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         client: dict,
         on_rename_callback: Callable[[str, str], None] | None = None,
         on_terminal_command_callback: Callable[[dict], None] | None = None,
+        on_terminal_autocomplete_callback: Callable[[dict], None] | None = None,
         on_sql_execute_callback: Callable[[dict], None] | None = None
         
     ) -> None:
@@ -29,10 +30,14 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.client = client
         self.on_rename_callback = on_rename_callback
         self.on_terminal_command_callback = on_terminal_command_callback
+        self.on_terminal_autocomplete_callback = on_terminal_autocomplete_callback
         self.on_sql_execute_callback = on_sql_execute_callback
 
         self.client_code = client.get("client_code", "")
         self.current_directory = ""
+        self.last_autocomplete_request_id: str = ""
+        self.autocomplete_matches: list[str] = []
+        self.autocomplete_index: int = 0
         self.command_history: list[str] = []
         self.history_index: int | None = None
         self.appsettings_data: dict = {}
@@ -213,6 +218,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.command_entry.bind("<Return>", lambda _event: self.send_terminal_command())
         self.command_entry.bind("<Up>", self._show_previous_command)
         self.command_entry.bind("<Down>", self._show_next_command)
+        self.command_entry.bind("<Tab>", self._request_terminal_autocomplete)
 
         send_button = ctk.CTkButton(
             bottom,
@@ -367,6 +373,79 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         self.command_entry.delete(0, "end")
         self.command_entry.insert(0, command)
+        self.command_entry.icursor("end")
+
+    def _request_terminal_autocomplete(self, _event=None) -> str:
+        """
+        Στέλνει αίτημα autocomplete για το Remote Terminal.
+        """
+
+        command_text = self.command_entry.get()
+        shell = self.shell_option.get()
+
+        if not command_text.strip():
+            return "break"
+
+        request_id = str(uuid.uuid4())
+        self.last_autocomplete_request_id = request_id
+        self.autocomplete_matches = []
+        self.autocomplete_index = 0
+
+        if self.on_terminal_autocomplete_callback:
+            self.on_terminal_autocomplete_callback(
+                {
+                    "type": "terminal_autocomplete",
+                    "request_id": request_id,
+                    "client_code": self.client_code,
+                    "shell": shell,
+                    "command_text": command_text
+                }
+            )
+
+        return "break"
+
+
+    def handle_terminal_autocomplete_result(self, payload: dict[str, Any]) -> None:
+        """
+        Εφαρμόζει autocomplete αποτέλεσμα στο terminal input.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if payload.get("request_id") != self.last_autocomplete_request_id:
+            return
+
+        matches = payload.get("matches") or []
+
+        if not matches:
+            return
+
+        self.autocomplete_matches = matches
+        self.autocomplete_index = 0
+        self._apply_autocomplete_match(matches[0])
+
+
+    def handle_terminal_autocomplete_error(self, payload: dict[str, Any]) -> None:
+        """
+        Εμφανίζει σφάλμα autocomplete.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        self.append_output(
+            f"\nAutocomplete error: {payload.get('message', 'Unknown error.')}\n"
+        )
+
+
+    def _apply_autocomplete_match(self, match: str) -> None:
+        """
+        Βάζει το autocomplete αποτέλεσμα στο terminal input.
+        """
+
+        self.command_entry.delete(0, "end")
+        self.command_entry.insert(0, match)
         self.command_entry.icursor("end")
         
     def _build_appsettings_tab(self) -> None:
