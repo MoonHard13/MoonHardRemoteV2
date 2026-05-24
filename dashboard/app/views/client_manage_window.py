@@ -2,7 +2,7 @@ import uuid
 from typing import Callable
 
 import customtkinter as ctk
-from tkinter import filedialog
+from tkinter import filedialog, ttk
 
 
 class ClientManageWindow(ctk.CTkToplevel):
@@ -39,6 +39,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.bo_connections: list[dict] = []
         self.selected_bo_connection_id: int = 1
         self.current_sql_request_id: str = ""
+        self.sql_result_tab_names: list[str] = []
+        self.sql_table_widgets: dict[str, ttk.Treeview] = {}
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
@@ -738,13 +740,25 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.sql_editor.grid(row=1, column=0, padx=15, pady=(0, 10), sticky="nsew")
         self.sql_editor.insert("1.0", "SELECT TOP 10 * FROM INFORMATION_SCHEMA.TABLES;")
 
-        self.sql_result_box = ctk.CTkTextbox(
+        self.sql_results_tabs = ctk.CTkTabview(
             self.sql_tab,
+            corner_radius=14
+        )
+        self.sql_results_tabs.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="nsew")
+
+        self.sql_messages_tab = self.sql_results_tabs.add("Messages")
+        self.sql_messages_tab.grid_columnconfigure(0, weight=1)
+        self.sql_messages_tab.grid_rowconfigure(0, weight=1)
+
+        self.sql_result_box = ctk.CTkTextbox(
+            self.sql_messages_tab,
             font=("Consolas", 13),
             wrap="none"
         )
-        self.sql_result_box.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="nsew")
+        self.sql_result_box.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
         self.sql_result_box.configure(state="disabled")
+
+        self.sql_result_tab_names = ["Messages"]
         
     def _on_sql_bo_selected(self, selected_value: str) -> None:
         """
@@ -794,6 +808,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         request_id = str(uuid.uuid4())
         self.current_sql_request_id = request_id
         self.stop_sql_button.configure(state="normal")
+        self._clear_sql_result_tabs()
 
         self._set_sql_result_text(
             f"Executing SQL on BOConnection ID {self.selected_bo_connection_id}...\n"
@@ -813,58 +828,76 @@ class ClientManageWindow(ctk.CTkToplevel):
 
     def handle_sql_result(self, payload: dict) -> None:
         """
-        Εμφανίζει αποτελέσματα SQL εκτέλεσης.
+        Εμφανίζει αποτελέσματα SQL εκτέλεσης σε Messages tab και result table tabs.
         """
 
         if payload.get("client_code") != self.client_code:
             return
 
+        self._clear_sql_result_tabs()
+
         success = payload.get("success")
         error = payload.get("error")
         batches = payload.get("batches") or []
 
-        lines: list[str] = []
+        message_lines: list[str] = []
 
-        lines.append(f"Success: {success}")
-        lines.append(f"BOConnection ID: {payload.get('bo_connection_id')}")
-        lines.append(f"Driver: {payload.get('driver')}")
-        lines.append(f"Elapsed: {payload.get('elapsed_ms')} ms")
+        message_lines.append("=== SQL Execution Summary ===")
+        message_lines.append(f"Success: {success}")
+        message_lines.append(f"BOConnection ID: {payload.get('bo_connection_id')}")
+        message_lines.append(f"Driver: {payload.get('driver')}")
+        message_lines.append(f"Elapsed: {payload.get('elapsed_ms')} ms")
 
         if error:
-            lines.append(f"Error: {error}")
+            message_lines.append("")
+            message_lines.append("=== Error ===")
+            message_lines.append(str(error))
 
-        lines.append("")
+        message_lines.append("")
+
+        total_result_tabs = 0
 
         for batch in batches:
-            lines.append(f"=== Batch {batch.get('batch_index')} ===")
-
-            if batch.get("error"):
-                lines.append(f"Batch error: {batch.get('error')}")
-
+            batch_index = batch.get("batch_index")
+            batch_error = batch.get("error")
+            rowcount = batch.get("rowcount")
             result_sets = batch.get("result_sets") or []
 
+            message_lines.append(f"=== Batch {batch_index} ===")
+
+            if batch_error:
+                message_lines.append(f"Batch error: {batch_error}")
+
             if not result_sets:
-                lines.append(f"Rows affected: {batch.get('rowcount')}")
-                lines.append("")
+                message_lines.append(f"Rows affected: {rowcount}")
+                message_lines.append("")
                 continue
 
             for result_index, result_set in enumerate(result_sets, start=1):
                 columns = result_set.get("columns") or []
                 rows = result_set.get("rows") or []
 
-                lines.append(f"--- Result Set {result_index} | Rows: {len(rows)} ---")
-                lines.append(" | ".join(columns))
-                lines.append("-" * 100)
+                message_lines.append(
+                    f"Result Set {result_index}: {len(rows)} rows, {len(columns)} columns"
+                )
 
-                for row in rows[:500]:
-                    lines.append(" | ".join(str(value) for value in row))
+                tab_name = f"Batch {batch_index} - Result {result_index}"
 
-                if len(rows) > 500:
-                    lines.append(f"... truncated. Showing first 500 of {len(rows)} rows.")
+                if columns:
+                    self._add_sql_result_table_tab(
+                        tab_name=tab_name,
+                        columns=columns,
+                        rows=rows
+                    )
+                    total_result_tabs += 1
 
-                lines.append("")
+            message_lines.append("")
 
-        self._set_sql_result_text("\n".join(lines))
+        if total_result_tabs == 0:
+            message_lines.append("No SELECT result sets returned.")
+
+        self._set_sql_result_text("\n".join(message_lines))
+
         self.stop_sql_button.configure(state="disabled")
         self.current_sql_request_id = ""
 
@@ -886,6 +919,25 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.sql_result_box.delete("1.0", "end")
         self.sql_result_box.insert("end", text)
         self.sql_result_box.configure(state="disabled")
+
+    def _clear_sql_result_tabs(self) -> None:
+        """
+        Καθαρίζει όλα τα SQL result tabs εκτός από το Messages tab.
+        """
+
+        for tab_name in list(self.sql_result_tab_names):
+            if tab_name == "Messages":
+                continue
+
+            try:
+                self.sql_results_tabs.delete(tab_name)
+            except Exception:
+                pass
+
+        self.sql_result_tab_names = ["Messages"]
+        self.sql_table_widgets.clear()
+
+        self._set_sql_result_text("")
         
     def test_sql_connection(self) -> None:
         """
@@ -894,6 +946,7 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         request_id = str(uuid.uuid4())
         self.current_sql_request_id = request_id
+        self._clear_sql_result_tabs()
 
         self._set_sql_result_text(
             f"Testing SQL connection on BOConnection ID {self.selected_bo_connection_id}...\n"
@@ -972,3 +1025,136 @@ class ClientManageWindow(ctk.CTkToplevel):
             f"Success: {payload.get('success')}\n"
             f"Message: {payload.get('message')}\n"
         )
+        
+    def _add_sql_result_table_tab(
+        self,
+        tab_name: str,
+        columns: list[str],
+        rows: list[list]
+    ) -> None:
+        """
+        Δημιουργεί νέο tab με πίνακα αποτελεσμάτων SQL.
+        """
+
+        safe_tab_name = tab_name
+
+        if safe_tab_name in self.sql_result_tab_names:
+            suffix = 2
+
+            while f"{safe_tab_name} ({suffix})" in self.sql_result_tab_names:
+                suffix += 1
+
+            safe_tab_name = f"{safe_tab_name} ({suffix})"
+
+        table_tab = self.sql_results_tabs.add(safe_tab_name)
+        table_tab.grid_columnconfigure(0, weight=1)
+        table_tab.grid_rowconfigure(0, weight=1)
+
+        table_frame = ctk.CTkFrame(table_tab, corner_radius=10)
+        table_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        table_frame.grid_columnconfigure(0, weight=1)
+        table_frame.grid_rowconfigure(0, weight=1)
+
+        tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            height=15
+        )
+        tree.grid(row=0, column=0, sticky="nsew")
+
+        vertical_scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            command=tree.yview
+        )
+        vertical_scrollbar.grid(row=0, column=1, sticky="ns")
+
+        horizontal_scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="horizontal",
+            command=tree.xview
+        )
+        horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
+
+        tree.configure(
+            yscrollcommand=vertical_scrollbar.set,
+            xscrollcommand=horizontal_scrollbar.set
+        )
+
+        for column in columns:
+            tree.heading(column, text=column)
+            tree.column(column, width=160, minwidth=80, stretch=True)
+
+        for row in rows:
+            tree.insert("", "end", values=row)
+
+        tree.bind("<Control-c>", lambda _event, t=tree: self._copy_selected_sql_rows(t))
+        tree.bind("<Button-3>", lambda event, t=tree: self._show_sql_table_context_menu(event, t))
+
+        self.sql_result_tab_names.append(safe_tab_name)
+        self.sql_table_widgets[safe_tab_name] = tree
+        
+    def _copy_selected_sql_rows(self, tree: ttk.Treeview) -> None:
+        """
+        Αντιγράφει τις επιλεγμένες γραμμές SQL result table στο clipboard.
+        """
+
+        selected_items = tree.selection()
+
+        if not selected_items:
+            return
+
+        copied_lines: list[str] = []
+
+        for item in selected_items:
+            values = tree.item(item, "values")
+            copied_lines.append("\t".join(str(value) for value in values))
+
+        copied_text = "\n".join(copied_lines)
+
+        self.clipboard_clear()
+        self.clipboard_append(copied_text)
+
+
+    def _copy_all_sql_rows(self, tree: ttk.Treeview) -> None:
+        """
+        Αντιγράφει όλες τις γραμμές SQL result table στο clipboard.
+        """
+
+        copied_lines: list[str] = []
+
+        for item in tree.get_children():
+            values = tree.item(item, "values")
+            copied_lines.append("\t".join(str(value) for value in values))
+
+        copied_text = "\n".join(copied_lines)
+
+        self.clipboard_clear()
+        self.clipboard_append(copied_text)
+
+
+    def _show_sql_table_context_menu(self, event, tree: ttk.Treeview) -> None:
+        """
+        Εμφανίζει context menu για αντιγραφή γραμμών SQL result table.
+        """
+
+        menu = ctk.CTkToplevel(self)
+        menu.withdraw()
+
+        popup = ttk.Frame(menu)
+
+        context_menu = __import__("tkinter").Menu(self, tearoff=0)
+        context_menu.add_command(
+            label="Copy selected rows",
+            command=lambda: self._copy_selected_sql_rows(tree)
+        )
+        context_menu.add_command(
+            label="Copy all rows",
+            command=lambda: self._copy_all_sql_rows(tree)
+        )
+
+        context_menu.tk_popup(event.x_root, event.y_root)
+        context_menu.grab_release()
+
+        menu.destroy()
