@@ -170,11 +170,15 @@ class WebSocketRoutes:
 
                 if data.get("type") in ("sql_result", "sql_test_connection_result", "sql_cancel_result"):
                     request_id = data.get("request_id", "")
+                    message_type = data.get("type")
 
-                    dashboard_websocket = self.pending_requests.pop(
-                        request_id,
-                        None
-                    )
+                    if message_type == "sql_cancel_result":
+                        dashboard_websocket = self.pending_requests.get(request_id)
+                    else:
+                        dashboard_websocket = self.pending_requests.pop(
+                            request_id,
+                            None
+                        )
 
                     if dashboard_websocket:
                         await connection_manager.send_to_dashboard(
