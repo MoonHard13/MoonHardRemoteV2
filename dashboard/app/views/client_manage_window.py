@@ -39,6 +39,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.bo_connections: list[dict] = []
         self.selected_bo_connection_id: int = 1
         self.sql_history: list[str] = []
+        self.current_sql_request_id: str = ""
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
@@ -748,7 +749,7 @@ class ClientManageWindow(ctk.CTkToplevel):
             text="SQL Server Query Executor",
             font=("Segoe UI", 20, "bold")
         )
-        title.grid(row=0, column=0, columnspan=4, padx=18, pady=(18, 8), sticky="w")
+        title.grid(row=0, column=0, columnspan=6, padx=18, pady=(18, 8), sticky="w")
 
         bo_label = ctk.CTkLabel(
             top_frame,
@@ -765,13 +766,21 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.sql_bo_option.set("ID 1")
         self.sql_bo_option.grid(row=1, column=1, padx=(0, 10), pady=(5, 18), sticky="w")
 
+        test_connection_button = ctk.CTkButton(
+            top_frame,
+            text="Test Connection",
+            width=130,
+            command=self.test_sql_connection
+        )
+        test_connection_button.grid(row=1, column=2, padx=(0, 10), pady=(5, 18))
+
         load_file_button = ctk.CTkButton(
             top_frame,
             text="Load .sql",
             width=100,
             command=self._load_sql_file
         )
-        load_file_button.grid(row=1, column=2, padx=(0, 10), pady=(5, 18))
+        load_file_button.grid(row=1, column=3, padx=(0, 10), pady=(5, 18))
 
         execute_button = ctk.CTkButton(
             top_frame,
@@ -779,7 +788,16 @@ class ClientManageWindow(ctk.CTkToplevel):
             width=100,
             command=self.execute_sql
         )
-        execute_button.grid(row=1, column=3, padx=(0, 18), pady=(5, 18))
+        execute_button.grid(row=1, column=4, padx=(0, 10), pady=(5, 18))
+
+        self.stop_sql_button = ctk.CTkButton(
+            top_frame,
+            text="Stop",
+            width=90,
+            command=self.stop_sql_execution,
+            state="disabled"
+        )
+        self.stop_sql_button.grid(row=1, column=5, padx=(0, 18), pady=(5, 18))
 
         self.sql_editor = ctk.CTkTextbox(
             self.sql_tab,
@@ -843,6 +861,8 @@ class ClientManageWindow(ctk.CTkToplevel):
             return
 
         request_id = str(uuid.uuid4())
+        self.current_sql_request_id = request_id
+        self.stop_sql_button.configure(state="normal")
 
         self._set_sql_result_text(
             f"Executing SQL on BOConnection ID {self.selected_bo_connection_id}...\n"
@@ -876,6 +896,8 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         lines.append(f"Success: {success}")
         lines.append(f"BOConnection ID: {payload.get('bo_connection_id')}")
+        lines.append(f"Driver: {payload.get('driver')}")
+        lines.append(f"Elapsed: {payload.get('elapsed_ms')} ms")
 
         if error:
             lines.append(f"Error: {error}")
@@ -912,6 +934,8 @@ class ClientManageWindow(ctk.CTkToplevel):
                 lines.append("")
 
         self._set_sql_result_text("\n".join(lines))
+        self.stop_sql_button.configure(state="disabled")
+        self.current_sql_request_id = ""
 
     def handle_sql_error(self, payload: dict) -> None:
         """
@@ -931,3 +955,89 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.sql_result_box.delete("1.0", "end")
         self.sql_result_box.insert("end", text)
         self.sql_result_box.configure(state="disabled")
+        
+    def test_sql_connection(self) -> None:
+        """
+        Στέλνει αίτημα δοκιμής SQL σύνδεσης για το επιλεγμένο BOConnection.
+        """
+
+        request_id = str(uuid.uuid4())
+        self.current_sql_request_id = request_id
+
+        self._set_sql_result_text(
+            f"Testing SQL connection on BOConnection ID {self.selected_bo_connection_id}...\n"
+        )
+
+        if self.on_sql_execute_callback:
+            self.on_sql_execute_callback(
+                {
+                    "type": "sql_test_connection",
+                    "request_id": request_id,
+                    "client_code": self.client_code,
+                    "bo_connection_id": self.selected_bo_connection_id,
+                    "timeout": 15
+                }
+            )
+            
+    def stop_sql_execution(self) -> None:
+        """
+        Στέλνει αίτημα ακύρωσης του τρέχοντος SQL query.
+        """
+
+        if not self.current_sql_request_id:
+            self._set_sql_result_text("No active SQL request to stop.\n")
+            return
+
+        self._set_sql_result_text(
+            f"Stopping SQL request: {self.current_sql_request_id}\n"
+        )
+
+        if self.on_sql_execute_callback:
+            self.on_sql_execute_callback(
+                {
+                    "type": "sql_cancel",
+                    "request_id": self.current_sql_request_id,
+                    "client_code": self.client_code
+                }
+            )
+            
+    def handle_sql_test_connection_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα δοκιμής SQL σύνδεσης.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        text = (
+            "=== SQL Connection Test ===\n"
+            f"Success: {payload.get('success')}\n"
+            f"BOConnection ID: {payload.get('bo_connection_id')}\n"
+            f"Driver: {payload.get('driver')}\n"
+            f"Elapsed: {payload.get('elapsed_ms')} ms\n"
+            f"Server: {payload.get('server_name')}\n"
+            f"Database: {payload.get('database_name')}\n"
+            f"Login: {payload.get('login_name')}\n"
+        )
+
+        if payload.get("error"):
+            text += f"\nError:\n{payload.get('error')}\n"
+
+        self._set_sql_result_text(text)
+
+
+    def handle_sql_cancel_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα ακύρωσης SQL query.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        self.stop_sql_button.configure(state="disabled")
+
+        self._set_sql_result_text(
+            "=== SQL Cancel Result ===\n"
+            f"Success: {payload.get('success')}\n"
+            f"Message: {payload.get('message')}\n"
+        )
