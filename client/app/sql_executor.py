@@ -1,8 +1,8 @@
 import logging
 import re
-from typing import Any
 import time
 import threading
+from typing import Any
 
 import pyodbc
 
@@ -59,8 +59,8 @@ class SqlExecutor:
             with pyodbc.connect(odbc_connection_string, timeout=timeout, autocommit=True) as connection:
                 cursor = connection.cursor()
 
-            with self.lock:
-                self.active_cursors[request_id] = cursor
+                with self.lock:
+                    self.active_cursors[request_id] = cursor
 
                 for index, batch in enumerate(batches, start=1):
                     if not batch.strip():

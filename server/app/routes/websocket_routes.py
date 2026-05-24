@@ -126,27 +126,6 @@ class WebSocketRoutes:
                     await self.broadcast_clients_list()
                     continue
 
-                if data.get("type") == "sql_result":
-                    request_id = data.get("request_id", "")
-
-                    dashboard_websocket = self.pending_requests.pop(
-                        request_id,
-                        None
-                    )
-
-                    if dashboard_websocket:
-                        await connection_manager.send_to_dashboard(
-                            dashboard_websocket,
-                            data
-                        )
-                    else:
-                        logger.warning(
-                            "No pending dashboard found for SQL result request_id=%s",
-                            request_id
-                        )
-
-                    continue
-
                 if data.get("type") == "terminal_result":
                     command_id = data.get("command_id", "")
 

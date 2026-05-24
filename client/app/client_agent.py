@@ -274,11 +274,12 @@ class MoonHardClientAgent:
             if not database_connection:
                 raise RuntimeError(f"BOConnection ID {bo_connection_id} has no DatabaseConnection.")
 
-            execution_result = self.sql_executor.execute_sql(
-                request_id=request_id,
-                connection_string=database_connection,
-                sql_text=sql_text,
-                timeout=timeout
+            execution_result = await asyncio.to_thread(
+                self.sql_executor.execute_sql,
+                request_id,
+                database_connection,
+                sql_text,
+                timeout
             )
 
             result_message = {
@@ -301,8 +302,8 @@ class MoonHardClientAgent:
                 "request_id": request_id,
                 "client_code": self.identity["client_code"],
                 "bo_connection_id": bo_connection_id,
-                "driver": execution_result.get("driver"),
-                "elapsed_ms": execution_result.get("elapsed_ms"),
+                "driver": None,
+                "elapsed_ms": None,
                 "success": False,
                 "error": str(exc),
                 "batches": []
@@ -351,9 +352,10 @@ class MoonHardClientAgent:
             if not database_connection:
                 raise RuntimeError(f"BOConnection ID {bo_connection_id} has no DatabaseConnection.")
 
-            test_result = self.sql_executor.test_connection(
-                connection_string=database_connection,
-                timeout=timeout
+            test_result = await asyncio.to_thread(
+                self.sql_executor.test_connection,
+                database_connection,
+                timeout
             )
 
             result_message = {
