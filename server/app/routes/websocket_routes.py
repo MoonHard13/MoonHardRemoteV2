@@ -25,7 +25,7 @@ class WebSocketRoutes:
 
         self.client_repository = ClientRepository()
         self.config = AppConfig()
-        self.pending_terminal_commands: dict[str, WebSocket] = {}
+        self.pending_requests: dict[str, WebSocket] = {}
 
     async def broadcast_clients_list(self) -> None:
         """
@@ -129,7 +129,7 @@ class WebSocketRoutes:
                 if data.get("type") == "sql_result":
                     request_id = data.get("request_id", "")
 
-                    dashboard_websocket = self.pending_terminal_commands.pop(
+                    dashboard_websocket = self.pending_requests.pop(
                         request_id,
                         None
                     )
@@ -150,7 +150,7 @@ class WebSocketRoutes:
                 if data.get("type") == "terminal_result":
                     command_id = data.get("command_id", "")
 
-                    dashboard_websocket = self.pending_terminal_commands.pop(
+                    dashboard_websocket = self.pending_requests.pop(
                         command_id,
                         None
                     )
@@ -171,7 +171,7 @@ class WebSocketRoutes:
                 if data.get("type") == "terminal_autocomplete_result":
                     request_id = data.get("request_id", "")
 
-                    dashboard_websocket = self.pending_terminal_commands.pop(
+                    dashboard_websocket = self.pending_requests.pop(
                         request_id,
                         None
                     )
@@ -192,7 +192,7 @@ class WebSocketRoutes:
                 if data.get("type") in ("sql_result", "sql_test_connection_result", "sql_cancel_result"):
                     request_id = data.get("request_id", "")
 
-                    dashboard_websocket = self.pending_terminal_commands.pop(
+                    dashboard_websocket = self.pending_requests.pop(
                         request_id,
                         None
                     )
@@ -364,7 +364,7 @@ class WebSocketRoutes:
                         )
                         continue
 
-                    self.pending_terminal_commands[request_id] = websocket
+                    self.pending_requests[request_id] = websocket
 
                     sent = await connection_manager.send_to_client(
                         client_code,
@@ -378,7 +378,7 @@ class WebSocketRoutes:
                     )
 
                     if not sent:
-                        self.pending_terminal_commands.pop(request_id, None)
+                        self.pending_requests.pop(request_id, None)
 
                         await connection_manager.send_to_dashboard(
                             websocket,
@@ -408,7 +408,7 @@ class WebSocketRoutes:
                         )
                         continue
 
-                    self.pending_terminal_commands[command_id] = websocket
+                    self.pending_requests[command_id] = websocket
 
                     sent = await connection_manager.send_to_client(
                         client_code,
@@ -422,7 +422,7 @@ class WebSocketRoutes:
                     )
 
                     if not sent:
-                        self.pending_terminal_commands.pop(command_id, None)
+                        self.pending_requests.pop(command_id, None)
 
                         await connection_manager.send_to_dashboard(
                             websocket,
@@ -455,7 +455,7 @@ class WebSocketRoutes:
                         )
                         continue
 
-                    self.pending_terminal_commands[request_id] = websocket
+                    self.pending_requests[request_id] = websocket
 
                     sent = await connection_manager.send_to_client(
                         client_code,
@@ -470,7 +470,7 @@ class WebSocketRoutes:
                     )
 
                     if not sent:
-                        self.pending_terminal_commands.pop(request_id, None)
+                        self.pending_requests.pop(request_id, None)
 
                         await connection_manager.send_to_dashboard(
                             websocket,
@@ -500,12 +500,12 @@ class WebSocketRoutes:
                         )
                         continue
 
-                    self.pending_terminal_commands[request_id] = websocket
+                    self.pending_requests[request_id] = websocket
 
                     sent = await connection_manager.send_to_client(client_code, data)
 
                     if not sent:
-                        self.pending_terminal_commands.pop(request_id, None)
+                        self.pending_requests.pop(request_id, None)
 
                         await connection_manager.send_to_dashboard(
                             websocket,

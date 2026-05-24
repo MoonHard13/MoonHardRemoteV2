@@ -125,43 +125,6 @@ class ClientsView(ctk.CTkFrame):
         )
         manage_button.grid(row=0, column=3, padx=(0, 15), pady=12, sticky="e")
 
-    def _open_rename_dialog(self, client: dict) -> None:
-        """
-        Ανοίγει παράθυρο για αλλαγή φιλικού ονόματος client.
-        """
-
-        client_code = client.get("client_code", "")
-        current_name = client.get("display_name") or client.get("pc_name") or ""
-
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Rename Client")
-        dialog.geometry("420x190")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-
-        title_label = ctk.CTkLabel(
-            dialog,
-            text="Rename Client",
-            font=("Segoe UI", 20, "bold")
-        )
-        title_label.pack(padx=20, pady=(20, 8), anchor="w")
-
-        name_entry = ctk.CTkEntry(
-            dialog,
-            placeholder_text="New display name"
-        )
-        name_entry.pack(padx=20, pady=8, fill="x")
-        name_entry.insert(0, current_name)
-        name_entry.focus_set()
-
-        error_label = ctk.CTkLabel(
-            dialog,
-            text="",
-            text_color="#EF4444",
-            font=("Segoe UI", 12)
-        )
-        error_label.pack(padx=20, pady=(0, 8), anchor="w")
-
         def save_name() -> None:
             """
             Στέλνει το νέο όνομα στο callback του dashboard.

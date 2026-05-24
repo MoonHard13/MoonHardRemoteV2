@@ -38,7 +38,6 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.appsettings_data: dict = {}
         self.bo_connections: list[dict] = []
         self.selected_bo_connection_id: int = 1
-        self.sql_history: list[str] = []
         self.current_sql_request_id: str = ""
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
@@ -593,16 +592,6 @@ class ClientManageWindow(ctk.CTkToplevel):
                 result[mapped_key] = value.strip()
 
         return result
-
-    def _set_appsettings_text(self, text: str) -> None:
-        """
-        Ενημερώνει το textbox του AppSettings tab.
-        """
-
-        self.appsettings_details_box.configure(state="normal")
-        self.appsettings_details_box.delete("1.0", "end")
-        self.appsettings_details_box.insert("end", text)
-        self.appsettings_details_box.configure(state="disabled")
         
     def _build_bo_connection_values(self) -> list[str]:
         """
@@ -666,64 +655,6 @@ class ClientManageWindow(ctk.CTkToplevel):
                 return connection
 
         return self.bo_connections[0] if self.bo_connections else {}
-
-    def _format_provider_connections(self, provider_connections: list[dict]) -> str:
-        """
-        Μορφοποιεί τα ProviderConnections για προβολή.
-        """
-
-        if not provider_connections:
-            return "No ProviderConnections found."
-
-        lines: list[str] = []
-
-        for provider in provider_connections:
-            lines.append(
-                f"ID: {provider.get('ID')}\n"
-                f"BaseURL: {provider.get('BaseURL')}\n"
-                f"OfflineURL: {provider.get('OfflineURL')}\n"
-            )
-
-        return "\n".join(lines)
-
-    def _parse_connection_string(self, connection_string: str) -> dict[str, str | None]:
-        """
-        Αναλύει SQL Server connection string για εμφάνιση στο dashboard.
-        """
-
-        result = {
-            "server": None,
-            "database": None,
-            "user_id": None,
-            "password": None
-        }
-
-        if not connection_string:
-            return result
-
-        key_map = {
-            "server": "server",
-            "data source": "server",
-            "database": "database",
-            "initial catalog": "database",
-            "user id": "user_id",
-            "uid": "user_id",
-            "password": "password",
-            "pwd": "password"
-        }
-
-        for item in connection_string.split(";"):
-            if "=" not in item:
-                continue
-
-            key, value = item.split("=", 1)
-            normalized_key = key.strip().lower()
-            mapped_key = key_map.get(normalized_key)
-
-            if mapped_key:
-                result[mapped_key] = value.strip()
-
-        return result
 
     def _set_appsettings_text(self, text: str) -> None:
         """

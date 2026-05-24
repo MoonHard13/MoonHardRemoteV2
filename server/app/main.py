@@ -12,7 +12,7 @@ LoggerConfig.setup_logging()
 
 logger = logging.getLogger(__name__)
 config = AppConfig()
-
+config.validate_security_config()
 
 class MoonHardServerApp:
     """
