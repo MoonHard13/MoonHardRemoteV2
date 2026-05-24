@@ -124,44 +124,6 @@ class ClientsView(ctk.CTkFrame):
             command=lambda c=client: self._open_manage_callback(c)
         )
         manage_button.grid(row=0, column=3, padx=(0, 15), pady=12, sticky="e")
-
-        def save_name() -> None:
-            """
-            Στέλνει το νέο όνομα στο callback του dashboard.
-            """
-
-            new_name = name_entry.get().strip()
-
-            if not new_name:
-                error_label.configure(text="Το όνομα δεν μπορεί να είναι κενό.")
-                return
-
-            if self.on_rename_callback:
-                self.on_rename_callback(client_code, new_name)
-
-            dialog.destroy()
-
-        buttons_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        buttons_frame.pack(padx=20, pady=(5, 15), fill="x")
-
-        cancel_button = ctk.CTkButton(
-            buttons_frame,
-            text="Cancel",
-            width=100,
-            command=dialog.destroy
-        )
-        cancel_button.pack(side="right", padx=(8, 0))
-
-        save_button = ctk.CTkButton(
-            buttons_frame,
-            text="Save",
-            width=100,
-            command=save_name
-        )
-        save_button.pack(side="right")
-
-        dialog.bind("<Return>", lambda _event: save_name())
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
         
     def _open_manage_callback(self, client: dict) -> None:
         """
