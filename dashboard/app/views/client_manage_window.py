@@ -91,6 +91,20 @@ class ClientManageWindow(ctk.CTkToplevel):
         self._build_appsettings_tab()
         self._build_sql_tab()
         self._build_provider_tab()
+
+    def _build_provider_tab(self) -> None:
+        """
+        Δημιουργεί το Provider tab ως ξεχωριστό modular component.
+        """
+
+        self.provider_tab_view = ProviderTab(
+            parent=self.provider_tab,
+            client_code=self.client_code,
+            get_bo_values_callback=self._build_bo_connection_values,
+            get_selected_bo_id_callback=lambda: self.selected_bo_connection_id,
+            on_provider_request_callback=self.on_provider_request_callback
+        )
+        self.provider_tab_view.grid(row=0, column=0, sticky="nsew")
         
     def _build_header(self) -> None:
         """
@@ -586,17 +600,18 @@ class ClientManageWindow(ctk.CTkToplevel):
             self.sql_bo_option.configure(values=["No BOConnections"])
             self.sql_bo_option.set("No BOConnections")
 
+        if hasattr(self, "provider_tab_view"):
+            self.provider_tab_view.update_bo_values(
+                bo_values=bo_values,
+                selected_value=self.bo_connection_option.get()
+            )
+
         self.appsettings_status_label.configure(
             text=f"Loaded from: {file_path} | Last read: {last_read_at}"
         )
 
         self._refresh_selected_bo_connection()
         
-        if hasattr(self, "provider_tab_view"):
-            self.provider_tab_view.update_bo_values(
-                bo_values=bo_values,
-                selected_value=self.bo_connection_option.get()
-            )
         
     def _refresh_selected_bo_connection(self) -> None:
         """
