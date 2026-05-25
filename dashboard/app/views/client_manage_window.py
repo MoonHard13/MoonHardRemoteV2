@@ -4,6 +4,7 @@ from typing import Callable, Any
 import customtkinter as ctk
 from tkinter import filedialog, ttk
 
+from app.views.manage.provider_tab import ProviderTab
 
 class ClientManageWindow(ctk.CTkToplevel):
     """
@@ -18,7 +19,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         on_rename_callback: Callable[[str, str], None] | None = None,
         on_terminal_command_callback: Callable[[dict], None] | None = None,
         on_terminal_autocomplete_callback: Callable[[dict], None] | None = None,
-        on_sql_execute_callback: Callable[[dict], None] | None = None
+        on_sql_execute_callback: Callable[[dict], None] | None = None,
+        on_provider_request_callback: Callable[[dict], None] | None = None
         
     ) -> None:
         """
@@ -46,6 +48,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.current_sql_request_id: str = ""
         self.sql_result_tab_names: list[str] = []
         self.sql_table_widgets: dict[str, ttk.Treeview] = {}
+        self.on_provider_request_callback = on_provider_request_callback
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
@@ -79,12 +82,16 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.sql_tab = self.tabs.add("SQL")
         self.sql_tab.grid_columnconfigure(0, weight=1)
         self.sql_tab.grid_rowconfigure(2, weight=1)
+        self.provider_tab = self.tabs.add("Provider")
+        self.provider_tab.grid_columnconfigure(0, weight=1)
+        self.provider_tab.grid_rowconfigure(0, weight=1)
 
         self._build_overview_tab()
         self._build_terminal_tab()
         self._build_appsettings_tab()
         self._build_sql_tab()
-
+        self._build_provider_tab()
+        
     def _build_header(self) -> None:
         """
         Δημιουργεί την κεφαλίδα του παραθύρου.
@@ -584,6 +591,12 @@ class ClientManageWindow(ctk.CTkToplevel):
         )
 
         self._refresh_selected_bo_connection()
+        
+        if hasattr(self, "provider_tab_view"):
+            self.provider_tab_view.update_bo_values(
+                bo_values=bo_values,
+                selected_value=self.bo_connection_option.get()
+            )
         
     def _refresh_selected_bo_connection(self) -> None:
         """
@@ -1256,3 +1269,17 @@ class ClientManageWindow(ctk.CTkToplevel):
         context_menu.grab_release()
 
         menu.destroy()
+        
+    def _build_provider_tab(self) -> None:
+        """
+        Δημιουργεί το Provider tab ως ξεχωριστό modular component.
+        """
+
+        self.provider_tab_view = ProviderTab(
+            parent=self.provider_tab,
+            client_code=self.client_code,
+            get_bo_values_callback=self._build_bo_connection_values,
+            get_selected_bo_id_callback=lambda: self.selected_bo_connection_id,
+            on_provider_request_callback=self.on_provider_request_callback
+        )
+        self.provider_tab_view.grid(row=0, column=0, sticky="nsew")

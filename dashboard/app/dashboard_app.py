@@ -273,7 +273,8 @@ class MoonHardDashboardApp(ctk.CTk):
             on_rename_callback=self._rename_client,
             on_terminal_command_callback=self._send_terminal_command,
             on_terminal_autocomplete_callback=self._send_terminal_autocomplete,
-            on_sql_execute_callback=self._send_sql_execute
+            on_sql_execute_callback=self._send_sql_execute,
+            on_provider_request_callback=self._send_provider_request
         )
 
         self.manage_windows[client_code] = window
@@ -301,4 +302,22 @@ class MoonHardDashboardApp(ctk.CTk):
             "SQL execute sent. client_code=%s bo_connection_id=%s",
             payload.get("client_code"),
             payload.get("bo_connection_id")
+        )
+        
+    def _send_provider_request(self, payload: dict[str, Any]) -> None:
+        """
+        Στέλνει Provider/MUPT request στον server.
+        Δεν αποθηκεύει τίποτα στη Supabase.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Dashboard WebSocket is not connected.")
+            return
+
+        self.websocket_client.send_message(payload)
+
+        logger.info(
+            "Provider request sent. type=%s client_code=%s",
+            payload.get("type"),
+            payload.get("client_code")
         )
