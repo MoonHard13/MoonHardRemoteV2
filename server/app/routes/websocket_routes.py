@@ -615,6 +615,9 @@ class WebSocketRoutes:
             connection_manager.disconnect_dashboard(websocket)
 
 
+websocket_routes = WebSocketRoutes()
+
+
 @router.get("/api/ws-test")
 def websocket_route_test(x_admin_token: str = Header(default="")) -> dict:
     """
@@ -625,29 +628,27 @@ def websocket_route_test(x_admin_token: str = Header(default="")) -> dict:
     config = AppConfig()
 
     if x_admin_token != config.admin_token:
-        raise HTTPException(status_code=401, detail="Unauthorized.")
+        raise HTTPException(status_code=403, detail="Invalid admin token.")
 
     return {
         "success": True,
-        "message": "websocket_routes.py loaded successfully",
-        "dashboard_ws": "/ws/dashboard",
-        "client_ws": "/ws/client"
+        "message": "WebSocket routes are loaded."
     }
 
 
-@router.websocket("/ws/dashboard")
-async def dashboard_websocket(websocket: WebSocket) -> None:
-    """
-    WebSocket endpoint για dashboard.
-    """
-
-    await websocket_routes.dashboard_socket(websocket)
-
-
 @router.websocket("/ws/client")
-async def client_websocket(websocket: WebSocket) -> None:
+async def client_websocket_endpoint(websocket: WebSocket) -> None:
     """
     WebSocket endpoint για client PCs.
     """
 
     await websocket_routes.client_socket(websocket)
+
+
+@router.websocket("/ws/dashboard")
+async def dashboard_websocket_endpoint(websocket: WebSocket) -> None:
+    """
+    WebSocket endpoint για dashboard.
+    """
+
+    await websocket_routes.dashboard_socket(websocket)
