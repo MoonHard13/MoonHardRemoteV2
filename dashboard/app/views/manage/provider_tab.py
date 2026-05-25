@@ -337,7 +337,7 @@ class ProviderTab(ctk.CTkFrame):
             "invoice_type": self.provider_invoice_type_entry.get().strip()
         }
 
-        self._set_status("Search backend is not connected yet.")
+        self._set_status("Searching invoices...")
 
         if self.on_provider_request_callback:
             # Δεν θα αποθηκευτεί τίποτα στον server. Θα γίνει μόνο WebSocket forwarding στο επόμενο βήμα.
@@ -508,3 +508,22 @@ class ProviderTab(ctk.CTkFrame):
 
         self.provider_end_entry.delete(0, "end")
         self.provider_end_entry.insert(0, self._tomorrow_yyyymmdd())
+        
+    def handle_search_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα αναζήτησης παραστατικών Provider/MUPT.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if not payload.get("success"):
+            self.clear_invoices()
+            self._set_status(f"Search failed: {payload.get('error')}")
+            return
+
+        invoices = payload.get("invoices") or []
+        table = payload.get("table") or "-"
+
+        self.populate_invoices(invoices)
+        self._set_status(f"Loaded {len(invoices)} invoices from {table}.")

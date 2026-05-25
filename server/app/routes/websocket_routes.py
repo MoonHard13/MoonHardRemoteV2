@@ -190,6 +190,24 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") in ("provider_search_invoices_result",):
+                    request_id = data.get("request_id", "")
+
+                    dashboard_websocket = self.pending_requests.pop(
+                        request_id,
+                        None
+                    )
+
+                    if dashboard_websocket:
+                        await connection_manager.send_to_dashboard(
+                            dashboard_websocket,
+                            data
+                        )
+                    else:
+                        await connection_manager.broadcast_to_dashboards(data)
+
+                    continue
+
                 await websocket.send_json({
                     "type": "echo",
                     "received": data
@@ -342,6 +360,8 @@ class WebSocketRoutes:
                             websocket,
                             {
                                 "type": "terminal_autocomplete_error",
+                                "request_id": request_id,
+                                "client_code": client_code,
                                 "message": "Missing request_id or client_code."
                             }
                         )
@@ -386,6 +406,8 @@ class WebSocketRoutes:
                             websocket,
                             {
                                 "type": "terminal_error",
+                                "command_id": command_id,
+                                "client_code": client_code,
                                 "message": "Missing command_id, client_code or command."
                             }
                         )
@@ -534,6 +556,49 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") == "provider_search_invoices":
+                    request_id = data.get("request_id", "")
+                    client_code = data.get("client_code", "")
+
+                    if not request_id or not client_code:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_search_invoices_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "error": "Missing request_id or client_code.",
+                                "invoices": [],
+                                "count": 0,
+                                "table": None
+                            }
+                        )
+                        continue
+
+                    self.pending_requests[request_id] = websocket
+
+                    sent = await connection_manager.send_to_client(client_code, data)
+
+                    if not sent:
+                        self.pending_requests.pop(request_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_search_invoices_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "error": "Client is not connected.",
+                                "invoices": [],
+                                "count": 0,
+                                "table": None
+                            }
+                        )
+
+                    continue
+
                 await connection_manager.send_to_dashboard(
                     websocket,
                     {
@@ -548,9 +613,6 @@ class WebSocketRoutes:
         except Exception:
             logger.exception("Unexpected dashboard WebSocket error.")
             connection_manager.disconnect_dashboard(websocket)
-
-
-websocket_routes = WebSocketRoutes()
 
 
 @router.get("/api/ws-test")

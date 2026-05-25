@@ -10,6 +10,7 @@ from websockets.exceptions import ConnectionClosed
 from app.terminal_executor import TerminalExecutor
 from app.appsettings_reader import AppSettingsReader
 from app.sql_executor import SqlExecutor
+from app.provider.provider_service import ProviderService
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class MoonHardClientAgent:
         self.terminal_executor = TerminalExecutor()
         self.appsettings_reader = AppSettingsReader()
         self.sql_executor = SqlExecutor()
+        self.provider_service = ProviderService()
         
     async def run_forever(self) -> None:
         """
@@ -125,6 +127,9 @@ class MoonHardClientAgent:
 
             elif message_type == "sql_cancel":
                 await self._handle_sql_cancel(websocket, payload)
+                
+            elif message_type == "provider_search_invoices":
+                await self._handle_provider_search_invoices(websocket, payload)
             
     async def _send_heartbeat_forever(self, websocket) -> None:
         """
@@ -397,5 +402,76 @@ class MoonHardClientAgent:
             "client_code": self.identity["client_code"],
             **cancel_result
         }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+        
+    async def _handle_provider_search_invoices(self, websocket, payload: dict) -> None:
+        """
+        Εκτελεί remote MUPT invoice search στον client υπολογιστή.
+        Δεν αποθηκεύει αποτελέσματα στον server.
+        """
+
+        request_id = payload.get("request_id", "")
+        bo_connection_id = int(payload.get("bo_connection_id", 1))
+        start_date = payload.get("start_date", "")
+        end_date = payload.get("end_date", "")
+        afm = payload.get("afm", "")
+        invoice_type = payload.get("invoice_type", "")
+
+        logger.info(
+            "Λήφθηκε Provider invoice search. request_id=%s bo_connection_id=%s",
+            request_id,
+            bo_connection_id
+        )
+
+        try:
+            appsettings_data = self.appsettings_reader.read_appsettings_production()
+            bo_connections = appsettings_data.get("bo_connections") or []
+
+            selected_connection = self._get_bo_connection_by_id(
+                bo_connections=bo_connections,
+                bo_connection_id=bo_connection_id
+            )
+
+            if not selected_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} was not found.")
+
+            database_connection = selected_connection.get("DatabaseConnection")
+
+            if not database_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} has no DatabaseConnection.")
+
+            search_result = await asyncio.to_thread(
+                self.provider_service.search_invoices,
+                database_connection,
+                start_date,
+                end_date,
+                afm,
+                invoice_type,
+                30
+            )
+
+            result_message = {
+                "type": "provider_search_invoices_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                **search_result
+            }
+
+        except Exception as exc:
+            logger.exception("Provider invoice search failed.")
+
+            result_message = {
+                "type": "provider_search_invoices_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                "success": False,
+                "error": str(exc),
+                "invoices": [],
+                "count": 0,
+                "table": None
+            }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))

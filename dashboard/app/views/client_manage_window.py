@@ -1298,3 +1298,14 @@ class ClientManageWindow(ctk.CTkToplevel):
             on_provider_request_callback=self.on_provider_request_callback
         )
         self.provider_tab_view.grid(row=0, column=0, sticky="nsew")
+        
+    def handle_provider_search_invoices_result(self, payload: dict) -> None:
+        """
+        Προωθεί το αποτέλεσμα αναζήτησης Provider/MUPT στο Provider tab.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if hasattr(self, "provider_tab_view"):
+            self.provider_tab_view.handle_search_result(payload)
