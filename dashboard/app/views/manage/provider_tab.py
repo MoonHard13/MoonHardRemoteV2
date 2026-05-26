@@ -35,7 +35,11 @@ class ProviderTab(ctk.CTkFrame):
         self.provider_selected_invoice_ids: set[str] = set()
         self.selected_bo_connection_id: int = 1
         self.current_payways_window = None
-
+        self.current_payways_tree = None
+        self.current_payways_title_label = None
+        self.current_payways_invoice_id = ""
+        self.current_payways_columns: list[str] = []
+        
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
@@ -652,6 +656,10 @@ class ProviderTab(ctk.CTkFrame):
         """
 
         window = ctk.CTkToplevel(self)
+
+        self.current_payways_window = window
+        self.current_payways_invoice_id = invoice_id
+
         window.title(f"Payways - Invoice {invoice_id}")
         window.geometry("1000x560")
         window.minsize(850, 460)
@@ -664,6 +672,9 @@ class ProviderTab(ctk.CTkFrame):
             text=f"Payways for Invoice {invoice_id} ({len(payways)})",
             font=("Segoe UI", 20, "bold")
         )
+
+        self.current_payways_title_label = title
+
         title.grid(row=0, column=0, padx=15, pady=(15, 5), sticky="w")
 
         actions_frame = ctk.CTkFrame(window, corner_radius=12)
@@ -685,6 +696,10 @@ class ProviderTab(ctk.CTkFrame):
             show="headings",
             height=16
         )
+
+        self.current_payways_tree = tree
+        self.current_payways_columns = columns
+
         tree.grid(row=0, column=0, sticky="nsew")
 
         y_scroll = ttk.Scrollbar(
@@ -750,6 +765,53 @@ class ProviderTab(ctk.CTkFrame):
                 invoice_id=invoice_id
             )
         )
+
+    def _refresh_payways_window(
+        self,
+        invoice_id: str,
+        payways: list[dict]
+    ) -> None:
+        """
+        Ανανεώνει το υπάρχον Payways popup χωρίς να ανοίξει νέο παράθυρο.
+        """
+
+        tree = self.current_payways_tree
+
+        if tree is None:
+            self._open_payways_window(
+                invoice_id=invoice_id,
+                payways=payways
+            )
+            return
+
+        if payways:
+            columns = list(payways[0].keys())
+        else:
+            columns = ["Message"]
+
+        self.current_payways_columns = columns
+
+        tree.delete(*tree.get_children())
+        tree.configure(columns=columns)
+
+        for column in columns:
+            tree.heading(column, text=column)
+            tree.column(column, width=170, minwidth=100, stretch=True)
+
+        if payways:
+            for payway in payways:
+                tree.insert(
+                    "",
+                    "end",
+                    values=[payway.get(column, "") for column in columns]
+                )
+        else:
+            tree.insert("", "end", values=["No payways found."])
+
+        if self.current_payways_title_label:
+            self.current_payways_title_label.configure(
+                text=f"Payways for Invoice {invoice_id} ({len(payways)})"
+            )
 
     def _show_payways_context_menu(
         self,
@@ -836,7 +898,7 @@ class ProviderTab(ctk.CTkFrame):
 
     def handle_delete_payway_result(self, payload: dict) -> None:
         """
-        Μετά τη διαγραφή τρόπου πληρωμής κάνει refresh τα payways.
+        Μετά τη διαγραφή τρόπου πληρωμής ανανεώνει το ίδιο Payways popup.
         """
 
         if payload.get("client_code") != self.client_code:
@@ -857,10 +919,6 @@ class ProviderTab(ctk.CTkFrame):
         self._set_status(
             f"Deleted payway {sales_payway_oid}. Main rows: {deleted_main_rows}, history rows: {deleted_history_rows}. Refreshing..."
         )
-
-        if self.current_payways_window and self.current_payways_window.winfo_exists():
-            self.current_payways_window.destroy()
-            self.current_payways_window = None
 
         self._request_payways_for_invoice(invoice_id)
         
@@ -934,7 +992,7 @@ class ProviderTab(ctk.CTkFrame):
     
     def handle_payways_result(self, payload: dict) -> None:
         """
-        ????????? ???? ??????? ???????? ?? popup table.
+        Εμφανίζει ή ανανεώνει τους τρόπους πληρωμής στο ίδιο popup.
         """
 
         if payload.get("client_code") != self.client_code:
@@ -951,6 +1009,18 @@ class ProviderTab(ctk.CTkFrame):
         self._set_status(
             f"Loaded {len(payways)} payway row(s) for invoice {invoice_id}."
         )
+
+        if (
+            self.current_payways_window
+            and self.current_payways_window.winfo_exists()
+            and self.current_payways_tree
+            and self.current_payways_invoice_id == invoice_id
+        ):
+            self._refresh_payways_window(
+                invoice_id=invoice_id,
+                payways=payways
+            )
+            return
 
         self._open_payways_window(
             invoice_id=invoice_id,
