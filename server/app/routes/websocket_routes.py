@@ -208,11 +208,6 @@ class WebSocketRoutes:
 
                     continue
 
-                await websocket.send_json({
-                    "type": "echo",
-                    "received": data
-                })
-
                 if data.get("type") in ("provider_send_invoices_result",):
                     request_id = data.get("request_id", "")
 
@@ -230,6 +225,11 @@ class WebSocketRoutes:
                         await connection_manager.broadcast_to_dashboards(data)
 
                     continue
+
+                await websocket.send_json({
+                    "type": "echo",
+                    "received": data
+                })
 
         except WebSocketDisconnect:
             logger.info("Client WebSocket disconnected: %s", client_code)

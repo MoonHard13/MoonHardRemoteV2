@@ -91,20 +91,6 @@ class ClientManageWindow(ctk.CTkToplevel):
         self._build_appsettings_tab()
         self._build_sql_tab()
         self._build_provider_tab()
-
-    def _build_provider_tab(self) -> None:
-        """
-        Δημιουργεί το Provider tab ως ξεχωριστό modular component.
-        """
-
-        self.provider_tab_view = ProviderTab(
-            parent=self.provider_tab,
-            client_code=self.client_code,
-            get_bo_values_callback=self._build_bo_connection_values,
-            get_selected_bo_id_callback=lambda: self.selected_bo_connection_id,
-            on_provider_request_callback=self.on_provider_request_callback
-        )
-        self.provider_tab_view.grid(row=0, column=0, sticky="nsew")
         
     def _build_header(self) -> None:
         """
