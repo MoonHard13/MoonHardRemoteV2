@@ -133,6 +133,9 @@ class MoonHardClientAgent:
 
             elif message_type == "provider_send_invoices":
                 await self._handle_provider_send_invoices(websocket, payload)
+
+            elif message_type == "provider_get_errors":
+                await self._handle_provider_get_errors(websocket, payload)
             
     async def _send_heartbeat_forever(self, websocket) -> None:
         """
@@ -531,6 +534,74 @@ class MoonHardClientAgent:
                 "fail_count": 0,
                 "elapsed_ms": None,
                 "results": []
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+        
+    async def _handle_provider_get_errors(self, websocket, payload: dict) -> None:
+        """
+        Φέρνει Provider/MyDATA errors από τον client υπολογιστή.
+        Δεν αποθηκεύει αποτελέσματα στον server.
+        """
+
+        request_id = payload.get("request_id", "")
+        bo_connection_id = int(payload.get("bo_connection_id", 1))
+        start_date = payload.get("start_date", "")
+        end_date = payload.get("end_date", "")
+        limit = int(payload.get("limit", 300))
+
+        logger.info(
+            "Λήφθηκε Provider errors request. request_id=%s bo_connection_id=%s",
+            request_id,
+            bo_connection_id
+        )
+
+        try:
+            appsettings_data = self.appsettings_reader.read_appsettings_production()
+            bo_connections = appsettings_data.get("bo_connections") or []
+
+            selected_connection = self._get_bo_connection_by_id(
+                bo_connections=bo_connections,
+                bo_connection_id=bo_connection_id
+            )
+
+            if not selected_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} was not found.")
+
+            database_connection = selected_connection.get("DatabaseConnection")
+
+            if not database_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} has no DatabaseConnection.")
+
+            errors_result = await asyncio.to_thread(
+                self.provider_service.get_mydata_errors,
+                database_connection,
+                start_date,
+                end_date,
+                limit,
+                30
+            )
+
+            result_message = {
+                "type": "provider_get_errors_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                **errors_result
+            }
+
+        except Exception as exc:
+            logger.exception("Provider errors request failed.")
+
+            result_message = {
+                "type": "provider_get_errors_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                "success": False,
+                "error": str(exc),
+                "errors": [],
+                "count": 0
             }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))

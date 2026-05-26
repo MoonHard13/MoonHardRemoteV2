@@ -377,10 +377,23 @@ class ProviderTab(ctk.CTkFrame):
 
     def _show_errors(self) -> None:
         """
-        Προσωρινό handler για εμφάνιση σφαλμάτων.
+        Ζητά Provider/MyDATA errors από τον client υπολογιστή.
         """
 
-        self._set_status("Errors backend is not connected yet.")
+        payload = {
+            "type": "provider_get_errors",
+            "request_id": str(uuid.uuid4()),
+            "client_code": self.client_code,
+            "bo_connection_id": self.selected_bo_connection_id,
+            "start_date": self.provider_start_entry.get().strip(),
+            "end_date": self.provider_end_entry.get().strip(),
+            "limit": 300
+        }
+
+        self._set_status("Loading Provider/MyDATA errors...")
+
+        if self.on_provider_request_callback:
+            self.on_provider_request_callback(payload)
 
     def _delete_mydata(self) -> None:
         """
@@ -604,3 +617,150 @@ class ProviderTab(ctk.CTkFrame):
             )
 
         self._search_invoices()
+        
+    def handle_errors_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει Provider/MyDATA errors σε popup table.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if not payload.get("success"):
+            self._set_status(f"Errors load failed: {payload.get('error')}")
+            return
+
+        errors = payload.get("errors") or []
+        self._set_status(f"Loaded {len(errors)} Provider/MyDATA error row(s).")
+        self._open_errors_window(errors)
+        
+    def _open_errors_window(self, errors: list[dict]) -> None:
+        """
+        Ανοίγει παράθυρο με πίνακα Provider/MyDATA errors.
+        """
+
+        window = ctk.CTkToplevel(self)
+        window.title("Provider / MyDATA Errors")
+        window.geometry("1100x600")
+        window.minsize(900, 450)
+
+        window.grid_columnconfigure(0, weight=1)
+        window.grid_rowconfigure(1, weight=1)
+
+        title = ctk.CTkLabel(
+            window,
+            text=f"Provider / MyDATA Errors ({len(errors)})",
+            font=("Segoe UI", 20, "bold")
+        )
+        title.grid(row=0, column=0, padx=15, pady=15, sticky="w")
+
+        table_frame = ctk.CTkFrame(window, corner_radius=12)
+        table_frame.grid(row=1, column=0, padx=15, pady=(0, 15), sticky="nsew")
+        table_frame.grid_columnconfigure(0, weight=1)
+        table_frame.grid_rowconfigure(0, weight=1)
+
+        if errors:
+            columns = list(errors[0].keys())
+        else:
+            columns = ["Message"]
+
+        tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            height=18
+        )
+        tree.grid(row=0, column=0, sticky="nsew")
+
+        y_scroll = ttk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            command=tree.yview
+        )
+        y_scroll.grid(row=0, column=1, sticky="ns")
+
+        x_scroll = ttk.Scrollbar(
+            table_frame,
+            orient="horizontal",
+            command=tree.xview
+        )
+        x_scroll.grid(row=1, column=0, sticky="ew")
+
+        tree.configure(
+            yscrollcommand=y_scroll.set,
+            xscrollcommand=x_scroll.set
+        )
+
+        for column in columns:
+            tree.heading(column, text=column)
+            tree.column(column, width=180, minwidth=100, stretch=True)
+
+        if errors:
+            for error_row in errors:
+                tree.insert(
+                    "",
+                    "end",
+                    values=[error_row.get(column, "") for column in columns]
+                )
+        else:
+            tree.insert("", "end", values=["No errors found."])
+
+        tree.bind("<Control-c>", lambda _event: self._copy_tree_selected_rows(tree))
+        tree.bind("<Button-3>", lambda event: self._show_tree_copy_menu(event, tree))
+        
+    def _copy_tree_selected_rows(self, tree: ttk.Treeview) -> None:
+        """
+        Αντιγράφει τις επιλεγμένες γραμμές ενός Treeview.
+        """
+
+        selected_items = tree.selection()
+
+        if not selected_items:
+            return
+
+        lines: list[str] = []
+
+        for item in selected_items:
+            values = tree.item(item, "values")
+            lines.append("\t".join(str(value) for value in values))
+
+        copied_text = "\n".join(lines)
+
+        self.clipboard_clear()
+        self.clipboard_append(copied_text)
+
+
+    def _copy_tree_all_rows(self, tree: ttk.Treeview) -> None:
+        """
+        Αντιγράφει όλες τις γραμμές ενός Treeview.
+        """
+
+        lines: list[str] = []
+
+        for item in tree.get_children():
+            values = tree.item(item, "values")
+            lines.append("\t".join(str(value) for value in values))
+
+        copied_text = "\n".join(lines)
+
+        self.clipboard_clear()
+        self.clipboard_append(copied_text)
+
+
+    def _show_tree_copy_menu(self, event, tree: ttk.Treeview) -> None:
+        """
+        Εμφανίζει context menu για αντιγραφή γραμμών.
+        """
+
+        context_menu = __import__("tkinter").Menu(self, tearoff=0)
+        context_menu.add_command(
+            label="Copy selected rows",
+            command=lambda: self._copy_tree_selected_rows(tree)
+        )
+        context_menu.add_command(
+            label="Copy all rows",
+            command=lambda: self._copy_tree_all_rows(tree)
+        )
+
+        context_menu.tk_popup(event.x_root, event.y_root)
+        context_menu.grab_release()

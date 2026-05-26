@@ -493,3 +493,191 @@ class ProviderService:
             return "no"
 
         return default
+    
+    def get_mydata_errors(
+        self,
+        connection_string: str,
+        start_yyyymmdd: str,
+        end_yyyymmdd: str,
+        limit: int = 300,
+        timeout: int = 30
+    ) -> dict[str, Any]:
+        """
+        Φέρνει MyDATA / Provider errors από TblSnMyDATA_Response.
+        Δεν αποθηκεύει δεδομένα στον server ή στη Supabase.
+        """
+
+        start = start_yyyymmdd.strip()
+        end = end_yyyymmdd.strip()
+        safe_limit = max(1, min(int(limit), 1000))
+
+        if not self._is_valid_yyyymmdd(start):
+            return {
+                "success": False,
+                "error": "Invalid start_date. Expected YYYYMMDD.",
+                "errors": [],
+                "count": 0
+            }
+
+        if not self._is_valid_yyyymmdd(end):
+            return {
+                "success": False,
+                "error": "Invalid end_date. Expected YYYYMMDD.",
+                "errors": [],
+                "count": 0
+            }
+
+        try:
+            odbc_connection_string = self._to_odbc_connection_string(connection_string)
+
+            with pyodbc.connect(odbc_connection_string, timeout=timeout) as connection:
+                cursor = connection.cursor()
+
+                if not self._table_exists(cursor, "TblSnMyDATA_Response"):
+                    raise RuntimeError("Table TblSnMyDATA_Response was not found.")
+
+                table_columns = self._get_table_columns(cursor, "TblSnMyDATA_Response")
+
+                rows = self._fetch_mydata_error_rows(
+                    cursor=cursor,
+                    table_columns=table_columns,
+                    start_yyyymmdd=start,
+                    end_yyyymmdd=end,
+                    limit=safe_limit
+                )
+
+            return {
+                "success": True,
+                "error": None,
+                "errors": rows,
+                "count": len(rows)
+            }
+
+        except Exception as exc:
+            logger.exception("Provider MyDATA errors fetch failed.")
+
+            return {
+                "success": False,
+                "error": str(exc),
+                "errors": [],
+                "count": 0
+            }
+            
+    def _fetch_mydata_error_rows(
+        self,
+        cursor,
+        table_columns: set[str],
+        start_yyyymmdd: str,
+        end_yyyymmdd: str,
+        limit: int
+    ) -> list[dict[str, Any]]:
+        """
+        Διαβάζει error rows από TblSnMyDATA_Response με δυναμικό έλεγχο στηλών.
+        """
+
+        preferred_columns = [
+            "MyDATA_ResponseOID",
+            "MyDATA_ResponseDate",
+            "MyDATA_ResponseNoteType",
+            "MyDATA_ResponseNumber",
+            "MyDATA_ResponseStatusCode",
+            "MyDATA_ResponseErrorMessage",
+            "MyDATA_ResponseRequest",
+            "MyDATA_ResponseResponse"
+        ]
+
+        selected_columns = [
+            column
+            for column in preferred_columns
+            if column.lower() in table_columns
+        ]
+
+        if not selected_columns:
+            selected_columns = list(table_columns)[:8]
+
+        select_parts = [
+            f"CAST([{column}] AS NVARCHAR(MAX)) AS [{column}]"
+            for column in selected_columns
+        ]
+
+        where_parts: list[str] = []
+        params: list[Any] = []
+
+        if "mydata_responsedate" in table_columns:
+            where_parts.append(
+                "CONVERT(date, [MyDATA_ResponseDate]) BETWEEN CONVERT(date, ?, 112) AND CONVERT(date, ?, 112)"
+            )
+            params.extend([start_yyyymmdd, end_yyyymmdd])
+
+        error_conditions: list[str] = []
+
+        if "mydata_responseerrormessage" in table_columns:
+            error_conditions.append(
+                "NULLIF(LTRIM(RTRIM(CAST([MyDATA_ResponseErrorMessage] AS NVARCHAR(MAX)))), '') IS NOT NULL"
+            )
+
+        if "mydata_responsestatuscode" in table_columns:
+            error_conditions.append(
+                "ISNULL(CAST([MyDATA_ResponseStatusCode] AS NVARCHAR(128)), '') <> 'Success'"
+            )
+
+        if error_conditions:
+            where_parts.append("(" + " OR ".join(error_conditions) + ")")
+
+        where_sql = ""
+
+        if where_parts:
+            where_sql = "WHERE " + " AND ".join(where_parts)
+
+        order_sql = ""
+
+        if "mydata_responsedate" in table_columns:
+            order_sql = "ORDER BY [MyDATA_ResponseDate] DESC"
+
+        query = (
+            f"SELECT TOP {limit} "
+            + ", ".join(select_parts)
+            + " FROM [TblSnMyDATA_Response] "
+            + where_sql
+            + " "
+            + order_sql
+        )
+
+        logger.info("Provider errors SQL params=%s", params)
+
+        cursor.execute(query, params)
+
+        columns = [column[0] for column in cursor.description]
+        rows = cursor.fetchall()
+
+        result_rows: list[dict[str, Any]] = []
+
+        for row in rows:
+            item: dict[str, Any] = {}
+
+            for index, column in enumerate(columns):
+                value = row[index]
+                item[column] = "" if value is None else str(value)
+
+            result_rows.append(item)
+
+        return result_rows
+    
+    def _get_table_columns(self, cursor, table_name: str) -> set[str]:
+        """
+        Επιστρέφει τις στήλες ενός table/view σε lowercase μορφή.
+        """
+
+        cursor.execute(
+            """
+            SELECT COLUMN_NAME
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = ?
+            """,
+            table_name
+        )
+
+        return {
+            str(row[0]).lower()
+            for row in cursor.fetchall()
+        }
