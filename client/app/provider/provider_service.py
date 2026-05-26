@@ -1140,3 +1140,53 @@ class ProviderService:
                 "deleted_main_rows": 0,
                 "deleted_history_rows": 0
             }
+            
+    def fetch_note_types(
+        self,
+        connection_string: str,
+        timeout: int = 30
+    ) -> dict[str, Any]:
+        """
+        Φέρνει Note Types από tblSNNoteType όπως το MUPT.
+        Επιστρέφει τιμές σε μορφή: NoteTypeDescr|NoteTypeOID.
+        """
+
+        try:
+            odbc_connection_string = self._to_odbc_connection_string(connection_string)
+
+            with pyodbc.connect(odbc_connection_string, timeout=timeout) as connection:
+                cursor = connection.cursor()
+
+                if not self._table_exists(cursor, "tblSNNoteType"):
+                    raise RuntimeError("Table tblSNNoteType was not found.")
+
+                cursor.execute(
+                    """
+                    SELECT CONCAT(NoteTypeDescr, '|', NoteTypeOID) AS NoteTypeValue
+                    FROM tblSNNoteType
+                    WHERE NoteTypeMyDATAIncluded = 1
+                    ORDER BY 1
+                    """
+                )
+
+                note_types = [
+                    str(row[0])
+                    for row in cursor.fetchall()
+                ]
+
+            return {
+                "success": True,
+                "error": None,
+                "note_types": note_types,
+                "count": len(note_types)
+            }
+
+        except Exception as exc:
+            logger.exception("Provider note types fetch failed.")
+
+            return {
+                "success": False,
+                "error": str(exc),
+                "note_types": [],
+                "count": 0
+            }

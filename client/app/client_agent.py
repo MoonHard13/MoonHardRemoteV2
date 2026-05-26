@@ -139,6 +139,9 @@ class MoonHardClientAgent:
                 
             elif message_type == "provider_get_payways":
                 await self._handle_provider_get_payways(websocket, payload)
+
+            elif message_type == "provider_get_note_types":
+                await self._handle_provider_get_note_types(websocket, payload)
                 
             elif message_type == "provider_delete_payway":
                 await self._handle_provider_delete_payway(websocket, payload)
@@ -818,6 +821,67 @@ class MoonHardClientAgent:
                 "error": str(exc),
                 "deleted_main_rows": 0,
                 "deleted_history_rows": 0
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+        
+    async def _handle_provider_get_note_types(self, websocket, payload: dict) -> None:
+        """
+        Φέρνει Note Types για Delete MyDATA από τον client υπολογιστή.
+        """
+
+        request_id = payload.get("request_id", "")
+        bo_connection_id = int(payload.get("bo_connection_id", 1))
+
+        logger.info(
+            "Λήφθηκε Provider note types request. request_id=%s bo_connection_id=%s",
+            request_id,
+            bo_connection_id
+        )
+
+        try:
+            appsettings_data = self.appsettings_reader.read_appsettings_production()
+            bo_connections = appsettings_data.get("bo_connections") or []
+
+            selected_connection = self._get_bo_connection_by_id(
+                bo_connections=bo_connections,
+                bo_connection_id=bo_connection_id
+            )
+
+            if not selected_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} was not found.")
+
+            database_connection = selected_connection.get("DatabaseConnection")
+
+            if not database_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} has no DatabaseConnection.")
+
+            note_types_result = await asyncio.to_thread(
+                self.provider_service.fetch_note_types,
+                database_connection,
+                30
+            )
+
+            result_message = {
+                "type": "provider_get_note_types_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                **note_types_result
+            }
+
+        except Exception as exc:
+            logger.exception("Provider note types request failed.")
+
+            result_message = {
+                "type": "provider_get_note_types_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                "success": False,
+                "error": str(exc),
+                "note_types": [],
+                "count": 0
             }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))

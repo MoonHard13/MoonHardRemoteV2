@@ -434,7 +434,7 @@ class ProviderTab(ctk.CTkFrame):
     def _delete_mydata(self) -> None:
         """
         Ανοίγει παράθυρο διαγραφής MyDATA όπως το MUPT.
-        Ο χρήστης επιλέγει τύπο παραστατικού και γράφει αριθμό παραστατικού.
+        Ο χρήστης επιλέγει Note Type και γράφει αριθμό/list/range.
         """
 
         self._open_delete_mydata_window()
@@ -446,8 +446,8 @@ class ProviderTab(ctk.CTkFrame):
 
         window = ctk.CTkToplevel(self)
         window.title("Delete MyDATA")
-        window.geometry("520x300")
-        window.minsize(500, 280)
+        window.geometry("560x330")
+        window.minsize(540, 310)
         window.grab_set()
 
         window.grid_columnconfigure(0, weight=1)
@@ -457,11 +457,11 @@ class ProviderTab(ctk.CTkFrame):
             text="Delete MyDATA Responses",
             font=("Segoe UI", 20, "bold")
         )
-        title.grid(row=0, column=0, padx=20, pady=(18, 10), sticky="w")
+        title.grid(row=0, column=0, padx=20, pady=(18, 8), sticky="w")
 
         info = ctk.CTkLabel(
             window,
-            text="Choose document type and enter invoice number.",
+            text="Choose Note Type and enter number, list, or range.",
             font=("Segoe UI", 13),
             anchor="w"
         )
@@ -471,34 +471,30 @@ class ProviderTab(ctk.CTkFrame):
         form_frame.grid(row=2, column=0, padx=20, pady=(0, 15), sticky="ew")
         form_frame.grid_columnconfigure(1, weight=1)
 
-        type_label = ctk.CTkLabel(
+        note_type_label = ctk.CTkLabel(
             form_frame,
-            text="Document Type:",
+            text="Note Type:",
             font=("Segoe UI", 13, "bold")
         )
-        type_label.grid(row=0, column=0, padx=(14, 10), pady=(14, 8), sticky="w")
-
-        type_values = self._get_loaded_invoice_type_values()
+        note_type_label.grid(row=0, column=0, padx=(14, 10), pady=(14, 8), sticky="w")
 
         self.delete_mydata_type_option = ctk.CTkOptionMenu(
             form_frame,
-            values=type_values
+            values=["Loading note types..."]
         )
+        self.delete_mydata_type_option.set("Loading note types...")
         self.delete_mydata_type_option.grid(row=0, column=1, padx=(0, 14), pady=(14, 8), sticky="ew")
-
-        if type_values:
-            self.delete_mydata_type_option.set(type_values[0])
 
         number_label = ctk.CTkLabel(
             form_frame,
-            text="Invoice Number:",
+            text="Number/List/Range:",
             font=("Segoe UI", 13, "bold")
         )
         number_label.grid(row=1, column=0, padx=(14, 10), pady=(8, 14), sticky="w")
 
         self.delete_mydata_number_entry = ctk.CTkEntry(
             form_frame,
-            placeholder_text="e.g. 12345"
+            placeholder_text="Examples: 123 or 123,124,125 or 100-150"
         )
         self.delete_mydata_number_entry.grid(row=1, column=1, padx=(0, 14), pady=(8, 14), sticky="ew")
 
@@ -522,6 +518,144 @@ class ProviderTab(ctk.CTkFrame):
         cancel_button.pack(side="left", padx=(10, 0))
 
         self.delete_mydata_number_entry.focus_set()
+
+        self._request_note_types_for_mydata_delete()
+
+
+    def _request_note_types_for_mydata_delete(self) -> None:
+        """
+        Ζητά Note Types από τον client υπολογιστή.
+        """
+
+        payload = {
+            "type": "provider_get_note_types",
+            "request_id": str(uuid.uuid4()),
+            "client_code": self.client_code,
+            "bo_connection_id": self.selected_bo_connection_id
+        }
+
+        self._set_status("Loading Note Types...")
+
+        if self.on_provider_request_callback:
+            self.on_provider_request_callback(payload)
+
+
+    def handle_note_types_result(self, payload: dict) -> None:
+        """
+        Γεμίζει το Note Type dropdown του Delete MyDATA popup.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if not payload.get("success"):
+            self._set_status(f"Note Types load failed: {payload.get('error')}")
+            return
+
+        note_types = payload.get("note_types") or []
+
+        if not note_types:
+            self._set_status("No MyDATA note types found.")
+            return
+
+        if hasattr(self, "delete_mydata_type_option"):
+            self.delete_mydata_type_option.configure(values=note_types)
+            self.delete_mydata_type_option.set(note_types[0])
+
+        self._set_status(f"Loaded {len(note_types)} Note Types.")
+
+    def _parse_mydata_number_input(self, raw_value: str) -> list[str]:
+        """
+        Αναλύει αριθμό/list/range όπως το MUPT.
+        Παραδείγματα:
+        123
+        123,124,125
+        100-150
+        """
+
+        raw = raw_value.strip()
+
+        if not raw:
+            return []
+
+        if "," in raw:
+            values = [
+                part.strip()
+                for part in raw.split(",")
+                if part.strip()
+            ]
+
+            return values
+
+        if "-" in raw:
+            parts = [
+                part.strip()
+                for part in raw.split("-", 1)
+            ]
+
+            if len(parts) != 2:
+                return []
+
+            if not parts[0].isdigit() or not parts[1].isdigit():
+                return []
+
+            start_no = int(parts[0])
+            end_no = int(parts[1])
+
+            if end_no < start_no:
+                return []
+
+            return [
+                str(number)
+                for number in range(start_no, end_no + 1)
+            ]
+
+        return [raw]
+
+
+    def _execute_delete_mydata_from_window(self, window) -> None:
+        """
+        Στέλνει αίτημα διαγραφής MyDATA από το popup.
+        """
+
+        selected_note_type = self.delete_mydata_type_option.get().strip()
+        raw_numbers = self.delete_mydata_number_entry.get().strip()
+
+        if not selected_note_type or "|" not in selected_note_type:
+            self._set_status("Select valid Note Type first.")
+            return
+
+        note_code = selected_note_type.split("|")[-1].strip()
+        note_numbers = self._parse_mydata_number_input(raw_numbers)
+
+        if not note_numbers:
+            self._set_status("Enter valid number, list, or range first.")
+            return
+
+        documents = [
+            {
+                "note_code": note_code,
+                "note_no": note_no
+            }
+            for note_no in note_numbers
+        ]
+
+        payload = {
+            "type": "provider_delete_mydata",
+            "request_id": str(uuid.uuid4()),
+            "client_code": self.client_code,
+            "bo_connection_id": self.selected_bo_connection_id,
+            "documents": documents
+        }
+
+        self._set_status(
+            f"Deleting MyDATA for NoteType {note_code}, {len(documents)} document(s)..."
+        )
+
+        window.destroy()
+
+        if self.on_provider_request_callback:
+            self.on_provider_request_callback(payload)
 
     def _get_loaded_invoice_type_values(self) -> list[str]:
         """
