@@ -244,6 +244,24 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") in ("provider_get_payways_result",):
+                    request_id = data.get("request_id", "")
+
+                    dashboard_websocket = self.pending_requests.pop(
+                        request_id,
+                        None
+                    )
+
+                    if dashboard_websocket:
+                        await connection_manager.send_to_dashboard(
+                            dashboard_websocket,
+                            data
+                        )
+                    else:
+                        await connection_manager.broadcast_to_dashboards(data)
+
+                    continue
+
                 await websocket.send_json({
                     "type": "echo",
                     "received": data
@@ -755,6 +773,66 @@ class WebSocketRoutes:
                                 "success": False,
                                 "error": "Client is not connected.",
                                 "errors": [],
+                                "count": 0
+                            }
+                        )
+
+                    continue
+
+                if data.get("type") == "provider_get_payways":
+                    request_id = data.get("request_id", "")
+                    client_code = data.get("client_code", "")
+                    invoice_id = data.get("invoice_id", "")
+
+                    if not request_id or not client_code:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_get_payways_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "invoice_id": invoice_id,
+                                "success": False,
+                                "error": "Missing request_id or client_code.",
+                                "payways": [],
+                                "count": 0
+                            }
+                        )
+                        continue
+
+                    if not invoice_id:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_get_payways_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "invoice_id": invoice_id,
+                                "success": False,
+                                "error": "Missing invoice_id.",
+                                "payways": [],
+                                "count": 0
+                            }
+                        )
+                        continue
+
+                    self.pending_requests[request_id] = websocket
+
+                    sent = await connection_manager.send_to_client(client_code, data)
+
+                    if not sent:
+                        self.pending_requests.pop(request_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_get_payways_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "invoice_id": invoice_id,
+                                "success": False,
+                                "error": "Client is not connected.",
+                                "payways": [],
                                 "count": 0
                             }
                         )

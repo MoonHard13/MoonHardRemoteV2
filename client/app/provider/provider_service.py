@@ -562,6 +562,230 @@ class ProviderService:
                 "errors": [],
                 "count": 0
             }
+
+    def get_invoice_payways(
+        self,
+        connection_string: str,
+        invoice_id: str,
+        timeout: int = 30
+    ) -> dict[str, Any]:
+        """
+        Φέρνει τρόπους πληρωμής για συγκεκριμένο παραστατικό.
+        Δεν αποθηκεύει δεδομένα στον server ή στη Supabase.
+        """
+
+        clean_invoice_id = str(invoice_id).strip()
+
+        if not clean_invoice_id:
+            return {
+                "success": False,
+                "error": "InvoiceId is empty.",
+                "payways": [],
+                "count": 0
+            }
+
+        try:
+            odbc_connection_string = self._to_odbc_connection_string(connection_string)
+
+            with pyodbc.connect(odbc_connection_string, timeout=timeout) as connection:
+                cursor = connection.cursor()
+
+                if self._table_exists(cursor, "vsnvsalespayway"):
+                    payways = self._fetch_payways_from_view(
+                        cursor=cursor,
+                        invoice_id=clean_invoice_id
+                    )
+                elif self._table_exists(cursor, "tblsnsalespayway"):
+                    payways = self._fetch_payways_from_table(
+                        cursor=cursor,
+                        invoice_id=clean_invoice_id
+                    )
+                else:
+                    raise RuntimeError(
+                        "Δεν βρέθηκε ούτε το vsnvsalespayway ούτε το tblsnsalespayway."
+                    )
+
+            return {
+                "success": True,
+                "error": None,
+                "payways": payways,
+                "count": len(payways)
+            }
+
+        except Exception as exc:
+            logger.exception("Provider payways fetch failed.")
+
+            return {
+                "success": False,
+                "error": str(exc),
+                "payways": [],
+                "count": 0
+            }
+
+
+    def _fetch_payways_from_view(
+        self,
+        cursor,
+        invoice_id: str
+    ) -> list[dict[str, Any]]:
+        """
+        Φέρνει τρόπους πληρωμής από το view vsnvsalespayway.
+        """
+
+        table_columns = self._get_table_columns(cursor, "vsnvsalespayway")
+
+        preferred_columns = [
+            "SalesPayWayOID",
+            "SalesOID",
+            "InvoiceId",
+            "PayWay",
+            "PayWayName",
+            "Amount",
+            "CardNumber",
+            "SalesMan",
+            "SalesManName"
+        ]
+
+        selected_columns = [
+            column
+            for column in preferred_columns
+            if column.lower() in table_columns
+        ]
+
+        if not selected_columns:
+            selected_columns = list(table_columns)[:10]
+
+        select_parts = [
+            f"CAST([{column}] AS NVARCHAR(MAX)) AS [{column}]"
+            for column in selected_columns
+        ]
+
+        invoice_column = self._find_first_existing_column(
+            table_columns=table_columns,
+            possible_columns=[
+                "InvoiceId",
+                "SalesOID",
+                "SalesPayWaySalesOID",
+                "SalesPayWayInvoiceID"
+            ]
+        )
+
+        if not invoice_column:
+            raise RuntimeError("Could not find invoice id column in vsnvsalespayway.")
+
+        query = (
+            "SELECT "
+            + ", ".join(select_parts)
+            + " FROM [vsnvsalespayway] "
+            + f"WHERE CAST([{invoice_column}] AS NVARCHAR(128)) = ?"
+        )
+
+        logger.info("Provider payways view SQL invoice_id=%s", invoice_id)
+
+        cursor.execute(query, invoice_id)
+
+        return self._rows_to_dicts(cursor)
+
+
+    def _fetch_payways_from_table(
+        self,
+        cursor,
+        invoice_id: str
+    ) -> list[dict[str, Any]]:
+        """
+        Φέρνει τρόπους πληρωμής απευθείας από tblsnsalespayway.
+        """
+
+        table_columns = self._get_table_columns(cursor, "tblsnsalespayway")
+
+        preferred_columns = [
+            "SnSalesPayWayOID",
+            "SalesPayWayOID",
+            "SalesOID",
+            "InvoiceId",
+            "PayWayOID",
+            "Amount",
+            "CardNumber",
+            "SalesManOID"
+        ]
+
+        selected_columns = [
+            column
+            for column in preferred_columns
+            if column.lower() in table_columns
+        ]
+
+        if not selected_columns:
+            selected_columns = list(table_columns)[:10]
+
+        select_parts = [
+            f"CAST([{column}] AS NVARCHAR(MAX)) AS [{column}]"
+            for column in selected_columns
+        ]
+
+        invoice_column = self._find_first_existing_column(
+            table_columns=table_columns,
+            possible_columns=[
+                "InvoiceId",
+                "SalesOID",
+                "SalesPayWaySalesOID",
+                "SalesPayWayInvoiceID"
+            ]
+        )
+
+        if not invoice_column:
+            raise RuntimeError("Could not find invoice id column in tblsnsalespayway.")
+
+        query = (
+            "SELECT "
+            + ", ".join(select_parts)
+            + " FROM [tblsnsalespayway] "
+            + f"WHERE CAST([{invoice_column}] AS NVARCHAR(128)) = ?"
+        )
+
+        logger.info("Provider payways table SQL invoice_id=%s", invoice_id)
+
+        cursor.execute(query, invoice_id)
+
+        return self._rows_to_dicts(cursor)
+
+
+    def _find_first_existing_column(
+        self,
+        table_columns: set[str],
+        possible_columns: list[str]
+    ) -> str:
+        """
+        Βρίσκει την πρώτη στήλη που υπάρχει στον πίνακα.
+        """
+
+        for column in possible_columns:
+            if column.lower() in table_columns:
+                return column
+
+        return ""
+
+
+    def _rows_to_dicts(self, cursor) -> list[dict[str, Any]]:
+        """
+        Μετατρέπει pyodbc rows σε list από dictionaries.
+        """
+
+        columns = [column[0] for column in cursor.description]
+        rows = cursor.fetchall()
+
+        result_rows: list[dict[str, Any]] = []
+
+        for row in rows:
+            item: dict[str, Any] = {}
+
+            for index, column in enumerate(columns):
+                value = row[index]
+                item[column] = "" if value is None else str(value)
+
+            result_rows.append(item)
+
+        return result_rows
             
     def _fetch_mydata_error_rows(
         self,

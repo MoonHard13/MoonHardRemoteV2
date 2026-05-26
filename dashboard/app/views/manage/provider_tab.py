@@ -404,10 +404,27 @@ class ProviderTab(ctk.CTkFrame):
 
     def _show_payways(self) -> None:
         """
-        Προσωρινό handler για τρόπους πληρωμής.
+        Ζητά τρόπους πληρωμής για το επιλεγμένο παραστατικό.
         """
 
-        self._set_status("Payways backend is not connected yet.")
+        selected_invoice_id = self._get_single_selected_invoice_id()
+
+        if not selected_invoice_id:
+            self._set_status("Select exactly one invoice first.")
+            return
+
+        payload = {
+            "type": "provider_get_payways",
+            "request_id": str(uuid.uuid4()),
+            "client_code": self.client_code,
+            "bo_connection_id": self.selected_bo_connection_id,
+            "invoice_id": selected_invoice_id
+        }
+
+        self._set_status(f"Loading payways for invoice {selected_invoice_id}...")
+
+        if self.on_provider_request_callback:
+            self.on_provider_request_callback(payload)
 
     def populate_invoices(self, invoices: list[dict]) -> None:
         """
@@ -764,3 +781,117 @@ class ProviderTab(ctk.CTkFrame):
 
         context_menu.tk_popup(event.x_root, event.y_root)
         context_menu.grab_release()
+        
+    def _get_single_selected_invoice_id(self) -> str:
+        """
+        Επιστρέφει το μοναδικό επιλεγμένο InvoiceId.
+        Αν δεν υπάρχει ακριβώς ένα επιλεγμένο παραστατικό, επιστρέφει κενό.
+        """
+
+        if len(self.provider_selected_invoice_ids) != 1:
+            return ""
+
+        return next(iter(self.provider_selected_invoice_ids))
+    
+    def handle_payways_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει τους τρόπους πληρωμής σε popup table.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        invoice_id = payload.get("invoice_id", "")
+
+        if not payload.get("success"):
+            self._set_status(f"Payways load failed: {payload.get('error')}")
+            return
+
+        payways = payload.get("payways") or []
+
+        self._set_status(
+            f"Loaded {len(payways)} payway row(s) for invoice {invoice_id}."
+        )
+
+        self._open_payways_window(
+            invoice_id=invoice_id,
+            payways=payways
+        )
+        
+    def _open_payways_window(
+        self,
+        invoice_id: str,
+        payways: list[dict]
+    ) -> None:
+        """
+        Ανοίγει παράθυρο με τους τρόπους πληρωμής του παραστατικού.
+        """
+
+        window = ctk.CTkToplevel(self)
+        window.title(f"Payways - Invoice {invoice_id}")
+        window.geometry("1000x520")
+        window.minsize(850, 420)
+
+        window.grid_columnconfigure(0, weight=1)
+        window.grid_rowconfigure(1, weight=1)
+
+        title = ctk.CTkLabel(
+            window,
+            text=f"Payways for Invoice {invoice_id} ({len(payways)})",
+            font=("Segoe UI", 20, "bold")
+        )
+        title.grid(row=0, column=0, padx=15, pady=15, sticky="w")
+
+        table_frame = ctk.CTkFrame(window, corner_radius=12)
+        table_frame.grid(row=1, column=0, padx=15, pady=(0, 15), sticky="nsew")
+        table_frame.grid_columnconfigure(0, weight=1)
+        table_frame.grid_rowconfigure(0, weight=1)
+
+        if payways:
+            columns = list(payways[0].keys())
+        else:
+            columns = ["Message"]
+
+        tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            height=16
+        )
+        tree.grid(row=0, column=0, sticky="nsew")
+
+        y_scroll = ttk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            command=tree.yview
+        )
+        y_scroll.grid(row=0, column=1, sticky="ns")
+
+        x_scroll = ttk.Scrollbar(
+            table_frame,
+            orient="horizontal",
+            command=tree.xview
+        )
+        x_scroll.grid(row=1, column=0, sticky="ew")
+
+        tree.configure(
+            yscrollcommand=y_scroll.set,
+            xscrollcommand=x_scroll.set
+        )
+
+        for column in columns:
+            tree.heading(column, text=column)
+            tree.column(column, width=170, minwidth=100, stretch=True)
+
+        if payways:
+            for payway in payways:
+                tree.insert(
+                    "",
+                    "end",
+                    values=[payway.get(column, "") for column in columns]
+                )
+        else:
+            tree.insert("", "end", values=["No payways found."])
+
+        tree.bind("<Control-c>", lambda _event: self._copy_tree_selected_rows(tree))
+        tree.bind("<Button-3>", lambda event: self._show_tree_copy_menu(event, tree))
