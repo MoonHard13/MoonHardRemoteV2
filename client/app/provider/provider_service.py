@@ -630,57 +630,34 @@ class ProviderService:
     ) -> list[dict[str, Any]]:
         """
         Φέρνει τρόπους πληρωμής από το view vsnvsalespayway.
+        Η λογική ακολουθεί το original MUPT:
+        WHERE spw.SalesPWPosHdr = InvoiceId
         """
 
-        table_columns = self._get_table_columns(cursor, "vsnvsalespayway")
-
-        preferred_columns = [
-            "SalesPayWayOID",
-            "SalesOID",
-            "InvoiceId",
-            "PayWay",
-            "PayWayName",
-            "Amount",
-            "CardNumber",
-            "SalesMan",
-            "SalesManName"
+        required_tables = [
+            "TblSnPayWay",
+            "TblSnSalesMan"
         ]
 
-        selected_columns = [
-            column
-            for column in preferred_columns
-            if column.lower() in table_columns
-        ]
+        for table_name in required_tables:
+            if not self._table_exists(cursor, table_name):
+                raise RuntimeError(f"Table {table_name} was not found.")
 
-        if not selected_columns:
-            selected_columns = list(table_columns)[:10]
+        query = """
+            SELECT
+                CAST(pw.PayWayDescr AS NVARCHAR(255)) AS PayWayDescr,
+                CAST(spw.SalesPWValue AS NVARCHAR(64)) AS SalesPWValue,
+                CAST(sm.SalesManLName AS NVARCHAR(255)) AS SalesManLName,
+                CAST(spw.SalesPayWayOID AS NVARCHAR(128)) AS SalesPayWayOID
+            FROM vsnvsalespayway spw
+            INNER JOIN TblSnPayWay pw
+                ON spw.PayWayOID = pw.PayWayOID
+            INNER JOIN TblSnSalesMan sm
+                ON spw.SalesPWSalesMan = sm.SalesManOID
+            WHERE CAST(spw.SalesPWPosHdr AS NVARCHAR(128)) = ?
+        """
 
-        select_parts = [
-            f"CAST([{column}] AS NVARCHAR(MAX)) AS [{column}]"
-            for column in selected_columns
-        ]
-
-        invoice_column = self._find_first_existing_column(
-            table_columns=table_columns,
-            possible_columns=[
-                "InvoiceId",
-                "SalesOID",
-                "SalesPayWaySalesOID",
-                "SalesPayWayInvoiceID"
-            ]
-        )
-
-        if not invoice_column:
-            raise RuntimeError("Could not find invoice id column in vsnvsalespayway.")
-
-        query = (
-            "SELECT "
-            + ", ".join(select_parts)
-            + " FROM [vsnvsalespayway] "
-            + f"WHERE CAST([{invoice_column}] AS NVARCHAR(128)) = ?"
-        )
-
-        logger.info("Provider payways view SQL invoice_id=%s", invoice_id)
+        logger.info("Provider payways SQL invoice_id=%s", invoice_id)
 
         cursor.execute(query, invoice_id)
 
@@ -693,20 +670,34 @@ class ProviderService:
         invoice_id: str
     ) -> list[dict[str, Any]]:
         """
-        Φέρνει τρόπους πληρωμής απευθείας από tblsnsalespayway.
+        Fallback: φέρνει τρόπους πληρωμής από tblsnsalespayway.
+        Χρησιμοποιεί SalesPWPosHdr όταν υπάρχει.
         """
 
         table_columns = self._get_table_columns(cursor, "tblsnsalespayway")
 
+        invoice_column = self._find_first_existing_column(
+            table_columns=table_columns,
+            possible_columns=[
+                "SalesPWPosHdr",
+                "salespwposhdr",
+                "SalesInPWPosHdr",
+                "salesinpwposhdr"
+            ]
+        )
+
+        if not invoice_column:
+            raise RuntimeError(
+                "Could not find SalesPWPosHdr column in tblsnsalespayway."
+            )
+
         preferred_columns = [
-            "SnSalesPayWayOID",
             "SalesPayWayOID",
-            "SalesOID",
-            "InvoiceId",
+            "SalesPWPosHdr",
             "PayWayOID",
-            "Amount",
-            "CardNumber",
-            "SalesManOID"
+            "SalesPWValue",
+            "SalesPWSalesMan",
+            "SalesPWDate"
         ]
 
         selected_columns = [
@@ -723,19 +714,6 @@ class ProviderService:
             for column in selected_columns
         ]
 
-        invoice_column = self._find_first_existing_column(
-            table_columns=table_columns,
-            possible_columns=[
-                "InvoiceId",
-                "SalesOID",
-                "SalesPayWaySalesOID",
-                "SalesPayWayInvoiceID"
-            ]
-        )
-
-        if not invoice_column:
-            raise RuntimeError("Could not find invoice id column in tblsnsalespayway.")
-
         query = (
             "SELECT "
             + ", ".join(select_parts)
@@ -743,7 +721,7 @@ class ProviderService:
             + f"WHERE CAST([{invoice_column}] AS NVARCHAR(128)) = ?"
         )
 
-        logger.info("Provider payways table SQL invoice_id=%s", invoice_id)
+        logger.info("Provider payways fallback SQL invoice_id=%s", invoice_id)
 
         cursor.execute(query, invoice_id)
 
