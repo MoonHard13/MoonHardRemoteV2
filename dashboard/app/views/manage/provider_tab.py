@@ -833,6 +833,36 @@ class ProviderTab(ctk.CTkFrame):
 
         if self.on_provider_request_callback:
             self.on_provider_request_callback(payload)
+
+    def handle_delete_payway_result(self, payload: dict) -> None:
+        """
+        Μετά τη διαγραφή τρόπου πληρωμής κάνει refresh τα payways.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        invoice_id = payload.get("invoice_id", "")
+        sales_payway_oid = payload.get("sales_payway_oid", "")
+
+        if not payload.get("success"):
+            self._set_status(
+                f"Payway delete failed: {payload.get('error')}"
+            )
+            return
+
+        deleted_main_rows = payload.get("deleted_main_rows", 0)
+        deleted_history_rows = payload.get("deleted_history_rows", 0)
+
+        self._set_status(
+            f"Deleted payway {sales_payway_oid}. Main rows: {deleted_main_rows}, history rows: {deleted_history_rows}. Refreshing..."
+        )
+
+        if self.current_payways_window and self.current_payways_window.winfo_exists():
+            self.current_payways_window.destroy()
+            self.current_payways_window = None
+
+        self._request_payways_for_invoice(invoice_id)
         
     def _copy_tree_selected_rows(self, tree: ttk.Treeview) -> None:
         """
