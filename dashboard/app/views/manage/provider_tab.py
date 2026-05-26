@@ -34,6 +34,7 @@ class ProviderTab(ctk.CTkFrame):
         self.provider_invoices: list[dict] = []
         self.provider_selected_invoice_ids: set[str] = set()
         self.selected_bo_connection_id: int = 1
+        self.current_payways_window = None
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -413,18 +414,7 @@ class ProviderTab(ctk.CTkFrame):
             self._set_status("Select exactly one invoice first.")
             return
 
-        payload = {
-            "type": "provider_get_payways",
-            "request_id": str(uuid.uuid4()),
-            "client_code": self.client_code,
-            "bo_connection_id": self.selected_bo_connection_id,
-            "invoice_id": selected_invoice_id
-        }
-
-        self._set_status(f"Loading payways for invoice {selected_invoice_id}...")
-
-        if self.on_provider_request_callback:
-            self.on_provider_request_callback(payload)
+        self._request_payways_for_invoice(selected_invoice_id)
 
     def populate_invoices(self, invoices: list[dict]) -> None:
         """
@@ -651,33 +641,42 @@ class ProviderTab(ctk.CTkFrame):
         self._set_status(f"Loaded {len(errors)} Provider/MyDATA error row(s).")
         self._open_errors_window(errors)
         
-    def _open_errors_window(self, errors: list[dict]) -> None:
+    def _open_payways_window(
+        self,
+        invoice_id: str,
+        payways: list[dict]
+    ) -> None:
         """
-        Ανοίγει παράθυρο με πίνακα Provider/MyDATA errors.
+        Ανοίγει παράθυρο με τους τρόπους πληρωμής του παραστατικού.
         """
 
         window = ctk.CTkToplevel(self)
-        window.title("Provider / MyDATA Errors")
-        window.geometry("1100x600")
-        window.minsize(900, 450)
+        window.title(f"Payways - Invoice {invoice_id}")
+        window.geometry("1000x560")
+        window.minsize(850, 460)
+
+        self.current_payways_window = window
 
         window.grid_columnconfigure(0, weight=1)
-        window.grid_rowconfigure(1, weight=1)
+        window.grid_rowconfigure(2, weight=1)
 
         title = ctk.CTkLabel(
             window,
-            text=f"Provider / MyDATA Errors ({len(errors)})",
+            text=f"Payways for Invoice {invoice_id} ({len(payways)})",
             font=("Segoe UI", 20, "bold")
         )
-        title.grid(row=0, column=0, padx=15, pady=15, sticky="w")
+        title.grid(row=0, column=0, padx=15, pady=(15, 5), sticky="w")
+
+        actions_frame = ctk.CTkFrame(window, corner_radius=12)
+        actions_frame.grid(row=1, column=0, padx=15, pady=(0, 10), sticky="ew")
 
         table_frame = ctk.CTkFrame(window, corner_radius=12)
-        table_frame.grid(row=1, column=0, padx=15, pady=(0, 15), sticky="nsew")
+        table_frame.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="nsew")
         table_frame.grid_columnconfigure(0, weight=1)
         table_frame.grid_rowconfigure(0, weight=1)
 
-        if errors:
-            columns = list(errors[0].keys())
+        if payways:
+            columns = list(payways[0].keys())
         else:
             columns = ["Message"]
 
@@ -685,7 +684,7 @@ class ProviderTab(ctk.CTkFrame):
             table_frame,
             columns=columns,
             show="headings",
-            height=18
+            height=16
         )
         tree.grid(row=0, column=0, sticky="nsew")
 
@@ -710,17 +709,37 @@ class ProviderTab(ctk.CTkFrame):
 
         for column in columns:
             tree.heading(column, text=column)
-            tree.column(column, width=180, minwidth=100, stretch=True)
+            tree.column(column, width=170, minwidth=100, stretch=True)
 
-        if errors:
-            for error_row in errors:
+        if payways:
+            for payway in payways:
                 tree.insert(
                     "",
                     "end",
-                    values=[error_row.get(column, "") for column in columns]
+                    values=[payway.get(column, "") for column in columns]
                 )
         else:
-            tree.insert("", "end", values=["No errors found."])
+            tree.insert("", "end", values=["No payways found."])
+
+        delete_button = ctk.CTkButton(
+            actions_frame,
+            text="Delete Selected Payway",
+            width=180,
+            command=lambda: self._delete_selected_payway_from_tree(
+                tree=tree,
+                columns=columns,
+                invoice_id=invoice_id
+            )
+        )
+        delete_button.pack(side="left", padx=10, pady=10)
+
+        copy_button = ctk.CTkButton(
+            actions_frame,
+            text="Copy All",
+            width=100,
+            command=lambda: self._copy_tree_all_rows(tree)
+        )
+        copy_button.pack(side="left", padx=5, pady=10)
 
         tree.bind("<Control-c>", lambda _event: self._copy_tree_selected_rows(tree))
         tree.bind("<Button-3>", lambda event: self._show_tree_copy_menu(event, tree))
@@ -895,3 +914,115 @@ class ProviderTab(ctk.CTkFrame):
 
         tree.bind("<Control-c>", lambda _event: self._copy_tree_selected_rows(tree))
         tree.bind("<Button-3>", lambda event: self._show_tree_copy_menu(event, tree))
+        
+    def _delete_selected_payway_from_tree(
+        self,
+        tree: ttk.Treeview,
+        columns: list[str],
+        invoice_id: str
+    ) -> None:
+        """
+        Διαγράφει τον επιλεγμένο τρόπο πληρωμής από το Payways popup.
+        """
+
+        selected_items = tree.selection()
+
+        if len(selected_items) != 1:
+            self._set_status("Select exactly one payway first.")
+            return
+
+        selected_item = selected_items[0]
+        values = list(tree.item(selected_item, "values"))
+
+        if "SalesPayWayOID" not in columns:
+            self._set_status("SalesPayWayOID column was not found.")
+            return
+
+        oid_index = columns.index("SalesPayWayOID")
+        sales_payway_oid = str(values[oid_index]).strip()
+
+        if not sales_payway_oid:
+            self._set_status("Selected payway has empty SalesPayWayOID.")
+            return
+
+        payload = {
+            "type": "provider_delete_payway",
+            "request_id": str(uuid.uuid4()),
+            "client_code": self.client_code,
+            "bo_connection_id": self.selected_bo_connection_id,
+            "invoice_id": invoice_id,
+            "sales_payway_oid": sales_payway_oid
+        }
+
+        self._set_status(f"Deleting payway {sales_payway_oid}...")
+
+        if self.on_provider_request_callback:
+            self.on_provider_request_callback(payload)
+            
+    def _delete_selected_payway_from_tree(
+        self,
+        tree: ttk.Treeview,
+        columns: list[str],
+        invoice_id: str
+    ) -> None:
+        """
+        Διαγράφει τον επιλεγμένο τρόπο πληρωμής από το Payways popup.
+        """
+
+        selected_items = tree.selection()
+
+        if len(selected_items) != 1:
+            self._set_status("Select exactly one payway first.")
+            return
+
+        selected_item = selected_items[0]
+        values = list(tree.item(selected_item, "values"))
+
+        if "SalesPayWayOID" not in columns:
+            self._set_status("SalesPayWayOID column was not found.")
+            return
+
+        oid_index = columns.index("SalesPayWayOID")
+        sales_payway_oid = str(values[oid_index]).strip()
+
+        if not sales_payway_oid:
+            self._set_status("Selected payway has empty SalesPayWayOID.")
+            return
+
+        payload = {
+            "type": "provider_delete_payway",
+            "request_id": str(uuid.uuid4()),
+            "client_code": self.client_code,
+            "bo_connection_id": self.selected_bo_connection_id,
+            "invoice_id": invoice_id,
+            "sales_payway_oid": sales_payway_oid
+        }
+
+        self._set_status(f"Deleting payway {sales_payway_oid}...")
+
+        if self.on_provider_request_callback:
+            self.on_provider_request_callback(payload)
+            
+    def _request_payways_for_invoice(self, invoice_id: str) -> None:
+        """
+        Ζητά ξανά τους τρόπους πληρωμής για συγκεκριμένο InvoiceId.
+        """
+
+        clean_invoice_id = str(invoice_id).strip()
+
+        if not clean_invoice_id:
+            self._set_status("InvoiceId is empty.")
+            return
+
+        payload = {
+            "type": "provider_get_payways",
+            "request_id": str(uuid.uuid4()),
+            "client_code": self.client_code,
+            "bo_connection_id": self.selected_bo_connection_id,
+            "invoice_id": clean_invoice_id
+        }
+
+        self._set_status(f"Loading payways for invoice {clean_invoice_id}...")
+
+        if self.on_provider_request_callback:
+            self.on_provider_request_callback(payload)

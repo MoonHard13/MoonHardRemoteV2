@@ -883,3 +883,88 @@ class ProviderService:
             str(row[0]).lower()
             for row in cursor.fetchall()
         }
+        
+    def delete_payway(
+        self,
+        connection_string: str,
+        sales_payway_oid: str,
+        timeout: int = 30
+    ) -> dict[str, Any]:
+        """
+        Διαγράφει τρόπο πληρωμής από tblsnsalespayway και tblsnsalespaywayhist.
+        Δεν αποθηκεύει δεδομένα στον server ή στη Supabase.
+        """
+
+        clean_oid = str(sales_payway_oid).strip()
+
+        if not clean_oid:
+            return {
+                "success": False,
+                "error": "SalesPayWayOID is empty.",
+                "sales_payway_oid": clean_oid,
+                "deleted_main_rows": 0,
+                "deleted_history_rows": 0
+            }
+
+        try:
+            odbc_connection_string = self._to_odbc_connection_string(connection_string)
+
+            with pyodbc.connect(odbc_connection_string, timeout=timeout) as connection:
+                cursor = connection.cursor()
+
+                deleted_history_rows = 0
+                deleted_main_rows = 0
+
+                if self._table_exists(cursor, "tblsnsalespaywayhist"):
+                    history_columns = self._get_table_columns(cursor, "tblsnsalespaywayhist")
+
+                    if "salespaywayoid" in history_columns:
+                        cursor.execute(
+                            """
+                            DELETE FROM tblsnsalespaywayhist
+                            WHERE CAST(SalesPayWayOID AS NVARCHAR(128)) = ?
+                            """,
+                            clean_oid
+                        )
+
+                        deleted_history_rows = cursor.rowcount if cursor.rowcount != -1 else 0
+
+                if self._table_exists(cursor, "tblsnsalespayway"):
+                    main_columns = self._get_table_columns(cursor, "tblsnsalespayway")
+
+                    if "salespaywayoid" not in main_columns:
+                        raise RuntimeError("Column SalesPayWayOID was not found in tblsnsalespayway.")
+
+                    cursor.execute(
+                        """
+                        DELETE FROM tblsnsalespayway
+                        WHERE CAST(SalesPayWayOID AS NVARCHAR(128)) = ?
+                        """,
+                        clean_oid
+                    )
+
+                    deleted_main_rows = cursor.rowcount if cursor.rowcount != -1 else 0
+
+                else:
+                    raise RuntimeError("Table tblsnsalespayway was not found.")
+
+                connection.commit()
+
+            return {
+                "success": True,
+                "error": None,
+                "sales_payway_oid": clean_oid,
+                "deleted_main_rows": deleted_main_rows,
+                "deleted_history_rows": deleted_history_rows
+            }
+
+        except Exception as exc:
+            logger.exception("Provider payway delete failed.")
+
+            return {
+                "success": False,
+                "error": str(exc),
+                "sales_payway_oid": clean_oid,
+                "deleted_main_rows": 0,
+                "deleted_history_rows": 0
+            }
