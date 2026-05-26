@@ -580,7 +580,8 @@ class ProviderTab(ctk.CTkFrame):
             
     def handle_send_result(self, payload: dict) -> None:
         """
-        Εμφανίζει αποτέλεσμα αποστολής παραστατικών.
+        Μετά την αποστολή παραστατικών κάνει αυτόματο refresh του πίνακα.
+        Έτσι εμφανίζονται μόνο όσα παραστατικά έχουν μείνει προς αποστολή.
         """
 
         if payload.get("client_code") != self.client_code:
@@ -589,14 +590,17 @@ class ProviderTab(ctk.CTkFrame):
         total = payload.get("total", 0)
         success_count = payload.get("success_count", 0)
         fail_count = payload.get("fail_count", 0)
-        elapsed_ms = payload.get("elapsed_ms")
         error = payload.get("error")
+
+        self.provider_selected_invoice_ids.clear()
 
         if error:
             self._set_status(
-                f"Send completed with errors. Total: {total}, OK: {success_count}, Failed: {fail_count}"
+                f"Send finished with errors. Total: {total}, OK: {success_count}, Failed: {fail_count}. Refreshing..."
             )
         else:
             self._set_status(
-                f"Send completed. Total: {total}, OK: {success_count}, Failed: {fail_count}, Time: {elapsed_ms} ms"
+                f"Send finished. Total: {total}, OK: {success_count}, Failed: {fail_count}. Refreshing..."
             )
+
+        self._search_invoices()
