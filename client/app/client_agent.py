@@ -406,13 +406,13 @@ class MoonHardClientAgent:
 
         request_id = payload.get("request_id", "")
         bo_connection_id = int(payload.get("bo_connection_id", 1))
-        invoice_ids = payload.get("invoice_ids") or []
+        documents = payload.get("documents") or []
 
         logger.info(
             "Λήφθηκε Provider delete MyDATA request. request_id=%s bo_connection_id=%s invoices=%s",
             request_id,
             bo_connection_id,
-            len(invoice_ids)
+            len(documents)
         )
 
         try:
@@ -437,9 +437,9 @@ class MoonHardClientAgent:
                 )
 
             delete_result = await asyncio.to_thread(
-                self.provider_service.delete_mydata_for_invoice_ids,
+                self.provider_service.delete_mydata_for_documents,
                 database_connection,
-                invoice_ids,
+                documents,
                 30
             )
 
@@ -461,7 +461,7 @@ class MoonHardClientAgent:
                 "bo_connection_id": bo_connection_id,
                 "success": False,
                 "error": str(exc),
-                "invoice_ids": invoice_ids,
+                "documents": documents,
                 "deleted_success_rows": 0,
                 "deleted_response_rows": 0
             }

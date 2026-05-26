@@ -563,30 +563,37 @@ class ProviderService:
                 "count": 0
             }
 
-    def delete_mydata_for_invoice_ids(
+    def delete_mydata_for_documents(
         self,
         connection_string: str,
-        invoice_ids: list[str],
+        documents: list[dict],
         timeout: int = 30
     ) -> dict[str, Any]:
         """
-        Διαγράφει MyDATA responses για συγκεκριμένα InvoiceIds.
-        Διαγράφει πρώτα child rows από TblSnMyDATA_ResponseSuccess
-        και μετά parent rows από TblSnMyDATA_Response.
+        Διαγράφει MyDATA responses για επιλεγμένα παραστατικά με MUPT λογική.
+        Χρησιμοποιεί VSnVSalesPayWay, SalesPWNoteCode και SalesPWNoteNo.
         Δεν αποθηκεύει δεδομένα στον server ή στη Supabase.
         """
 
-        clean_invoice_ids = [
-            str(invoice_id).strip()
-            for invoice_id in invoice_ids
-            if str(invoice_id).strip()
-        ]
+        clean_documents: list[dict[str, str]] = []
 
-        if not clean_invoice_ids:
+        for document in documents:
+            note_code = str(document.get("note_code", "")).strip()
+            note_no = str(document.get("note_no", "")).strip()
+
+            if note_code and note_no:
+                clean_documents.append(
+                    {
+                        "note_code": note_code,
+                        "note_no": note_no
+                    }
+                )
+
+        if not clean_documents:
             return {
                 "success": False,
-                "error": "No invoice IDs selected.",
-                "invoice_ids": [],
+                "error": "No valid documents selected.",
+                "documents": [],
                 "deleted_success_rows": 0,
                 "deleted_response_rows": 0
             }
@@ -600,6 +607,9 @@ class ProviderService:
                 if not self._table_exists(cursor, "TblSnMyDATA_Response"):
                     raise RuntimeError("Table TblSnMyDATA_Response was not found.")
 
+                if not self._table_exists(cursor, "VSnVSalesPayWay"):
+                    raise RuntimeError("View VSnVSalesPayWay was not found.")
+
                 response_columns = self._get_table_columns(
                     cursor,
                     "TblSnMyDATA_Response"
@@ -610,53 +620,30 @@ class ProviderService:
                         "Column MyDATA_ResponseSalesTransPosHdr was not found in TblSnMyDATA_Response."
                     )
 
-                placeholders = ",".join("?" for _ in clean_invoice_ids)
+                total_deleted_success_rows = 0
+                total_deleted_response_rows = 0
 
-                deleted_success_rows = 0
-                deleted_response_rows = 0
+                for document in clean_documents:
+                    note_code = document["note_code"]
+                    note_no = document["note_no"]
 
-                if self._table_exists(cursor, "TblSnMyDATA_ResponseSuccess"):
-                    success_columns = self._get_table_columns(
-                        cursor,
-                        "TblSnMyDATA_ResponseSuccess"
+                    delete_result = self._delete_mydata_single_document(
+                        cursor=cursor,
+                        note_code=note_code,
+                        note_no=note_no
                     )
 
-                    if "mydata_responsesuccesssalestransposhdr" in success_columns:
-                        cursor.execute(
-                            f"""
-                            DELETE suc
-                            FROM TblSnMyDATA_ResponseSuccess suc
-                            INNER JOIN TblSnMyDATA_Response md
-                                ON md.MyDATA_ResponseSalesTransPosHdr =
-                                   suc.MyDATA_ResponseSuccessSalesTransPosHdr
-                            WHERE CAST(md.MyDATA_ResponseSalesTransPosHdr AS NVARCHAR(128))
-                                  IN ({placeholders})
-                            """,
-                            clean_invoice_ids
-                        )
-
-                        deleted_success_rows = cursor.rowcount if cursor.rowcount != -1 else 0
-
-                cursor.execute(
-                    f"""
-                    DELETE md
-                    FROM TblSnMyDATA_Response md
-                    WHERE CAST(md.MyDATA_ResponseSalesTransPosHdr AS NVARCHAR(128))
-                          IN ({placeholders})
-                    """,
-                    clean_invoice_ids
-                )
-
-                deleted_response_rows = cursor.rowcount if cursor.rowcount != -1 else 0
+                    total_deleted_success_rows += delete_result["deleted_success_rows"]
+                    total_deleted_response_rows += delete_result["deleted_response_rows"]
 
                 connection.commit()
 
             return {
                 "success": True,
                 "error": None,
-                "invoice_ids": clean_invoice_ids,
-                "deleted_success_rows": deleted_success_rows,
-                "deleted_response_rows": deleted_response_rows
+                "documents": clean_documents,
+                "deleted_success_rows": total_deleted_success_rows,
+                "deleted_response_rows": total_deleted_response_rows
             }
 
         except Exception as exc:
@@ -665,10 +652,88 @@ class ProviderService:
             return {
                 "success": False,
                 "error": str(exc),
-                "invoice_ids": clean_invoice_ids,
+                "documents": clean_documents,
                 "deleted_success_rows": 0,
                 "deleted_response_rows": 0
             }
+
+
+    def _delete_mydata_single_document(
+        self,
+        cursor,
+        note_code: str,
+        note_no: str
+    ) -> dict[str, int]:
+        """
+        Διαγράφει MyDATA για ένα παραστατικό με ίδια λογική όπως το MUPT.
+        """
+
+        where_sql = """
+            INNER JOIN VSnVSalesPayWay spw
+                ON md.MyDATA_ResponseSalesTransPosHdr = spw.SalesPWPosHdr
+            WHERE CAST(spw.SalesPWNoteCode AS NVARCHAR(128)) = ?
+              AND CAST(spw.SalesPWNoteNo AS NVARCHAR(128)) = ?
+        """
+
+        params = [note_code, note_no]
+
+        return self._delete_mydata_with_children(
+            cursor=cursor,
+            where_sql=where_sql,
+            params=params
+        )
+
+
+    def _delete_mydata_with_children(
+        self,
+        cursor,
+        where_sql: str,
+        params: list
+    ) -> dict[str, int]:
+        """
+        Διαγράφει πρώτα child rows από TblSnMyDATA_ResponseSuccess
+        και μετά parent rows από TblSnMyDATA_Response.
+        """
+
+        deleted_success_rows = 0
+        deleted_response_rows = 0
+
+        if self._table_exists(cursor, "TblSnMyDATA_ResponseSuccess"):
+            success_columns = self._get_table_columns(
+                cursor,
+                "TblSnMyDATA_ResponseSuccess"
+            )
+
+            if "mydata_responsesuccesssalestransposhdr" in success_columns:
+                cursor.execute(
+                    f"""
+                    DELETE suc
+                    FROM TblSnMyDATA_ResponseSuccess suc
+                    INNER JOIN TblSnMyDATA_Response md
+                        ON md.MyDATA_ResponseSalesTransPosHdr =
+                           suc.MyDATA_ResponseSuccessSalesTransPosHdr
+                    {where_sql}
+                    """,
+                    params
+                )
+
+                deleted_success_rows = cursor.rowcount if cursor.rowcount != -1 else 0
+
+        cursor.execute(
+            f"""
+            DELETE md
+            FROM TblSnMyDATA_Response md
+            {where_sql}
+            """,
+            params
+        )
+
+        deleted_response_rows = cursor.rowcount if cursor.rowcount != -1 else 0
+
+        return {
+            "deleted_success_rows": deleted_success_rows,
+            "deleted_response_rows": deleted_response_rows
+        }
 
     def get_invoice_payways(
         self,

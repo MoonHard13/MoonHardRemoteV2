@@ -901,7 +901,7 @@ class WebSocketRoutes:
                 if data.get("type") == "provider_delete_mydata":
                     request_id = data.get("request_id", "")
                     client_code = data.get("client_code", "")
-                    invoice_ids = data.get("invoice_ids") or []
+                    documents = data.get("documents") or []
 
                     if not request_id or not client_code:
                         await connection_manager.send_to_dashboard(
@@ -912,14 +912,14 @@ class WebSocketRoutes:
                                 "client_code": client_code,
                                 "success": False,
                                 "error": "Missing request_id or client_code.",
-                                "invoice_ids": invoice_ids,
+                                "documents": documents,
                                 "deleted_success_rows": 0,
                                 "deleted_response_rows": 0
                             }
                         )
                         continue
 
-                    if not invoice_ids:
+                    if not documents:
                         await connection_manager.send_to_dashboard(
                             websocket,
                             {
@@ -927,7 +927,7 @@ class WebSocketRoutes:
                                 "request_id": request_id,
                                 "client_code": client_code,
                                 "success": False,
-                                "error": "No invoice IDs selected.",
+                                "error": "No documents selected.",
                                 "invoice_ids": [],
                                 "deleted_success_rows": 0,
                                 "deleted_response_rows": 0
@@ -953,7 +953,7 @@ class WebSocketRoutes:
                                 "client_code": client_code,
                                 "success": False,
                                 "error": "Client is not connected.",
-                                "invoice_ids": invoice_ids,
+                                "documents": documents,
                                 "deleted_success_rows": 0,
                                 "deleted_response_rows": 0
                             }

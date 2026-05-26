@@ -433,12 +433,13 @@ class ProviderTab(ctk.CTkFrame):
 
     def _delete_mydata(self) -> None:
         """
-        Διαγράφει MyDATA responses για τα επιλεγμένα παραστατικά.
+        Διαγράφει MyDATA responses για τα επιλεγμένα παραστατικά με MUPT λογική.
+        Χρησιμοποιεί InvoiceType ως SalesPWNoteCode και aa ως SalesPWNoteNo.
         """
 
-        selected_ids = sorted(self.provider_selected_invoice_ids)
+        selected_documents = self._get_selected_documents_for_mydata_delete()
 
-        if not selected_ids:
+        if not selected_documents:
             self._set_status("Select one or more invoices first.")
             return
 
@@ -447,13 +448,45 @@ class ProviderTab(ctk.CTkFrame):
             "request_id": str(uuid.uuid4()),
             "client_code": self.client_code,
             "bo_connection_id": self.selected_bo_connection_id,
-            "invoice_ids": selected_ids
+            "documents": selected_documents
         }
 
-        self._set_status(f"Deleting MyDATA responses for {len(selected_ids)} invoice(s)...")
+        self._set_status(
+            f"Deleting MyDATA responses for {len(selected_documents)} document(s)..."
+        )
 
         if self.on_provider_request_callback:
             self.on_provider_request_callback(payload)
+
+    def _get_selected_documents_for_mydata_delete(self) -> list[dict]:
+        """
+        Επιστρέφει τα επιλεγμένα παραστατικά για MyDATA delete.
+        Χρησιμοποιεί:
+        InvoiceType -> SalesPWNoteCode
+        aa          -> SalesPWNoteNo
+        """
+
+        selected_documents: list[dict] = []
+
+        for invoice in self.provider_invoices:
+            invoice_id = str(invoice.get("InvoiceId", "")).strip()
+
+            if invoice_id not in self.provider_selected_invoice_ids:
+                continue
+
+            note_code = str(invoice.get("InvoiceType", "")).strip()
+            note_no = str(invoice.get("aa", "")).strip()
+
+            if note_code and note_no:
+                selected_documents.append(
+                    {
+                        "invoice_id": invoice_id,
+                        "note_code": note_code,
+                        "note_no": note_no
+                    }
+                )
+
+        return selected_documents
 
     def _show_payways(self) -> None:
         """
@@ -1051,14 +1084,14 @@ class ProviderTab(ctk.CTkFrame):
             )
             return
 
-        invoice_ids = payload.get("invoice_ids") or []
+        documents = payload.get("documents") or []
         deleted_success_rows = payload.get("deleted_success_rows", 0)
         deleted_response_rows = payload.get("deleted_response_rows", 0)
 
         self.provider_selected_invoice_ids.clear()
 
         self._set_status(
-            f"MyDATA deleted for {len(invoice_ids)} invoice(s). "
+            f"MyDATA deleted for {len(documents)} document(s). "
             f"Success rows: {deleted_success_rows}, response rows: {deleted_response_rows}. Refreshing..."
         )
 
