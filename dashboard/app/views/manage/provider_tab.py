@@ -521,7 +521,6 @@ class ProviderTab(ctk.CTkFrame):
 
         self._request_note_types_for_mydata_delete()
 
-
     def _request_note_types_for_mydata_delete(self) -> None:
         """
         Ζητά Note Types από τον client υπολογιστή.
@@ -538,7 +537,6 @@ class ProviderTab(ctk.CTkFrame):
 
         if self.on_provider_request_callback:
             self.on_provider_request_callback(payload)
-
 
     def handle_note_types_result(self, payload: dict) -> None:
         """
@@ -656,98 +654,6 @@ class ProviderTab(ctk.CTkFrame):
 
         if self.on_provider_request_callback:
             self.on_provider_request_callback(payload)
-
-    def _get_loaded_invoice_type_values(self) -> list[str]:
-        """
-        Επιστρέφει διαθέσιμους τύπους παραστατικών από τα ήδη φορτωμένα παραστατικά.
-        """
-
-        type_values: list[str] = []
-
-        for invoice in self.provider_invoices:
-            invoice_type = str(invoice.get("InvoiceType", "")).strip()
-
-            if invoice_type and invoice_type not in type_values:
-                type_values.append(invoice_type)
-
-        if not type_values:
-            current_type = self.provider_invoice_type_entry.get().strip()
-
-            if current_type:
-                type_values.append(current_type)
-
-        if not type_values:
-            type_values.append("1.1")
-
-        return type_values
-
-    def _execute_delete_mydata_from_window(self, window) -> None:
-        """
-        Στέλνει αίτημα διαγραφής MyDATA από το popup.
-        """
-
-        note_code = self.delete_mydata_type_option.get().strip()
-        note_no = self.delete_mydata_number_entry.get().strip()
-
-        if not note_code:
-            self._set_status("Select document type first.")
-            return
-
-        if not note_no:
-            self._set_status("Enter invoice number first.")
-            return
-
-        payload = {
-            "type": "provider_delete_mydata",
-            "request_id": str(uuid.uuid4()),
-            "client_code": self.client_code,
-            "bo_connection_id": self.selected_bo_connection_id,
-            "documents": [
-                {
-                    "note_code": note_code,
-                    "note_no": note_no
-                }
-            ]
-        }
-
-        self._set_status(
-            f"Deleting MyDATA responses for type {note_code}, number {note_no}..."
-        )
-
-        window.destroy()
-
-        if self.on_provider_request_callback:
-            self.on_provider_request_callback(payload)
-
-    def _get_selected_documents_for_mydata_delete(self) -> list[dict]:
-        """
-        Επιστρέφει τα επιλεγμένα παραστατικά για MyDATA delete.
-        Χρησιμοποιεί:
-        InvoiceType -> SalesPWNoteCode
-        aa          -> SalesPWNoteNo
-        """
-
-        selected_documents: list[dict] = []
-
-        for invoice in self.provider_invoices:
-            invoice_id = str(invoice.get("InvoiceId", "")).strip()
-
-            if invoice_id not in self.provider_selected_invoice_ids:
-                continue
-
-            note_code = str(invoice.get("InvoiceType", "")).strip()
-            note_no = str(invoice.get("aa", "")).strip()
-
-            if note_code and note_no:
-                selected_documents.append(
-                    {
-                        "invoice_id": invoice_id,
-                        "note_code": note_code,
-                        "note_no": note_no
-                    }
-                )
-
-        return selected_documents
 
     def _show_payways(self) -> None:
         """
