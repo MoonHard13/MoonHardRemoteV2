@@ -433,14 +433,134 @@ class ProviderTab(ctk.CTkFrame):
 
     def _delete_mydata(self) -> None:
         """
-        Διαγράφει MyDATA responses για τα επιλεγμένα παραστατικά με MUPT λογική.
-        Χρησιμοποιεί InvoiceType ως SalesPWNoteCode και aa ως SalesPWNoteNo.
+        Ανοίγει παράθυρο διαγραφής MyDATA όπως το MUPT.
+        Ο χρήστης επιλέγει τύπο παραστατικού και γράφει αριθμό παραστατικού.
         """
 
-        selected_documents = self._get_selected_documents_for_mydata_delete()
+        self._open_delete_mydata_window()
 
-        if not selected_documents:
-            self._set_status("Select one or more invoices first.")
+    def _open_delete_mydata_window(self) -> None:
+        """
+        Ανοίγει popup για διαγραφή MyDATA responses.
+        """
+
+        window = ctk.CTkToplevel(self)
+        window.title("Delete MyDATA")
+        window.geometry("520x300")
+        window.minsize(500, 280)
+        window.grab_set()
+
+        window.grid_columnconfigure(0, weight=1)
+
+        title = ctk.CTkLabel(
+            window,
+            text="Delete MyDATA Responses",
+            font=("Segoe UI", 20, "bold")
+        )
+        title.grid(row=0, column=0, padx=20, pady=(18, 10), sticky="w")
+
+        info = ctk.CTkLabel(
+            window,
+            text="Choose document type and enter invoice number.",
+            font=("Segoe UI", 13),
+            anchor="w"
+        )
+        info.grid(row=1, column=0, padx=20, pady=(0, 12), sticky="w")
+
+        form_frame = ctk.CTkFrame(window, corner_radius=14)
+        form_frame.grid(row=2, column=0, padx=20, pady=(0, 15), sticky="ew")
+        form_frame.grid_columnconfigure(1, weight=1)
+
+        type_label = ctk.CTkLabel(
+            form_frame,
+            text="Document Type:",
+            font=("Segoe UI", 13, "bold")
+        )
+        type_label.grid(row=0, column=0, padx=(14, 10), pady=(14, 8), sticky="w")
+
+        type_values = self._get_loaded_invoice_type_values()
+
+        self.delete_mydata_type_option = ctk.CTkOptionMenu(
+            form_frame,
+            values=type_values
+        )
+        self.delete_mydata_type_option.grid(row=0, column=1, padx=(0, 14), pady=(14, 8), sticky="ew")
+
+        if type_values:
+            self.delete_mydata_type_option.set(type_values[0])
+
+        number_label = ctk.CTkLabel(
+            form_frame,
+            text="Invoice Number:",
+            font=("Segoe UI", 13, "bold")
+        )
+        number_label.grid(row=1, column=0, padx=(14, 10), pady=(8, 14), sticky="w")
+
+        self.delete_mydata_number_entry = ctk.CTkEntry(
+            form_frame,
+            placeholder_text="e.g. 12345"
+        )
+        self.delete_mydata_number_entry.grid(row=1, column=1, padx=(0, 14), pady=(8, 14), sticky="ew")
+
+        button_frame = ctk.CTkFrame(window, fg_color="transparent")
+        button_frame.grid(row=3, column=0, padx=20, pady=(0, 18), sticky="ew")
+
+        delete_button = ctk.CTkButton(
+            button_frame,
+            text="Delete MyDATA",
+            width=140,
+            command=lambda: self._execute_delete_mydata_from_window(window)
+        )
+        delete_button.pack(side="left")
+
+        cancel_button = ctk.CTkButton(
+            button_frame,
+            text="Cancel",
+            width=100,
+            command=window.destroy
+        )
+        cancel_button.pack(side="left", padx=(10, 0))
+
+        self.delete_mydata_number_entry.focus_set()
+
+    def _get_loaded_invoice_type_values(self) -> list[str]:
+        """
+        Επιστρέφει διαθέσιμους τύπους παραστατικών από τα ήδη φορτωμένα παραστατικά.
+        """
+
+        type_values: list[str] = []
+
+        for invoice in self.provider_invoices:
+            invoice_type = str(invoice.get("InvoiceType", "")).strip()
+
+            if invoice_type and invoice_type not in type_values:
+                type_values.append(invoice_type)
+
+        if not type_values:
+            current_type = self.provider_invoice_type_entry.get().strip()
+
+            if current_type:
+                type_values.append(current_type)
+
+        if not type_values:
+            type_values.append("1.1")
+
+        return type_values
+
+    def _execute_delete_mydata_from_window(self, window) -> None:
+        """
+        Στέλνει αίτημα διαγραφής MyDATA από το popup.
+        """
+
+        note_code = self.delete_mydata_type_option.get().strip()
+        note_no = self.delete_mydata_number_entry.get().strip()
+
+        if not note_code:
+            self._set_status("Select document type first.")
+            return
+
+        if not note_no:
+            self._set_status("Enter invoice number first.")
             return
 
         payload = {
@@ -448,12 +568,19 @@ class ProviderTab(ctk.CTkFrame):
             "request_id": str(uuid.uuid4()),
             "client_code": self.client_code,
             "bo_connection_id": self.selected_bo_connection_id,
-            "documents": selected_documents
+            "documents": [
+                {
+                    "note_code": note_code,
+                    "note_no": note_no
+                }
+            ]
         }
 
         self._set_status(
-            f"Deleting MyDATA responses for {len(selected_documents)} document(s)..."
+            f"Deleting MyDATA responses for type {note_code}, number {note_no}..."
         )
+
+        window.destroy()
 
         if self.on_provider_request_callback:
             self.on_provider_request_callback(payload)
@@ -1071,52 +1198,27 @@ class ProviderTab(ctk.CTkFrame):
         self._request_payways_for_invoice(invoice_id)
 
     def handle_delete_mydata_result(self, payload: dict) -> None:
-        """
-        Μετά τη διαγραφή MyDATA responses κάνει refresh τον πίνακα παραστατικών.
-        """
+            
+        def _copy_tree_selected_rows(self, tree: ttk.Treeview) -> None:
+            """
+            Αντιγράφει τις επιλεγμένες γραμμές ενός Treeview.
+            """
 
-        if payload.get("client_code") != self.client_code:
-            return
+            selected_items = tree.selection()
 
-        if not payload.get("success"):
-            self._set_status(
-                f"MyDATA delete failed: {payload.get('error')}"
-            )
-            return
+            if not selected_items:
+                return
 
-        documents = payload.get("documents") or []
-        deleted_success_rows = payload.get("deleted_success_rows", 0)
-        deleted_response_rows = payload.get("deleted_response_rows", 0)
+            lines: list[str] = []
 
-        self.provider_selected_invoice_ids.clear()
+            for item in selected_items:
+                values = tree.item(item, "values")
+                lines.append("\t".join(str(value) for value in values))
 
-        self._set_status(
-            f"MyDATA deleted for {len(documents)} document(s). "
-            f"Success rows: {deleted_success_rows}, response rows: {deleted_response_rows}. Refreshing..."
-        )
+            copied_text = "\n".join(lines)
 
-        self._search_invoices()
-        
-    def _copy_tree_selected_rows(self, tree: ttk.Treeview) -> None:
-        """
-        Αντιγράφει τις επιλεγμένες γραμμές ενός Treeview.
-        """
-
-        selected_items = tree.selection()
-
-        if not selected_items:
-            return
-
-        lines: list[str] = []
-
-        for item in selected_items:
-            values = tree.item(item, "values")
-            lines.append("\t".join(str(value) for value in values))
-
-        copied_text = "\n".join(lines)
-
-        self.clipboard_clear()
-        self.clipboard_append(copied_text)
+            self.clipboard_clear()
+            self.clipboard_append(copied_text)
 
 
     def _copy_tree_all_rows(self, tree: ttk.Treeview) -> None:
