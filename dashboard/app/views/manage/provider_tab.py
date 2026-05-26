@@ -724,7 +724,7 @@ class ProviderTab(ctk.CTkFrame):
         delete_button = ctk.CTkButton(
             actions_frame,
             text="Delete Selected Payway",
-            width=180,
+            width=190,
             command=lambda: self._delete_selected_payway_from_tree(
                 tree=tree,
                 columns=columns,
@@ -742,7 +742,89 @@ class ProviderTab(ctk.CTkFrame):
         copy_button.pack(side="left", padx=5, pady=10)
 
         tree.bind("<Control-c>", lambda _event: self._copy_tree_selected_rows(tree))
-        tree.bind("<Button-3>", lambda event: self._show_tree_copy_menu(event, tree))
+        tree.bind("<Button-3>", lambda event: self._show_payways_context_menu(event, tree, columns, invoice_id))
+
+    def _show_payways_context_menu(
+        self,
+        event,
+        tree: ttk.Treeview,
+        columns: list[str],
+        invoice_id: str
+    ) -> None:
+        """
+        Εμφανίζει context menu για Payways με copy και delete.
+        """
+
+        context_menu = __import__("tkinter").Menu(self, tearoff=0)
+
+        context_menu.add_command(
+            label="Delete selected payway",
+            command=lambda: self._delete_selected_payway_from_tree(
+                tree=tree,
+                columns=columns,
+                invoice_id=invoice_id
+            )
+        )
+
+        context_menu.add_separator()
+
+        context_menu.add_command(
+            label="Copy selected rows",
+            command=lambda: self._copy_tree_selected_rows(tree)
+        )
+
+        context_menu.add_command(
+            label="Copy all rows",
+            command=lambda: self._copy_tree_all_rows(tree)
+        )
+
+        context_menu.tk_popup(event.x_root, event.y_root)
+        context_menu.grab_release()
+
+
+    def _delete_selected_payway_from_tree(
+        self,
+        tree: ttk.Treeview,
+        columns: list[str],
+        invoice_id: str
+    ) -> None:
+        """
+        Δημιουργεί request διαγραφής για τον επιλεγμένο τρόπο πληρωμής.
+        """
+
+        selected_items = tree.selection()
+
+        if len(selected_items) != 1:
+            self._set_status("Select exactly one payway first.")
+            return
+
+        if "SalesPayWayOID" not in columns:
+            self._set_status("SalesPayWayOID column was not found.")
+            return
+
+        selected_item = selected_items[0]
+        values = list(tree.item(selected_item, "values"))
+
+        oid_index = columns.index("SalesPayWayOID")
+        sales_payway_oid = str(values[oid_index]).strip()
+
+        if not sales_payway_oid:
+            self._set_status("Selected payway has empty SalesPayWayOID.")
+            return
+
+        payload = {
+            "type": "provider_delete_payway",
+            "request_id": str(uuid.uuid4()),
+            "client_code": self.client_code,
+            "bo_connection_id": self.selected_bo_connection_id,
+            "invoice_id": invoice_id,
+            "sales_payway_oid": sales_payway_oid
+        }
+
+        self._set_status(f"Deleting payway {sales_payway_oid}...")
+
+        if self.on_provider_request_callback:
+            self.on_provider_request_callback(payload)
         
     def _copy_tree_selected_rows(self, tree: ttk.Treeview) -> None:
         """
