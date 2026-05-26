@@ -142,6 +142,9 @@ class MoonHardClientAgent:
                 
             elif message_type == "provider_delete_payway":
                 await self._handle_provider_delete_payway(websocket, payload)
+                
+            elif message_type == "provider_delete_mydata":
+                await self._handle_provider_delete_mydata(websocket, payload)
 
     async def _handle_provider_get_payways(self, websocket, payload: dict) -> None:
         """
@@ -391,6 +394,76 @@ class MoonHardClientAgent:
                 "success": False,
                 "error": str(exc),
                 "batches": []
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+    async def _handle_provider_delete_mydata(self, websocket, payload: dict) -> None:
+        """
+        Διαγράφει MyDATA responses για επιλεγμένα παραστατικά από τον client υπολογιστή.
+        Δεν αποθηκεύει αποτελέσματα στον server.
+        """
+
+        request_id = payload.get("request_id", "")
+        bo_connection_id = int(payload.get("bo_connection_id", 1))
+        invoice_ids = payload.get("invoice_ids") or []
+
+        logger.info(
+            "Λήφθηκε Provider delete MyDATA request. request_id=%s bo_connection_id=%s invoices=%s",
+            request_id,
+            bo_connection_id,
+            len(invoice_ids)
+        )
+
+        try:
+            appsettings_data = self.appsettings_reader.read_appsettings_production()
+            bo_connections = appsettings_data.get("bo_connections") or []
+
+            selected_connection = self._get_bo_connection_by_id(
+                bo_connections=bo_connections,
+                bo_connection_id=bo_connection_id
+            )
+
+            if not selected_connection:
+                raise RuntimeError(
+                    f"BOConnection ID {bo_connection_id} was not found."
+                )
+
+            database_connection = selected_connection.get("DatabaseConnection")
+
+            if not database_connection:
+                raise RuntimeError(
+                    f"BOConnection ID {bo_connection_id} has no DatabaseConnection."
+                )
+
+            delete_result = await asyncio.to_thread(
+                self.provider_service.delete_mydata_for_invoice_ids,
+                database_connection,
+                invoice_ids,
+                30
+            )
+
+            result_message = {
+                "type": "provider_delete_mydata_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                **delete_result
+            }
+
+        except Exception as exc:
+            logger.exception("Provider delete MyDATA request failed.")
+
+            result_message = {
+                "type": "provider_delete_mydata_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                "success": False,
+                "error": str(exc),
+                "invoice_ids": invoice_ids,
+                "deleted_success_rows": 0,
+                "deleted_response_rows": 0
             }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))

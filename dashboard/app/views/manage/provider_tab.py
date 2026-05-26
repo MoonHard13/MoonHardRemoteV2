@@ -32,6 +32,7 @@ class ProviderTab(ctk.CTkFrame):
         self.on_provider_request_callback = on_provider_request_callback
 
         self.provider_invoices: list[dict] = []
+        self.provider_filtered_invoices: list[dict] = []
         self.provider_selected_invoice_ids: set[str] = set()
         self.selected_bo_connection_id: int = 1
         self.current_payways_window = None
@@ -186,7 +187,37 @@ class ProviderTab(ctk.CTkFrame):
         table_frame = ctk.CTkFrame(self, corner_radius=16)
         table_frame.grid(row=1, column=0, padx=15, pady=(0, 10), sticky="nsew")
         table_frame.grid_columnconfigure(0, weight=1)
-        table_frame.grid_rowconfigure(0, weight=1)
+        table_frame.grid_rowconfigure(1, weight=1)
+
+        filter_frame = ctk.CTkFrame(table_frame, fg_color="transparent")
+        filter_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 6), sticky="ew")
+        filter_frame.grid_columnconfigure(1, weight=1)
+
+        filter_label = ctk.CTkLabel(
+            filter_frame,
+            text="Local Filter:",
+            font=("Segoe UI", 13, "bold")
+        )
+        filter_label.grid(row=0, column=0, padx=(0, 8), sticky="w")
+
+        self.provider_local_filter_entry = ctk.CTkEntry(
+            filter_frame,
+            placeholder_text="Filter by type, name, date, number, AFM, ID..."
+        )
+        self.provider_local_filter_entry.grid(row=0, column=1, sticky="ew")
+
+        self.provider_local_filter_entry.bind(
+            "<KeyRelease>",
+            lambda _event: self._apply_local_filter()
+        )
+
+        clear_filter_button = ctk.CTkButton(
+            filter_frame,
+            text="Clear",
+            width=70,
+            command=self._clear_local_filter
+        )
+        clear_filter_button.grid(row=0, column=2, padx=(8, 0), sticky="e")
 
         self.provider_tree = ttk.Treeview(
             table_frame,
@@ -194,21 +225,21 @@ class ProviderTab(ctk.CTkFrame):
             show="headings",
             height=16
         )
-        self.provider_tree.grid(row=0, column=0, sticky="nsew")
+        self.provider_tree.grid(row=1, column=0, sticky="nsew")
 
         y_scroll = ttk.Scrollbar(
             table_frame,
             orient="vertical",
             command=self.provider_tree.yview
         )
-        y_scroll.grid(row=0, column=1, sticky="ns")
+        y_scroll.grid(row=1, column=1, sticky="ns")
 
         x_scroll = ttk.Scrollbar(
             table_frame,
             orient="horizontal",
             command=self.provider_tree.xview
         )
-        x_scroll.grid(row=1, column=0, sticky="ew")
+        x_scroll.grid(row=2, column=0, sticky="ew")
 
         self.provider_tree.configure(
             yscrollcommand=y_scroll.set,
@@ -402,10 +433,27 @@ class ProviderTab(ctk.CTkFrame):
 
     def _delete_mydata(self) -> None:
         """
-        Προσωρινό handler για MyDATA cleanup.
+        Διαγράφει MyDATA responses για τα επιλεγμένα παραστατικά.
         """
 
-        self._set_status("MyDATA cleanup backend is not connected yet.")
+        selected_ids = sorted(self.provider_selected_invoice_ids)
+
+        if not selected_ids:
+            self._set_status("Select one or more invoices first.")
+            return
+
+        payload = {
+            "type": "provider_delete_mydata",
+            "request_id": str(uuid.uuid4()),
+            "client_code": self.client_code,
+            "bo_connection_id": self.selected_bo_connection_id,
+            "invoice_ids": selected_ids
+        }
+
+        self._set_status(f"Deleting MyDATA responses for {len(selected_ids)} invoice(s)...")
+
+        if self.on_provider_request_callback:
+            self.on_provider_request_callback(payload)
 
     def _show_payways(self) -> None:
         """
@@ -425,17 +473,27 @@ class ProviderTab(ctk.CTkFrame):
         Γεμίζει τον πίνακα με παραστατικά.
         """
 
-        self.clear_invoices()
         self.provider_invoices = invoices
+        self._apply_local_filter()
+
+    def _render_invoices(self, invoices: list[dict]) -> None:
+        """
+        Κάνει render τα παραστατικά στον πίνακα.
+        """
+
+        for item in self.provider_tree.get_children():
+            self.provider_tree.delete(item)
 
         for invoice in invoices:
             invoice_id = str(invoice.get("InvoiceId", ""))
+
+            selected_symbol = "☑" if invoice_id in self.provider_selected_invoice_ids else "☐"
 
             self.provider_tree.insert(
                 "",
                 "end",
                 values=(
-                    "☐",
+                    selected_symbol,
                     invoice.get("InvoiceType", ""),
                     invoice.get("DocumentName", ""),
                     invoice.get("IssueDate", ""),
@@ -445,8 +503,61 @@ class ProviderTab(ctk.CTkFrame):
                 )
             )
 
-        self.provider_count_label.configure(text=f"Count: {len(invoices)}")
-        self._set_status(f"Loaded {len(invoices)} invoices.")
+        self.provider_count_label.configure(
+            text=f"Count: {len(invoices)} / {len(self.provider_invoices)}"
+        )
+
+
+    def _apply_local_filter(self) -> None:
+        """
+        Φιλτράρει τοπικά τα ήδη φορτωμένα παραστατικά.
+        """
+
+        filter_text = ""
+
+        if hasattr(self, "provider_local_filter_entry"):
+            filter_text = self.provider_local_filter_entry.get().strip().lower()
+
+        if not filter_text:
+            self.provider_filtered_invoices = list(self.provider_invoices)
+            self._render_invoices(self.provider_filtered_invoices)
+            self._set_status(f"Loaded {len(self.provider_invoices)} invoices.")
+            return
+
+        filtered: list[dict] = []
+
+        for invoice in self.provider_invoices:
+            searchable_text = " ".join(
+                [
+                    str(invoice.get("InvoiceType", "")),
+                    str(invoice.get("DocumentName", "")),
+                    str(invoice.get("IssueDate", "")),
+                    str(invoice.get("aa", "")),
+                    str(invoice.get("CustAFM", "")),
+                    str(invoice.get("InvoiceId", ""))
+                ]
+            ).lower()
+
+            if filter_text in searchable_text:
+                filtered.append(invoice)
+
+        self.provider_filtered_invoices = filtered
+        self._render_invoices(filtered)
+
+        self._set_status(
+            f"Local filter: {len(filtered)} of {len(self.provider_invoices)} invoices."
+        )
+
+
+    def _clear_local_filter(self) -> None:
+        """
+        Καθαρίζει το τοπικό φίλτρο.
+        """
+
+        if hasattr(self, "provider_local_filter_entry"):
+            self.provider_local_filter_entry.delete(0, "end")
+
+        self._apply_local_filter()
 
     def clear_invoices(self) -> None:
         """
@@ -454,7 +565,11 @@ class ProviderTab(ctk.CTkFrame):
         """
 
         self.provider_invoices.clear()
+        self.provider_filtered_invoices.clear()
         self.provider_selected_invoice_ids.clear()
+
+        if hasattr(self, "provider_local_filter_entry"):
+            self.provider_local_filter_entry.delete(0, "end")
 
         for item in self.provider_tree.get_children():
             self.provider_tree.delete(item)
@@ -921,6 +1036,33 @@ class ProviderTab(ctk.CTkFrame):
         )
 
         self._request_payways_for_invoice(invoice_id)
+
+    def handle_delete_mydata_result(self, payload: dict) -> None:
+        """
+        Μετά τη διαγραφή MyDATA responses κάνει refresh τον πίνακα παραστατικών.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if not payload.get("success"):
+            self._set_status(
+                f"MyDATA delete failed: {payload.get('error')}"
+            )
+            return
+
+        invoice_ids = payload.get("invoice_ids") or []
+        deleted_success_rows = payload.get("deleted_success_rows", 0)
+        deleted_response_rows = payload.get("deleted_response_rows", 0)
+
+        self.provider_selected_invoice_ids.clear()
+
+        self._set_status(
+            f"MyDATA deleted for {len(invoice_ids)} invoice(s). "
+            f"Success rows: {deleted_success_rows}, response rows: {deleted_response_rows}. Refreshing..."
+        )
+
+        self._search_invoices()
         
     def _copy_tree_selected_rows(self, tree: ttk.Treeview) -> None:
         """

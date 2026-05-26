@@ -563,6 +563,113 @@ class ProviderService:
                 "count": 0
             }
 
+    def delete_mydata_for_invoice_ids(
+        self,
+        connection_string: str,
+        invoice_ids: list[str],
+        timeout: int = 30
+    ) -> dict[str, Any]:
+        """
+        Διαγράφει MyDATA responses για συγκεκριμένα InvoiceIds.
+        Διαγράφει πρώτα child rows από TblSnMyDATA_ResponseSuccess
+        και μετά parent rows από TblSnMyDATA_Response.
+        Δεν αποθηκεύει δεδομένα στον server ή στη Supabase.
+        """
+
+        clean_invoice_ids = [
+            str(invoice_id).strip()
+            for invoice_id in invoice_ids
+            if str(invoice_id).strip()
+        ]
+
+        if not clean_invoice_ids:
+            return {
+                "success": False,
+                "error": "No invoice IDs selected.",
+                "invoice_ids": [],
+                "deleted_success_rows": 0,
+                "deleted_response_rows": 0
+            }
+
+        try:
+            odbc_connection_string = self._to_odbc_connection_string(connection_string)
+
+            with pyodbc.connect(odbc_connection_string, timeout=timeout) as connection:
+                cursor = connection.cursor()
+
+                if not self._table_exists(cursor, "TblSnMyDATA_Response"):
+                    raise RuntimeError("Table TblSnMyDATA_Response was not found.")
+
+                response_columns = self._get_table_columns(
+                    cursor,
+                    "TblSnMyDATA_Response"
+                )
+
+                if "mydata_responsesalestransposhdr" not in response_columns:
+                    raise RuntimeError(
+                        "Column MyDATA_ResponseSalesTransPosHdr was not found in TblSnMyDATA_Response."
+                    )
+
+                placeholders = ",".join("?" for _ in clean_invoice_ids)
+
+                deleted_success_rows = 0
+                deleted_response_rows = 0
+
+                if self._table_exists(cursor, "TblSnMyDATA_ResponseSuccess"):
+                    success_columns = self._get_table_columns(
+                        cursor,
+                        "TblSnMyDATA_ResponseSuccess"
+                    )
+
+                    if "mydata_responsesuccesssalestransposhdr" in success_columns:
+                        cursor.execute(
+                            f"""
+                            DELETE suc
+                            FROM TblSnMyDATA_ResponseSuccess suc
+                            INNER JOIN TblSnMyDATA_Response md
+                                ON md.MyDATA_ResponseSalesTransPosHdr =
+                                   suc.MyDATA_ResponseSuccessSalesTransPosHdr
+                            WHERE CAST(md.MyDATA_ResponseSalesTransPosHdr AS NVARCHAR(128))
+                                  IN ({placeholders})
+                            """,
+                            clean_invoice_ids
+                        )
+
+                        deleted_success_rows = cursor.rowcount if cursor.rowcount != -1 else 0
+
+                cursor.execute(
+                    f"""
+                    DELETE md
+                    FROM TblSnMyDATA_Response md
+                    WHERE CAST(md.MyDATA_ResponseSalesTransPosHdr AS NVARCHAR(128))
+                          IN ({placeholders})
+                    """,
+                    clean_invoice_ids
+                )
+
+                deleted_response_rows = cursor.rowcount if cursor.rowcount != -1 else 0
+
+                connection.commit()
+
+            return {
+                "success": True,
+                "error": None,
+                "invoice_ids": clean_invoice_ids,
+                "deleted_success_rows": deleted_success_rows,
+                "deleted_response_rows": deleted_response_rows
+            }
+
+        except Exception as exc:
+            logger.exception("Provider MyDATA delete failed.")
+
+            return {
+                "success": False,
+                "error": str(exc),
+                "invoice_ids": clean_invoice_ids,
+                "deleted_success_rows": 0,
+                "deleted_response_rows": 0
+            }
+
     def get_invoice_payways(
         self,
         connection_string: str,

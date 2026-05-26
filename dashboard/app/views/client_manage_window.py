@@ -1339,3 +1339,14 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "provider_tab_view"):
             self.provider_tab_view.handle_delete_payway_result(payload)
+            
+    def handle_provider_delete_mydata_result(self, payload: dict) -> None:
+        """
+        Προωθεί το αποτέλεσμα διαγραφής MyDATA responses στο Provider tab.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if hasattr(self, "provider_tab_view"):
+            self.provider_tab_view.handle_delete_mydata_result(payload)

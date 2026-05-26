@@ -280,6 +280,24 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") in ("provider_delete_mydata_result",):
+                    request_id = data.get("request_id", "")
+
+                    dashboard_websocket = self.pending_requests.pop(
+                        request_id,
+                        None
+                    )
+
+                    if dashboard_websocket:
+                        await connection_manager.send_to_dashboard(
+                            dashboard_websocket,
+                            data
+                        )
+                    else:
+                        await connection_manager.broadcast_to_dashboards(data)
+
+                    continue
+
                 await websocket.send_json({
                     "type": "echo",
                     "received": data
@@ -879,6 +897,69 @@ class WebSocketRoutes:
                             }
                         )
                         continue
+
+                if data.get("type") == "provider_delete_mydata":
+                    request_id = data.get("request_id", "")
+                    client_code = data.get("client_code", "")
+                    invoice_ids = data.get("invoice_ids") or []
+
+                    if not request_id or not client_code:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_delete_mydata_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "error": "Missing request_id or client_code.",
+                                "invoice_ids": invoice_ids,
+                                "deleted_success_rows": 0,
+                                "deleted_response_rows": 0
+                            }
+                        )
+                        continue
+
+                    if not invoice_ids:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_delete_mydata_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "error": "No invoice IDs selected.",
+                                "invoice_ids": [],
+                                "deleted_success_rows": 0,
+                                "deleted_response_rows": 0
+                            }
+                        )
+                        continue
+
+                    self.pending_requests[request_id] = websocket
+
+                    sent = await connection_manager.send_to_client(
+                        client_code,
+                        data
+                    )
+
+                    if not sent:
+                        self.pending_requests.pop(request_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_delete_mydata_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "error": "Client is not connected.",
+                                "invoice_ids": invoice_ids,
+                                "deleted_success_rows": 0,
+                                "deleted_response_rows": 0
+                            }
+                        )
+
+                    continue
 
                     if not sales_payway_oid:
                         await connection_manager.send_to_dashboard(

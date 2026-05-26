@@ -211,6 +211,13 @@ class MoonHardDashboardApp(ctk.CTk):
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_provider_delete_payway_result(payload)
 
+        elif message_type == "provider_delete_mydata_result":
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_provider_delete_mydata_result(payload)
+
     def _set_connection_status_threadsafe(self, status: str) -> None:
         """
         Μεταφέρει την αλλαγή κατάστασης σύνδεσης στο κύριο GUI thread.
