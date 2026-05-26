@@ -213,6 +213,24 @@ class WebSocketRoutes:
                     "received": data
                 })
 
+                if data.get("type") in ("provider_send_invoices_result",):
+                    request_id = data.get("request_id", "")
+
+                    dashboard_websocket = self.pending_requests.pop(
+                        request_id,
+                        None
+                    )
+
+                    if dashboard_websocket:
+                        await connection_manager.send_to_dashboard(
+                            dashboard_websocket,
+                            data
+                        )
+                    else:
+                        await connection_manager.broadcast_to_dashboards(data)
+
+                    continue
+
         except WebSocketDisconnect:
             logger.info("Client WebSocket disconnected: %s", client_code)
 
@@ -594,6 +612,91 @@ class WebSocketRoutes:
                                 "invoices": [],
                                 "count": 0,
                                 "table": None
+                            }
+                        )
+
+                    continue
+
+                if data.get("type") == "provider_send_invoices":
+                    request_id = data.get("request_id", "")
+                    client_code = data.get("client_code", "")
+                    invoice_ids = data.get("invoice_ids") or []
+                    api_url = data.get("api_url", "")
+
+                    if not request_id or not client_code:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_send_invoices_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "error": "Missing request_id or client_code.",
+                                "total": 0,
+                                "success_count": 0,
+                                "fail_count": 0,
+                                "elapsed_ms": None,
+                                "results": []
+                            }
+                        )
+                        continue
+
+                    if not api_url or "invoiceid" not in api_url.lower():
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_send_invoices_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "error": "Provider API URL must contain invoiceid placeholder.",
+                                "total": 0,
+                                "success_count": 0,
+                                "fail_count": 0,
+                                "elapsed_ms": None,
+                                "results": []
+                            }
+                        )
+                        continue
+
+                    if not invoice_ids:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_send_invoices_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "error": "No invoice IDs selected.",
+                                "total": 0,
+                                "success_count": 0,
+                                "fail_count": 0,
+                                "elapsed_ms": None,
+                                "results": []
+                            }
+                        )
+                        continue
+
+                    self.pending_requests[request_id] = websocket
+
+                    sent = await connection_manager.send_to_client(client_code, data)
+
+                    if not sent:
+                        self.pending_requests.pop(request_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_send_invoices_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "error": "Client is not connected.",
+                                "total": 0,
+                                "success_count": 0,
+                                "fail_count": 0,
+                                "elapsed_ms": None,
+                                "results": []
                             }
                         )
 

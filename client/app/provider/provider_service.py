@@ -1,5 +1,9 @@
 import logging
 import re
+import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import pyodbc
@@ -90,6 +94,194 @@ class ProviderService:
                 "count": 0,
                 "table": None
             }
+
+    def send_invoices(
+        self,
+        api_url_template: str,
+        invoice_ids: list[str],
+        timeout: int = 60,
+        max_workers: int = 6
+    ) -> dict[str, Any]:
+        """
+        Στέλνει παραστατικά προς Provider API όπως το MUPT.
+        Η αποστολή γίνεται από τον client υπολογιστή.
+        Δεν αποθηκεύει δεδομένα στον server ή στη Supabase.
+        """
+
+        clean_url = api_url_template.strip()
+        clean_invoice_ids = [str(invoice_id).strip() for invoice_id in invoice_ids if str(invoice_id).strip()]
+
+        if not clean_url:
+            return {
+                "success": False,
+                "error": "Provider API URL is empty.",
+                "total": 0,
+                "success_count": 0,
+                "fail_count": 0,
+                "results": []
+            }
+
+        if "invoiceid" not in clean_url.lower():
+            return {
+                "success": False,
+                "error": "Provider API URL must contain invoiceid placeholder.",
+                "total": 0,
+                "success_count": 0,
+                "fail_count": 0,
+                "results": []
+            }
+
+        if not clean_invoice_ids:
+            return {
+                "success": False,
+                "error": "No invoice IDs selected.",
+                "total": 0,
+                "success_count": 0,
+                "fail_count": 0,
+                "results": []
+            }
+
+        start_time = time.perf_counter()
+        results: list[dict[str, Any]] = []
+
+        logger.info(
+            "Starting provider invoice send. total=%s max_workers=%s",
+            len(clean_invoice_ids),
+            max_workers
+        )
+
+        worker_count = max(1, min(max_workers, len(clean_invoice_ids)))
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(
+                    self._send_single_invoice,
+                    clean_url,
+                    invoice_id,
+                    timeout
+                ): invoice_id
+                for invoice_id in clean_invoice_ids
+            }
+
+            for future in as_completed(future_map):
+                invoice_id = future_map[future]
+
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    logger.exception("Provider invoice send crashed. invoice_id=%s", invoice_id)
+
+                    results.append(
+                        {
+                            "invoice_id": invoice_id,
+                            "success": False,
+                            "status_code": None,
+                            "elapsed_ms": None,
+                            "url": self._build_invoice_url(clean_url, invoice_id),
+                            "response_text": "",
+                            "error": str(exc)
+                        }
+                    )
+
+        success_count = sum(1 for item in results if item.get("success"))
+        fail_count = len(results) - success_count
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+
+        return {
+            "success": fail_count == 0,
+            "error": None if fail_count == 0 else f"{fail_count} invoice(s) failed.",
+            "total": len(results),
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "elapsed_ms": elapsed_ms,
+            "results": results
+        }
+
+    def _send_single_invoice(
+        self,
+        api_url_template: str,
+        invoice_id: str,
+        timeout: int
+    ) -> dict[str, Any]:
+        """
+        Στέλνει ένα παραστατικό στο Provider API.
+        """
+
+        final_url = self._build_invoice_url(api_url_template, invoice_id)
+        start_time = time.perf_counter()
+
+        logger.info("Sending provider invoice. invoice_id=%s url=%s", invoice_id, final_url)
+
+        request = urllib.request.Request(
+            final_url,
+            data=b"",
+            method="POST",
+            headers={
+                "User-Agent": "MoonHardRemoteV2-ProviderSender/1.0",
+                "Accept": "application/json, text/plain, */*"
+            }
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                status_code = response.getcode()
+                raw_body = response.read()
+                response_text = raw_body.decode("utf-8", errors="replace")
+
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+
+            return {
+                "invoice_id": invoice_id,
+                "success": 200 <= int(status_code) < 300,
+                "status_code": status_code,
+                "elapsed_ms": elapsed_ms,
+                "url": final_url,
+                "response_text": response_text[:4000],
+                "error": None
+            }
+
+        except urllib.error.HTTPError as exc:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+
+            try:
+                response_text = exc.read().decode("utf-8", errors="replace")
+            except Exception:
+                response_text = ""
+
+            return {
+                "invoice_id": invoice_id,
+                "success": False,
+                "status_code": exc.code,
+                "elapsed_ms": elapsed_ms,
+                "url": final_url,
+                "response_text": response_text[:4000],
+                "error": str(exc)
+            }
+
+        except Exception as exc:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+
+            return {
+                "invoice_id": invoice_id,
+                "success": False,
+                "status_code": None,
+                "elapsed_ms": elapsed_ms,
+                "url": final_url,
+                "response_text": "",
+                "error": str(exc)
+            }
+
+    def _build_invoice_url(self, api_url_template: str, invoice_id: str) -> str:
+        """
+        Αντικαθιστά το invoiceid placeholder με το πραγματικό InvoiceId.
+        """
+
+        return re.sub(
+            "invoiceid",
+            str(invoice_id),
+            api_url_template,
+            flags=re.IGNORECASE
+        )
 
     def _detect_invoice_table(self, cursor) -> str:
         """

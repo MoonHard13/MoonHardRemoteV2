@@ -130,6 +130,9 @@ class MoonHardClientAgent:
                 
             elif message_type == "provider_search_invoices":
                 await self._handle_provider_search_invoices(websocket, payload)
+
+            elif message_type == "provider_send_invoices":
+                await self._handle_provider_send_invoices(websocket, payload)
             
     async def _send_heartbeat_forever(self, websocket) -> None:
         """
@@ -472,6 +475,62 @@ class MoonHardClientAgent:
                 "invoices": [],
                 "count": 0,
                 "table": None
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+        
+    async def _handle_provider_send_invoices(self, websocket, payload: dict) -> None:
+        """
+        Στέλνει παραστατικά μέσω Provider API από τον client υπολογιστή.
+        Δεν αποθηκεύει αποτελέσματα στον server.
+        """
+
+        request_id = payload.get("request_id", "")
+        bo_connection_id = int(payload.get("bo_connection_id", 1))
+        api_url = payload.get("api_url", "")
+        invoice_ids = payload.get("invoice_ids") or []
+        timeout = int(payload.get("timeout", 60))
+        max_workers = int(payload.get("max_workers", 6))
+
+        logger.info(
+            "Λήφθηκε Provider send request. request_id=%s bo_connection_id=%s invoices=%s",
+            request_id,
+            bo_connection_id,
+            len(invoice_ids)
+        )
+
+        try:
+            send_result = await asyncio.to_thread(
+                self.provider_service.send_invoices,
+                api_url,
+                invoice_ids,
+                timeout,
+                max_workers
+            )
+
+            result_message = {
+                "type": "provider_send_invoices_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                **send_result
+            }
+
+        except Exception as exc:
+            logger.exception("Provider send request failed.")
+
+            result_message = {
+                "type": "provider_send_invoices_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                "success": False,
+                "error": str(exc),
+                "total": 0,
+                "success_count": 0,
+                "fail_count": 0,
+                "elapsed_ms": None,
+                "results": []
             }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))

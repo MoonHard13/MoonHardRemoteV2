@@ -345,17 +345,35 @@ class ProviderTab(ctk.CTkFrame):
 
     def _send_selected(self) -> None:
         """
-        Προσωρινό handler για αποστολή επιλεγμένων.
+        Στέλνει τα επιλεγμένα παραστατικά μέσω του client PC.
         """
 
-        self._set_status("Send selected backend is not connected yet.")
+        selected_ids = sorted(self.provider_selected_invoice_ids)
+
+        if not selected_ids:
+            self._set_status("No selected invoices.")
+            return
+
+        self._send_invoice_ids(selected_ids)
 
     def _send_all(self) -> None:
         """
-        Προσωρινό handler για αποστολή όλων.
+        Στέλνει όλα τα φορτωμένα παραστατικά μέσω του client PC.
         """
 
-        self._set_status("Send all backend is not connected yet.")
+        invoice_ids: list[str] = []
+
+        for invoice in self.provider_invoices:
+            invoice_id = str(invoice.get("InvoiceId", "")).strip()
+
+            if invoice_id:
+                invoice_ids.append(invoice_id)
+
+        if not invoice_ids:
+            self._set_status("No invoices loaded.")
+            return
+
+        self._send_invoice_ids(invoice_ids)
 
     def _show_errors(self) -> None:
         """
@@ -527,3 +545,58 @@ class ProviderTab(ctk.CTkFrame):
 
         self.populate_invoices(invoices)
         self._set_status(f"Loaded {len(invoices)} invoices from {table}.")
+        
+    def _send_invoice_ids(self, invoice_ids: list[str]) -> None:
+        """
+        Δημιουργεί Provider send request.
+        Ο server θα κάνει μόνο forwarding προς τον client.
+        """
+
+        api_url = self.provider_api_url_entry.get().strip()
+
+        if not api_url:
+            self._set_status("Provider API URL is empty.")
+            return
+
+        if "invoiceid" not in api_url.lower():
+            self._set_status("API URL must contain invoiceid.")
+            return
+
+        payload = {
+            "type": "provider_send_invoices",
+            "request_id": str(uuid.uuid4()),
+            "client_code": self.client_code,
+            "bo_connection_id": self.selected_bo_connection_id,
+            "api_url": api_url,
+            "invoice_ids": invoice_ids,
+            "timeout": 60,
+            "max_workers": 6
+        }
+
+        self._set_status(f"Sending {len(invoice_ids)} invoice(s)...")
+
+        if self.on_provider_request_callback:
+            self.on_provider_request_callback(payload)
+            
+    def handle_send_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα αποστολής παραστατικών.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        total = payload.get("total", 0)
+        success_count = payload.get("success_count", 0)
+        fail_count = payload.get("fail_count", 0)
+        elapsed_ms = payload.get("elapsed_ms")
+        error = payload.get("error")
+
+        if error:
+            self._set_status(
+                f"Send completed with errors. Total: {total}, OK: {success_count}, Failed: {fail_count}"
+            )
+        else:
+            self._set_status(
+                f"Send completed. Total: {total}, OK: {success_count}, Failed: {fail_count}, Time: {elapsed_ms} ms"
+            )
