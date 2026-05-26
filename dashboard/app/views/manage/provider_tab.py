@@ -648,14 +648,13 @@ class ProviderTab(ctk.CTkFrame):
     ) -> None:
         """
         Ανοίγει παράθυρο με τους τρόπους πληρωμής του παραστατικού.
+        Περιλαμβάνει κουμπί διαγραφής και right-click delete.
         """
 
         window = ctk.CTkToplevel(self)
         window.title(f"Payways - Invoice {invoice_id}")
         window.geometry("1000x560")
         window.minsize(850, 460)
-
-        self.current_payways_window = window
 
         window.grid_columnconfigure(0, weight=1)
         window.grid_rowconfigure(2, weight=1)
@@ -742,7 +741,15 @@ class ProviderTab(ctk.CTkFrame):
         copy_button.pack(side="left", padx=5, pady=10)
 
         tree.bind("<Control-c>", lambda _event: self._copy_tree_selected_rows(tree))
-        tree.bind("<Button-3>", lambda event: self._show_payways_context_menu(event, tree, columns, invoice_id))
+        tree.bind(
+            "<Button-3>",
+            lambda event: self._show_payways_context_menu(
+                event=event,
+                tree=tree,
+                columns=columns,
+                invoice_id=invoice_id
+            )
+        )
 
     def _show_payways_context_menu(
         self,
@@ -752,7 +759,7 @@ class ProviderTab(ctk.CTkFrame):
         invoice_id: str
     ) -> None:
         """
-        Εμφανίζει context menu για Payways με copy και delete.
+        Εμφανίζει right-click menu για Payways.
         """
 
         context_menu = __import__("tkinter").Menu(self, tearoff=0)
@@ -790,6 +797,7 @@ class ProviderTab(ctk.CTkFrame):
     ) -> None:
         """
         Δημιουργεί request διαγραφής για τον επιλεγμένο τρόπο πληρωμής.
+        Το backend delete θα συνδεθεί μετά.
         """
 
         selected_items = tree.selection()
