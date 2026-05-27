@@ -7,6 +7,7 @@ from tkinter import filedialog, ttk
 from app.views.manage.provider_tab import ProviderTab
 from app.views.manage.overview_tab import OverviewTab
 from app.views.manage.terminal_tab import TerminalTab
+from app.views.manage.appsettings_tab import AppSettingsTab
 
 
 class ClientManageWindow(ctk.CTkToplevel):
@@ -203,58 +204,15 @@ class ClientManageWindow(ctk.CTkToplevel):
         
     def _build_appsettings_tab(self) -> None:
         """
-        Δημιουργεί το AppSettings tab.
+        Δημιουργεί το AppSettings tab μέσω ξεχωριστού AppSettingsTab component.
         """
 
-        top_frame = ctk.CTkFrame(self.appsettings_tab, corner_radius=16)
-        top_frame.grid(row=0, column=0, padx=15, pady=15, sticky="ew")
-        top_frame.grid_columnconfigure(1, weight=1)
-
-        title = ctk.CTkLabel(
-            top_frame,
-            text="AppSettings Production JSON",
-            font=("Segoe UI", 20, "bold")
-        )
-        title.grid(row=0, column=0, columnspan=3, padx=18, pady=(18, 8), sticky="w")
-
-        self.appsettings_status_label = ctk.CTkLabel(
-            top_frame,
-            text="Waiting for appsettings data...",
-            font=("Segoe UI", 13),
-            anchor="w"
-        )
-        self.appsettings_status_label.grid(row=1, column=0, columnspan=3, padx=18, pady=(0, 10), sticky="ew")
-
-        bo_label = ctk.CTkLabel(
-            top_frame,
-            text="BO Connection ID:",
-            font=("Segoe UI", 14, "bold")
-        )
-        bo_label.grid(row=2, column=0, padx=(18, 10), pady=(5, 18), sticky="w")
-
-        self.bo_connection_option = ctk.CTkOptionMenu(
-            top_frame,
-            values=["ID 1"],
-            command=self._on_bo_connection_selected
-        )
-        self.bo_connection_option.set("ID 1")
-        self.bo_connection_option.grid(row=2, column=1, padx=(0, 10), pady=(5, 18), sticky="w")
-
-        refresh_button = ctk.CTkButton(
-            top_frame,
-            text="Refresh Display",
-            width=130,
-            command=self._refresh_selected_bo_connection
-        )
-        refresh_button.grid(row=2, column=2, padx=(0, 18), pady=(5, 18), sticky="e")
-
-        self.appsettings_details_box = ctk.CTkTextbox(
+        self.appsettings_tab_view = AppSettingsTab(
             self.appsettings_tab,
-            font=("Consolas", 13),
-            wrap="word"
+            on_bo_connection_selected=self._on_bo_connection_selected,
+            on_refresh_callback=self._refresh_selected_bo_connection
         )
-        self.appsettings_details_box.grid(row=1, column=0, padx=15, pady=(0, 15), sticky="nsew")
-        self.appsettings_details_box.configure(state="disabled")
+        self.appsettings_tab_view.grid(row=0, column=0, sticky="nsew")
         
     def handle_appsettings_result(self, payload: dict) -> None:
         """
@@ -267,7 +225,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         if not payload.get("success"):
             message = payload.get("message", "Failed to load appsettings.")
             self._set_appsettings_text(f"ERROR: {message}")
-            self.appsettings_status_label.configure(text="Failed to load appsettings.")
+            self.appsettings_tab_view.set_status("Failed to load appsettings.")
             return
 
         appsettings = payload.get("appsettings") or {}
@@ -281,8 +239,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.selected_bo_connection_id = appsettings.get("selected_bo_connection_id") or 1
 
         if not file_found:
-            self.appsettings_status_label.configure(
-                text="appsettings.production.json was not found on this client."
+            self.appsettings_tab_view.set_status(
+                "appsettings.production.json was not found on this client."
             )
             self._set_appsettings_text(
                 f"File found: No\n"
@@ -294,21 +252,29 @@ class ClientManageWindow(ctk.CTkToplevel):
         bo_values = self._build_bo_connection_values()
 
         if bo_values:
-            self.bo_connection_option.configure(values=bo_values)
-
             default_value = self._find_bo_option_value(self.selected_bo_connection_id)
 
             if default_value:
-                self.bo_connection_option.set(default_value)
+                self.appsettings_tab_view.set_bo_values(
+                    values=bo_values,
+                    selected_value=default_value
+                )
             else:
-                self.bo_connection_option.set(bo_values[0])
+                self.appsettings_tab_view.set_bo_values(
+                    values=bo_values,
+                    selected_value=bo_values[0]
+                )
         else:
-            self.bo_connection_option.configure(values=["No BOConnections"])
-            self.bo_connection_option.set("No BOConnections")
+            self.appsettings_tab_view.set_bo_values(
+                values=["No BOConnections"],
+                selected_value="No BOConnections"
+            )
+
+        selected_bo_value = self.appsettings_tab_view.get_selected_bo_value()
 
         if bo_values:
             self.sql_bo_option.configure(values=bo_values)
-            self.sql_bo_option.set(self.bo_connection_option.get())
+            self.sql_bo_option.set(selected_bo_value)
         else:
             self.sql_bo_option.configure(values=["No BOConnections"])
             self.sql_bo_option.set("No BOConnections")
@@ -316,11 +282,11 @@ class ClientManageWindow(ctk.CTkToplevel):
         if hasattr(self, "provider_tab_view"):
             self.provider_tab_view.update_bo_values(
                 bo_values=bo_values,
-                selected_value=self.bo_connection_option.get()
+                selected_value=self.appsettings_tab_view.get_selected_bo_value()
             )
 
-        self.appsettings_status_label.configure(
-            text=f"Loaded from: {file_path} | Last read: {last_read_at}"
+        self.appsettings_tab_view.set_status(
+            f"Loaded from: {file_path} | Last read: {last_read_at}"
         )
 
         self._refresh_selected_bo_connection()
@@ -502,10 +468,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         Ενημερώνει το textbox του AppSettings tab.
         """
 
-        self.appsettings_details_box.configure(state="normal")
-        self.appsettings_details_box.delete("1.0", "end")
-        self.appsettings_details_box.insert("end", text)
-        self.appsettings_details_box.configure(state="disabled")
+        if hasattr(self, "appsettings_tab_view"):
+            self.appsettings_tab_view.set_text(text)
         
     def _build_sql_tab(self) -> None:
         """
