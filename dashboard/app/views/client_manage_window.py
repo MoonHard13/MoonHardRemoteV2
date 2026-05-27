@@ -1,8 +1,6 @@
-import uuid
 from typing import Callable, Any
 
 import customtkinter as ctk
-from tkinter import filedialog
 
 from app.views.manage.provider_tab import ProviderTab
 from app.views.manage.overview_tab import OverviewTab
@@ -41,12 +39,6 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.on_sql_execute_callback = on_sql_execute_callback
 
         self.client_code = client.get("client_code", "")
-        self.current_directory = ""
-        self.last_autocomplete_request_id: str = ""
-        self.autocomplete_matches: list[str] = []
-        self.autocomplete_index: int = 0
-        self.command_history: list[str] = []
-        self.history_index: int | None = None
         self.appsettings_data: dict = {}
         self.bo_connections: list[dict] = []
         self.selected_bo_connection_id: int = 1
@@ -148,22 +140,6 @@ class ClientManageWindow(ctk.CTkToplevel):
             on_terminal_autocomplete_callback=self.on_terminal_autocomplete_callback
         )
         self.terminal_tab_view.grid(row=0, column=0, sticky="nsew")
-
-    def _save_name(self) -> None:
-        """
-        Στέλνει αίτημα αλλαγής φιλικού ονόματος.
-        """
-
-        new_name = self.rename_entry.get().strip()
-
-        if not new_name:
-            self.append_output("ERROR: Name cannot be empty.\n")
-            return
-
-        if self.on_rename_callback:
-            self.on_rename_callback(self.client_code, new_name)
-
-        self.append_output(f"Rename request sent: {new_name}\n")
 
     def handle_terminal_result(self, payload: dict) -> None:
         """
