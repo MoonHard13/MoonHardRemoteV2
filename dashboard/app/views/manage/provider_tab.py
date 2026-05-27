@@ -1088,6 +1088,7 @@ class ProviderTab(ctk.CTkFrame):
         window.title(f"Payways - Invoice {invoice_id}")
         window.geometry("1000x560")
         window.minsize(850, 460)
+        window.configure(fg_color=COLORS.background)
 
         window.grid_columnconfigure(0, weight=1)
         window.grid_rowconfigure(2, weight=1)
@@ -1095,18 +1096,37 @@ class ProviderTab(ctk.CTkFrame):
         title = ctk.CTkLabel(
             window,
             text=f"Payways for Invoice {invoice_id} ({len(payways)})",
-            font=("Segoe UI", 20, "bold")
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
         )
 
         self.current_payways_title_label = title
 
-        title.grid(row=0, column=0, padx=15, pady=(15, 5), sticky="w")
+        title.grid(
+            row=0,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(SPACING.window_padding, SPACING.inner_padding),
+            sticky="w"
+        )
 
-        actions_frame = ctk.CTkFrame(window, corner_radius=12)
-        actions_frame.grid(row=1, column=0, padx=15, pady=(0, 10), sticky="ew")
+        actions_frame = ctk.CTkFrame(window, **card_style())
+        actions_frame.grid(
+            row=1,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(0, SPACING.inner_padding),
+            sticky="ew"
+        )
 
-        table_frame = ctk.CTkFrame(window, corner_radius=12)
-        table_frame.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="nsew")
+        table_frame = ctk.CTkFrame(window, **card_style())
+        table_frame.grid(
+            row=2,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(0, SPACING.window_padding),
+            sticky="nsew"
+        )
         table_frame.grid_columnconfigure(0, weight=1)
         table_frame.grid_rowconfigure(0, weight=1)
 
@@ -1168,7 +1188,8 @@ class ProviderTab(ctk.CTkFrame):
                 tree=tree,
                 columns=columns,
                 invoice_id=invoice_id
-            )
+            ),
+            **danger_button_style()
         )
         delete_button.pack(side="left", padx=10, pady=10)
 
@@ -1176,7 +1197,8 @@ class ProviderTab(ctk.CTkFrame):
             actions_frame,
             text="Copy All",
             width=100,
-            command=lambda: self._copy_tree_all_rows(tree)
+            command=lambda: self._copy_tree_all_rows(tree),
+            **secondary_button_style()
         )
         copy_button.pack(side="left", padx=5, pady=10)
 
