@@ -1,6 +1,13 @@
 from typing import Callable
 
 import customtkinter as ctk
+from app.ui.theme import (
+    COLORS,
+    FONTS,
+    SPACING,
+    card_style,
+    primary_button_style
+)
 
 
 class OverviewTab(ctk.CTkFrame):
@@ -34,14 +41,21 @@ class OverviewTab(ctk.CTkFrame):
         Δημιουργεί το UI του Overview tab.
         """
 
-        frame = ctk.CTkFrame(self, corner_radius=16)
-        frame.grid(row=0, column=0, padx=15, pady=15, sticky="ew")
+        frame = ctk.CTkFrame(self, **card_style())
+        frame.grid(
+            row=0,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=SPACING.card_padding,
+            sticky="ew"
+        )
         frame.grid_columnconfigure(0, weight=1)
 
         title = ctk.CTkLabel(
             frame,
             text="Client Information",
-            font=("Segoe UI", 20, "bold")
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
         )
         title.grid(row=0, column=0, columnspan=2, padx=18, pady=(18, 8), sticky="w")
 
@@ -62,7 +76,8 @@ class OverviewTab(ctk.CTkFrame):
         info_label = ctk.CTkLabel(
             frame,
             text=info_text,
-            font=("Segoe UI", 14),
+            font=FONTS.body,
+            text_color=COLORS.text_secondary,
             justify="left",
             anchor="w"
         )
@@ -71,13 +86,18 @@ class OverviewTab(ctk.CTkFrame):
         rename_title = ctk.CTkLabel(
             frame,
             text="Rename Client",
-            font=("Segoe UI", 18, "bold")
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary
         )
         rename_title.grid(row=2, column=0, columnspan=2, padx=18, pady=(8, 8), sticky="w")
 
         self.rename_entry = ctk.CTkEntry(
             frame,
-            placeholder_text="Friendly name"
+            placeholder_text="Friendly name",
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+            placeholder_text_color=COLORS.text_muted
         )
         self.rename_entry.grid(row=3, column=0, padx=(18, 10), pady=(0, 18), sticky="ew")
         self.rename_entry.insert(0, display_name)
@@ -86,7 +106,8 @@ class OverviewTab(ctk.CTkFrame):
             frame,
             text="Save Name",
             width=120,
-            command=self._save_name
+            command=self._save_name,
+            **primary_button_style()
         )
         rename_button.grid(row=3, column=1, padx=(0, 18), pady=(0, 18), sticky="e")
 

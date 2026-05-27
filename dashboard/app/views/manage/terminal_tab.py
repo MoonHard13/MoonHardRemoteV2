@@ -2,6 +2,12 @@ import uuid
 from typing import Callable, Any
 
 import customtkinter as ctk
+from app.ui.theme import (
+    COLORS,
+    FONTS,
+    SPACING,
+    primary_button_style
+)
 
 
 class TerminalTab(ctk.CTkFrame):
@@ -46,38 +52,71 @@ class TerminalTab(ctk.CTkFrame):
         """
 
         top_frame = ctk.CTkFrame(self, fg_color="transparent")
-        top_frame.grid(row=0, column=0, padx=15, pady=(15, 8), sticky="ew")
+        top_frame.grid(
+            row=0,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(SPACING.card_padding, SPACING.inner_padding),
+            sticky="ew"
+        )
         top_frame.grid_columnconfigure(0, weight=1)
 
         title = ctk.CTkLabel(
             top_frame,
             text="Remote Terminal",
-            font=("Segoe UI", 20, "bold")
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
         )
         title.grid(row=0, column=0, sticky="w")
 
         self.shell_option = ctk.CTkOptionMenu(
             top_frame,
-            values=["cmd", "powershell"]
+            values=["cmd", "powershell"],
+            fg_color=COLORS.surface_light,
+            button_color=COLORS.accent,
+            button_hover_color=COLORS.accent_hover,
+            text_color=COLORS.text_primary,
+            dropdown_fg_color=COLORS.surface,
+            dropdown_hover_color=COLORS.surface_hover
         )
         self.shell_option.set("cmd")
         self.shell_option.grid(row=0, column=1, sticky="e")
 
         self.output_box = ctk.CTkTextbox(
             self,
-            font=("Consolas", 13),
-            wrap="word"
+            font=FONTS.mono_body,
+            wrap="word",
+            fg_color="#050A0C",
+            text_color=COLORS.text_primary,
+            border_color=COLORS.border,
+            border_width=1
         )
-        self.output_box.grid(row=1, column=0, padx=15, pady=(0, 10), sticky="nsew")
+        self.output_box.grid(
+            row=1,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, SPACING.inner_padding),
+            sticky="nsew"
+        )
         self.output_box.configure(state="disabled")
 
         bottom = ctk.CTkFrame(self, fg_color="transparent")
-        bottom.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="ew")
+        bottom.grid(
+            row=2,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, SPACING.card_padding),
+            sticky="ew"
+        )
         bottom.grid_columnconfigure(0, weight=1)
 
         self.command_entry = ctk.CTkEntry(
             bottom,
-            placeholder_text="Type command..."
+            placeholder_text="Type command...",
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+            placeholder_text_color=COLORS.text_muted
         )
         self.command_entry.grid(row=0, column=0, padx=(0, 10), sticky="ew")
         self.command_entry.bind("<Return>", lambda _event: self.send_terminal_command())
@@ -89,7 +128,8 @@ class TerminalTab(ctk.CTkFrame):
             bottom,
             text="Send",
             width=100,
-            command=self.send_terminal_command
+            command=self.send_terminal_command,
+            **primary_button_style()
         )
         send_button.grid(row=0, column=1)
 
