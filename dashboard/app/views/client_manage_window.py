@@ -5,6 +5,7 @@ import customtkinter as ctk
 from tkinter import filedialog, ttk
 
 from app.views.manage.provider_tab import ProviderTab
+from app.views.manage.overview_tab import OverviewTab
 
 class ClientManageWindow(ctk.CTkToplevel):
     """
@@ -75,6 +76,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.appsettings_tab = self.tabs.add("AppSettings")
 
         self.overview_tab.grid_columnconfigure(0, weight=1)
+        self.overview_tab.grid_rowconfigure(0, weight=1)
         self.terminal_tab.grid_columnconfigure(0, weight=1)
         self.terminal_tab.grid_rowconfigure(1, weight=1)
         self.appsettings_tab.grid_columnconfigure(0, weight=1)
@@ -123,64 +125,15 @@ class ClientManageWindow(ctk.CTkToplevel):
 
     def _build_overview_tab(self) -> None:
         """
-        Δημιουργεί το Overview tab με βασικές πληροφορίες και rename.
+        Δημιουργεί το Overview tab μέσω ξεχωριστού OverviewTab component.
         """
 
-        frame = ctk.CTkFrame(self.overview_tab, corner_radius=16)
-        frame.grid(row=0, column=0, padx=15, pady=15, sticky="ew")
-        frame.grid_columnconfigure(0, weight=1)
-
-        title = ctk.CTkLabel(
-            frame,
-            text="Client Information",
-            font=("Segoe UI", 20, "bold")
+        self.overview_tab_view = OverviewTab(
+            self.overview_tab,
+            client=self.client,
+            on_rename_callback=self.on_rename_callback
         )
-        title.grid(row=0, column=0, columnspan=2, padx=18, pady=(18, 8), sticky="w")
-
-        display_name = self.client.get("display_name") or self.client.get("pc_name") or "-"
-        pc_name = self.client.get("pc_name", "-")
-        username = self.client.get("username", "-")
-        app_version = self.client.get("app_version", "-")
-        last_seen = self.client.get("last_seen", "-")
-
-        info_text = (
-            f"Display name: {display_name}\n"
-            f"PC name: {pc_name}\n"
-            f"Username: {username}\n"
-            f"App version: {app_version}\n"
-            f"Last seen: {last_seen}"
-        )
-
-        info_label = ctk.CTkLabel(
-            frame,
-            text=info_text,
-            font=("Segoe UI", 14),
-            justify="left",
-            anchor="w"
-        )
-        info_label.grid(row=1, column=0, columnspan=2, padx=18, pady=(0, 18), sticky="w")
-
-        rename_title = ctk.CTkLabel(
-            frame,
-            text="Rename Client",
-            font=("Segoe UI", 18, "bold")
-        )
-        rename_title.grid(row=2, column=0, columnspan=2, padx=18, pady=(8, 8), sticky="w")
-
-        self.rename_entry = ctk.CTkEntry(
-            frame,
-            placeholder_text="Friendly name"
-        )
-        self.rename_entry.grid(row=3, column=0, padx=(18, 10), pady=(0, 18), sticky="ew")
-        self.rename_entry.insert(0, display_name)
-
-        rename_button = ctk.CTkButton(
-            frame,
-            text="Save Name",
-            width=120,
-            command=self._save_name
-        )
-        rename_button.grid(row=3, column=1, padx=(0, 18), pady=(0, 18), sticky="e")
+        self.overview_tab_view.grid(row=0, column=0, sticky="nsew")
 
     def _build_terminal_tab(self) -> None:
         """
