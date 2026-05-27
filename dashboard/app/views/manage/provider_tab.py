@@ -4,6 +4,15 @@ from typing import Callable
 
 import customtkinter as ctk
 from tkinter import ttk
+from app.ui.theme import (
+    COLORS,
+    FONTS,
+    SPACING,
+    card_style,
+    primary_button_style,
+    secondary_button_style,
+    danger_button_style
+)
 
 
 class ProviderTab(ctk.CTkFrame):
@@ -51,29 +60,43 @@ class ProviderTab(ctk.CTkFrame):
         Δημιουργεί το βασικό UI του Provider/MUPT tab.
         """
 
-        top_frame = ctk.CTkFrame(self, corner_radius=16)
-        top_frame.grid(row=0, column=0, padx=15, pady=15, sticky="ew")
+        top_frame = ctk.CTkFrame(self, **card_style())
+        top_frame.grid(
+            row=0,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=SPACING.card_padding,
+            sticky="ew"
+        )
         top_frame.grid_columnconfigure(1, weight=1)
         top_frame.grid_columnconfigure(3, weight=1)
 
         title = ctk.CTkLabel(
             top_frame,
             text="Universal Provider Tool",
-            font=("Segoe UI", 20, "bold")
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
         )
         title.grid(row=0, column=0, columnspan=6, padx=18, pady=(18, 8), sticky="w")
 
         bo_label = ctk.CTkLabel(
             top_frame,
             text="BOConnection:",
-            font=("Segoe UI", 13, "bold")
+            font=FONTS.body_bold,
+            text_color=COLORS.text_primary
         )
         bo_label.grid(row=1, column=0, padx=(18, 8), pady=6, sticky="w")
 
         self.provider_bo_option = ctk.CTkOptionMenu(
             top_frame,
             values=["ID 1"],
-            command=self._on_provider_bo_selected
+            command=self._on_provider_bo_selected,
+            fg_color=COLORS.surface_light,
+            button_color=COLORS.accent,
+            button_hover_color=COLORS.accent_hover,
+            text_color=COLORS.text_primary,
+            dropdown_fg_color=COLORS.surface,
+            dropdown_hover_color=COLORS.surface_hover
         )
         self.provider_bo_option.set("ID 1")
         self.provider_bo_option.grid(row=1, column=1, padx=(0, 12), pady=6, sticky="w")
@@ -81,13 +104,18 @@ class ProviderTab(ctk.CTkFrame):
         api_label = ctk.CTkLabel(
             top_frame,
             text="API URL:",
-            font=("Segoe UI", 13, "bold")
+            font=FONTS.body_bold,
+            text_color=COLORS.text_primary
         )
         api_label.grid(row=2, column=0, padx=(18, 8), pady=6, sticky="w")
 
         self.provider_api_url_entry = ctk.CTkEntry(
             top_frame,
-            placeholder_text="Provider API URL with invoiceid placeholder"
+            placeholder_text="Provider API URL with invoiceid placeholder",
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+            placeholder_text_color=COLORS.text_muted
         )
         self.provider_api_url_entry.grid(row=2, column=1, columnspan=5, padx=(0, 18), pady=6, sticky="ew")
         self.provider_api_url_entry.insert(
@@ -98,22 +126,36 @@ class ProviderTab(ctk.CTkFrame):
         start_label = ctk.CTkLabel(
             top_frame,
             text="Date From:",
-            font=("Segoe UI", 13, "bold")
+            font=FONTS.body_bold,
+            text_color=COLORS.text_primary
         )
         start_label.grid(row=3, column=0, padx=(18, 8), pady=6, sticky="w")
 
-        self.provider_start_entry = ctk.CTkEntry(top_frame, width=120)
+        self.provider_start_entry = ctk.CTkEntry(
+            top_frame,
+            width=120,
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary
+        )
         self.provider_start_entry.grid(row=3, column=1, padx=(0, 12), pady=6, sticky="w")
         self.provider_start_entry.insert(0, self._today_yyyymmdd())
 
         end_label = ctk.CTkLabel(
             top_frame,
             text="Date To:",
-            font=("Segoe UI", 13, "bold")
+            font=FONTS.body_bold,
+            text_color=COLORS.text_primary
         )
         end_label.grid(row=3, column=2, padx=(8, 8), pady=6, sticky="w")
 
-        self.provider_end_entry = ctk.CTkEntry(top_frame, width=120)
+        self.provider_end_entry = ctk.CTkEntry(
+            top_frame,
+            width=120,
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary
+        )
         self.provider_end_entry.grid(row=3, column=3, padx=(0, 12), pady=6, sticky="w")
         self.provider_end_entry.insert(0, self._tomorrow_yyyymmdd())
 
@@ -121,7 +163,8 @@ class ProviderTab(ctk.CTkFrame):
             top_frame,
             text="Today",
             width=80,
-            command=self._preset_today
+            command=self._preset_today,
+            **secondary_button_style()
         )
         today_button.grid(row=3, column=4, padx=(0, 8), pady=6)
 
@@ -129,35 +172,46 @@ class ProviderTab(ctk.CTkFrame):
             top_frame,
             text="This Month",
             width=100,
-            command=self._preset_month
+            command=self._preset_month,
+            **secondary_button_style()
         )
         month_button.grid(row=3, column=5, padx=(0, 18), pady=6)
 
         afm_label = ctk.CTkLabel(
             top_frame,
             text="AFM:",
-            font=("Segoe UI", 13, "bold")
+            font=FONTS.body_bold,
+            text_color=COLORS.text_primarygoe UI", 13, "bold")
         )
         afm_label.grid(row=4, column=0, padx=(18, 8), pady=(6, 18), sticky="w")
 
         self.provider_afm_entry = ctk.CTkEntry(
             top_frame,
             width=160,
-            placeholder_text="e.g. 123456789"
+            placeholder_text="e.g. 123456789",
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+            placeholder_text_color=COLORS.text_muted
         )
         self.provider_afm_entry.grid(row=4, column=1, padx=(0, 12), pady=(6, 18), sticky="w")
 
         type_label = ctk.CTkLabel(
             top_frame,
             text="Invoice Type:",
-            font=("Segoe UI", 13, "bold")
+            font=FONTS.body_bold,
+            text_color=COLORS.text_primary
         )
         type_label.grid(row=4, column=2, padx=(8, 8), pady=(6, 18), sticky="w")
 
         self.provider_invoice_type_entry = ctk.CTkEntry(
             top_frame,
             width=160,
-            placeholder_text="e.g. 1.1"
+            placeholder_text="e.g. 1.1",
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+            placeholder_text_color=COLORS.text_muted
         )
         self.provider_invoice_type_entry.grid(row=4, column=3, padx=(0, 12), pady=(6, 18), sticky="w")
 
@@ -165,14 +219,16 @@ class ProviderTab(ctk.CTkFrame):
             top_frame,
             text="Search",
             width=100,
-            command=self._search_invoices
+            command=self._search_invoices,
+            **primary_button_style()
         )
         search_button.grid(row=4, column=4, padx=(0, 8), pady=(6, 18))
 
         self.provider_count_label = ctk.CTkLabel(
             top_frame,
             text="Count: 0",
-            font=("Segoe UI", 13, "bold")
+            font=FONTS.body_bold,
+            text_color=COLORS.accent
         )
         self.provider_count_label.grid(row=4, column=5, padx=(0, 18), pady=(6, 18), sticky="e")
 
@@ -184,8 +240,14 @@ class ProviderTab(ctk.CTkFrame):
         Δημιουργεί τον πίνακα παραστατικών.
         """
 
-        table_frame = ctk.CTkFrame(self, corner_radius=16)
-        table_frame.grid(row=1, column=0, padx=15, pady=(0, 10), sticky="nsew")
+        table_frame = ctk.CTkFrame(self, **card_style())
+        table_frame.grid(
+            row=1,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, SPACING.inner_padding),
+            sticky="nsew"
+        )
         table_frame.grid_columnconfigure(0, weight=1)
         table_frame.grid_rowconfigure(1, weight=1)
 
@@ -196,13 +258,18 @@ class ProviderTab(ctk.CTkFrame):
         filter_label = ctk.CTkLabel(
             filter_frame,
             text="Local Filter:",
-            font=("Segoe UI", 13, "bold")
+            font=FONTS.body_bold,
+            text_color=COLORS.text_primary
         )
         filter_label.grid(row=0, column=0, padx=(0, 8), sticky="w")
 
         self.provider_local_filter_entry = ctk.CTkEntry(
             filter_frame,
-            placeholder_text="Filter by type, name, date, number, AFM, ID..."
+            placeholder_text="Filter by type, name, date, number, AFM, ID...",
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+            placeholder_text_color=COLORS.text_muted
         )
         self.provider_local_filter_entry.grid(row=0, column=1, sticky="ew")
 
@@ -215,7 +282,8 @@ class ProviderTab(ctk.CTkFrame):
             filter_frame,
             text="Clear",
             width=70,
-            command=self._clear_local_filter
+            command=self._clear_local_filter,
+            **secondary_button_style()
         )
         clear_filter_button.grid(row=0, column=2, padx=(8, 0), sticky="e")
 
@@ -274,14 +342,21 @@ class ProviderTab(ctk.CTkFrame):
         Δημιουργεί τα action buttons του Provider tab.
         """
 
-        actions_frame = ctk.CTkFrame(self, corner_radius=16)
-        actions_frame.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="ew")
+        actions_frame = ctk.CTkFrame(self, **card_style())
+        actions_frame.grid(
+            row=2,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, SPACING.card_padding),
+            sticky="ew"
+        )
 
         send_selected_button = ctk.CTkButton(
             actions_frame,
             text="Send Selected",
             width=130,
-            command=self._send_selected
+            command=self._send_selected,
+            **primary_button_style()
         )
         send_selected_button.pack(side="left", padx=(12, 6), pady=12)
 
@@ -289,7 +364,8 @@ class ProviderTab(ctk.CTkFrame):
             actions_frame,
             text="Send All",
             width=110,
-            command=self._send_all
+            command=self._send_all,
+            **primary_button_style()
         )
         send_all_button.pack(side="left", padx=6, pady=12)
 
@@ -297,7 +373,8 @@ class ProviderTab(ctk.CTkFrame):
             actions_frame,
             text="Show Errors",
             width=120,
-            command=self._show_errors
+            command=self._show_errors,
+            **secondary_button_style()
         )
         errors_button.pack(side="left", padx=6, pady=12)
 
@@ -305,7 +382,8 @@ class ProviderTab(ctk.CTkFrame):
             actions_frame,
             text="Delete MyDATA",
             width=130,
-            command=self._delete_mydata
+            command=self._delete_mydata,
+            **danger_button_style()
         )
         mydata_button.pack(side="left", padx=6, pady=12)
 
@@ -313,13 +391,16 @@ class ProviderTab(ctk.CTkFrame):
             actions_frame,
             text="Payways",
             width=110,
-            command=self._show_payways
+            command=self._show_payways,
+            **secondary_button_style()
         )
         payways_button.pack(side="left", padx=6, pady=12)
 
         self.provider_status_label = ctk.CTkLabel(
             actions_frame,
             text="Ready",
+            font=FONTS.body,
+            text_color=COLORS.text_secondary,
             anchor="w"
         )
         self.provider_status_label.pack(side="right", padx=12, pady=12)
