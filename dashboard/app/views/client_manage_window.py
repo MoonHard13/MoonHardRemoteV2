@@ -2,6 +2,7 @@ from typing import Callable, Any
 
 import customtkinter as ctk
 
+from app.ui.theme import COLORS, FONTS, SPACING, card_style
 from app.views.manage.provider_tab import ProviderTab
 from app.views.manage.overview_tab import OverviewTab
 from app.views.manage.terminal_tab import TerminalTab
@@ -48,6 +49,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.geometry("1000x700")
         self.minsize(900, 600)
         self.grab_set()
+        self.configure(fg_color=COLORS.background)
 
         self._build_ui()
 
@@ -61,8 +63,24 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         self._build_header()
 
-        self.tabs = ctk.CTkTabview(self, corner_radius=16)
-        self.tabs.grid(row=1, column=0, padx=20, pady=(0, 20), sticky="nsew")
+        self.tabs = ctk.CTkTabview(
+            self,
+            corner_radius=SPACING.card_radius,
+            fg_color=COLORS.surface,
+            segmented_button_fg_color=COLORS.surface_light,
+            segmented_button_selected_color=COLORS.accent,
+            segmented_button_selected_hover_color=COLORS.accent_hover,
+            segmented_button_unselected_color=COLORS.surface_light,
+            segmented_button_unselected_hover_color=COLORS.surface_hover,
+            text_color=COLORS.text_primary
+        )
+        self.tabs.grid(
+            row=1,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(0, SPACING.window_padding),
+            sticky="nsew"
+        )
 
         self.overview_tab = self.tabs.add("Overview")
         self.terminal_tab = self.tabs.add("Terminal")
@@ -97,21 +115,29 @@ class ClientManageWindow(ctk.CTkToplevel):
         username = self.client.get("username", "-")
         status = self.client.get("status", "-")
 
-        header = ctk.CTkFrame(self, corner_radius=16)
-        header.grid(row=0, column=0, padx=20, pady=20, sticky="ew")
+        header = ctk.CTkFrame(self, **card_style())
+        header.grid(
+            row=0,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=SPACING.window_padding,
+            sticky="ew"
+        )
         header.grid_columnconfigure(0, weight=1)
 
         title = ctk.CTkLabel(
             header,
             text=display_name,
-            font=("Segoe UI", 24, "bold")
+            font=FONTS.title,
+            text_color=COLORS.text_primary
         )
         title.grid(row=0, column=0, padx=18, pady=(14, 4), sticky="w")
 
         info = ctk.CTkLabel(
             header,
             text=f"PC: {pc_name} | User: {username} | Status: {status} | Code: {self.client_code}",
-            font=("Segoe UI", 13),
+            font=FONTS.body,
+            text_color=COLORS.text_secondary,
             anchor="w"
         )
         info.grid(row=1, column=0, padx=18, pady=(0, 14), sticky="w")
