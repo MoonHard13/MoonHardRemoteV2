@@ -181,7 +181,7 @@ class ProviderTab(ctk.CTkFrame):
             top_frame,
             text="AFM:",
             font=FONTS.body_bold,
-            text_color=COLORS.text_primarygoe UI", 13, "bold")
+            text_color=COLORS.text_primary
         )
         afm_label.grid(row=4, column=0, padx=(18, 8), pady=(6, 18), sticky="w")
 
