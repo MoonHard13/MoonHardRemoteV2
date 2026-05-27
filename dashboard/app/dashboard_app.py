@@ -4,6 +4,7 @@ from typing import Any
 import customtkinter as ctk
 
 from app.config import DashboardConfig
+from app.ui.theme import COLORS, FONTS, SPACING, card_style
 from app.views.clients_view import ClientsView
 from app.websocket_client import DashboardWebSocketClient
 from app.views.client_manage_window import ClientManageWindow
@@ -35,6 +36,8 @@ class MoonHardDashboardApp(ctk.CTk):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
+        self.configure(fg_color=COLORS.background)
+
         self._build_ui()
         self._start_websocket()
 
@@ -46,29 +49,70 @@ class MoonHardDashboardApp(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        self.header_frame = ctk.CTkFrame(self, corner_radius=0)
-        self.header_frame.grid(row=0, column=0, sticky="ew")
+        self.header_frame = ctk.CTkFrame(self, **card_style())
+        self.header_frame.grid(
+            row=0,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(SPACING.window_padding, SPACING.large_gap),
+            sticky="ew"
+        )
         self.header_frame.grid_columnconfigure(0, weight=1)
 
         title_label = ctk.CTkLabel(
             self.header_frame,
             text="MoonHard Remote v2",
-            font=("Segoe UI", 26, "bold")
+            font=FONTS.title,
+            text_color=COLORS.text_primary
         )
-        title_label.grid(row=0, column=0, padx=25, pady=18, sticky="w")
+        title_label.grid(
+            row=0,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(SPACING.card_padding, 2),
+            sticky="w"
+        )
+
+        subtitle_label = ctk.CTkLabel(
+            self.header_frame,
+            text="Remote client control dashboard",
+            font=FONTS.body,
+            text_color=COLORS.text_secondary
+        )
+        subtitle_label.grid(
+            row=1,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, SPACING.card_padding),
+            sticky="w"
+        )
 
         self.status_label = ctk.CTkLabel(
             self.header_frame,
             text="Σύνδεση...",
-            font=("Segoe UI", 14)
+            font=FONTS.body_bold,
+            text_color=COLORS.accent
         )
-        self.status_label.grid(row=0, column=1, padx=25, pady=18, sticky="e")
+        self.status_label.grid(
+            row=0,
+            column=1,
+            rowspan=2,
+            padx=SPACING.card_padding,
+            pady=SPACING.card_padding,
+            sticky="e"
+        )
 
         self.clients_view = ClientsView(
             self,
             on_manage_callback=self._open_manage_window
         )
-        self.clients_view.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
+        self.clients_view.grid(
+            row=1,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(0, SPACING.window_padding),
+            sticky="nsew"
+        )
 
     def _start_websocket(self) -> None:
         """
