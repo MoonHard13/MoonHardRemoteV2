@@ -530,38 +530,54 @@ class ProviderTab(ctk.CTkFrame):
         window.geometry("560x330")
         window.minsize(540, 310)
         window.grab_set()
+        window.configure(fg_color=COLORS.background)
 
         window.grid_columnconfigure(0, weight=1)
 
         title = ctk.CTkLabel(
             window,
             text="Delete MyDATA Responses",
-            font=("Segoe UI", 20, "bold")
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
         )
         title.grid(row=0, column=0, padx=20, pady=(18, 8), sticky="w")
 
         info = ctk.CTkLabel(
             window,
             text="Choose Note Type and enter number, list, or range.",
-            font=("Segoe UI", 13),
+            font=FONTS.body,
+            text_color=COLORS.text_secondary,
             anchor="w"
         )
         info.grid(row=1, column=0, padx=20, pady=(0, 12), sticky="w")
 
-        form_frame = ctk.CTkFrame(window, corner_radius=14)
-        form_frame.grid(row=2, column=0, padx=20, pady=(0, 15), sticky="ew")
+        form_frame = ctk.CTkFrame(window, **card_style())
+        form_frame.grid(
+            row=2,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(0, SPACING.large_gap),
+            sticky="ew"
+        )
         form_frame.grid_columnconfigure(1, weight=1)
 
         note_type_label = ctk.CTkLabel(
             form_frame,
             text="Note Type:",
-            font=("Segoe UI", 13, "bold")
+            font=FONTS.body_bold,
+            text_color=COLORS.text_primary
         )
         note_type_label.grid(row=0, column=0, padx=(14, 10), pady=(14, 8), sticky="w")
 
         self.delete_mydata_type_option = ctk.CTkOptionMenu(
             form_frame,
-            values=["Loading note types..."]
+            values=["Loading note types..."],
+            fg_color=COLORS.surface_light,
+            button_color=COLORS.accent,
+            button_hover_color=COLORS.accent_hover,
+            text_color=COLORS.text_primary,
+            dropdown_fg_color=COLORS.surface,
+            dropdown_hover_color=COLORS.surface_hover
         )
         self.delete_mydata_type_option.set("Loading note types...")
         self.delete_mydata_type_option.grid(row=0, column=1, padx=(0, 14), pady=(14, 8), sticky="ew")
@@ -569,24 +585,36 @@ class ProviderTab(ctk.CTkFrame):
         number_label = ctk.CTkLabel(
             form_frame,
             text="Number/List/Range:",
-            font=("Segoe UI", 13, "bold")
+            font=FONTS.body_bold,
+            text_color=COLORS.text_primary
         )
         number_label.grid(row=1, column=0, padx=(14, 10), pady=(8, 14), sticky="w")
 
         self.delete_mydata_number_entry = ctk.CTkEntry(
             form_frame,
-            placeholder_text="Examples: 123 or 123,124,125 or 100-150"
+            placeholder_text="Examples: 123 or 123,124,125 or 100-150",
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+            placeholder_text_color=COLORS.text_muted
         )
         self.delete_mydata_number_entry.grid(row=1, column=1, padx=(0, 14), pady=(8, 14), sticky="ew")
 
         button_frame = ctk.CTkFrame(window, fg_color="transparent")
-        button_frame.grid(row=3, column=0, padx=20, pady=(0, 18), sticky="ew")
+        button_frame.grid(
+            row=3,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(0, SPACING.window_padding),
+            sticky="ew"
+        )
 
         delete_button = ctk.CTkButton(
             button_frame,
             text="Delete MyDATA",
             width=140,
-            command=lambda: self._execute_delete_mydata_from_window(window)
+            command=lambda: self._execute_delete_mydata_from_window(window),
+            **danger_button_style()
         )
         delete_button.pack(side="left")
 
@@ -594,7 +622,8 @@ class ProviderTab(ctk.CTkFrame):
             button_frame,
             text="Cancel",
             width=100,
-            command=window.destroy
+            command=window.destroy,
+            **secondary_button_style()
         )
         cancel_button.pack(side="left", padx=(10, 0))
 
