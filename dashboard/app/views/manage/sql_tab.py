@@ -4,6 +4,15 @@ from tkinter import filedialog, ttk
 from typing import Callable
 
 import customtkinter as ctk
+from app.ui.theme import (
+    COLORS,
+    FONTS,
+    SPACING,
+    card_style,
+    primary_button_style,
+    secondary_button_style,
+    danger_button_style
+)
 
 
 class SqlTab(ctk.CTkFrame):
@@ -44,28 +53,42 @@ class SqlTab(ctk.CTkFrame):
         Δημιουργεί το UI του SQL tab.
         """
 
-        top_frame = ctk.CTkFrame(self, corner_radius=16)
-        top_frame.grid(row=0, column=0, padx=15, pady=15, sticky="ew")
+        top_frame = ctk.CTkFrame(self, **card_style())
+        top_frame.grid(
+            row=0,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=SPACING.card_padding,
+            sticky="ew"
+        )
         top_frame.grid_columnconfigure(1, weight=1)
 
         title = ctk.CTkLabel(
             top_frame,
             text="SQL Server Query Executor",
-            font=("Segoe UI", 20, "bold")
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
         )
         title.grid(row=0, column=0, columnspan=6, padx=18, pady=(18, 8), sticky="w")
 
         bo_label = ctk.CTkLabel(
             top_frame,
             text="BOConnection:",
-            font=("Segoe UI", 14, "bold")
+            font=FONTS.body_bold,
+            text_color=COLORS.text_primary
         )
         bo_label.grid(row=1, column=0, padx=(18, 10), pady=(5, 18), sticky="w")
 
         self.sql_bo_option = ctk.CTkOptionMenu(
             top_frame,
             values=["ID 1"],
-            command=self._on_sql_bo_selected
+            command=self._on_sql_bo_selected,
+            fg_color=COLORS.surface_light,
+            button_color=COLORS.accent,
+            button_hover_color=COLORS.accent_hover,
+            text_color=COLORS.text_primary,
+            dropdown_fg_color=COLORS.surface,
+            dropdown_hover_color=COLORS.surface_hover
         )
         self.sql_bo_option.set("ID 1")
         self.sql_bo_option.grid(row=1, column=1, padx=(0, 10), pady=(5, 18), sticky="w")
@@ -74,7 +97,8 @@ class SqlTab(ctk.CTkFrame):
             top_frame,
             text="Test Connection",
             width=130,
-            command=self.test_sql_connection
+            command=self.test_sql_connection,
+            **secondary_button_style()
         )
         test_connection_button.grid(row=1, column=2, padx=(0, 10), pady=(5, 18))
 
@@ -82,7 +106,8 @@ class SqlTab(ctk.CTkFrame):
             top_frame,
             text="Load .sql",
             width=100,
-            command=self._load_sql_file
+            command=self._load_sql_file,
+            **secondary_button_style()
         )
         load_file_button.grid(row=1, column=3, padx=(0, 10), pady=(5, 18))
 
@@ -90,7 +115,8 @@ class SqlTab(ctk.CTkFrame):
             top_frame,
             text="Execute",
             width=100,
-            command=self.execute_sql
+            command=self.execute_sql,
+            **primary_button_style()
         )
         execute_button.grid(row=1, column=4, padx=(0, 10), pady=(5, 18))
 
@@ -99,23 +125,47 @@ class SqlTab(ctk.CTkFrame):
             text="Stop",
             width=90,
             command=self.stop_sql_execution,
-            state="disabled"
+            state="disabled",
+            **danger_button_style()
         )
         self.stop_sql_button.grid(row=1, column=5, padx=(0, 18), pady=(5, 18))
 
         self.sql_editor = ctk.CTkTextbox(
             self,
-            font=("Consolas", 13),
-            wrap="none"
+            font=FONTS.mono_body,
+            wrap="none",
+            fg_color="#050A0C",
+            text_color=COLORS.text_primary,
+            border_color=COLORS.border,
+            border_width=1
         )
-        self.sql_editor.grid(row=1, column=0, padx=15, pady=(0, 10), sticky="nsew")
+        self.sql_editor.grid(
+            row=1,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, SPACING.inner_padding),
+            sticky="nsew"
+        )
         self.sql_editor.insert("1.0", "SELECT TOP 10 * FROM INFORMATION_SCHEMA.TABLES;")
 
         self.sql_results_tabs = ctk.CTkTabview(
             self,
-            corner_radius=14
+            corner_radius=SPACING.card_radius,
+            fg_color=COLORS.surface,
+            segmented_button_fg_color=COLORS.surface_light,
+            segmented_button_selected_color=COLORS.accent,
+            segmented_button_selected_hover_color=COLORS.accent_hover,
+            segmented_button_unselected_color=COLORS.surface_light,
+            segmented_button_unselected_hover_color=COLORS.surface_hover,
+            text_color=COLORS.text_primary
         )
-        self.sql_results_tabs.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="nsew")
+        self.sql_results_tabs.grid(
+            row=2,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, SPACING.card_padding),
+            sticky="nsew"
+        )
 
         self.sql_messages_tab = self.sql_results_tabs.add("Messages")
         self.sql_messages_tab.grid_columnconfigure(0, weight=1)
@@ -123,8 +173,12 @@ class SqlTab(ctk.CTkFrame):
 
         self.sql_result_box = ctk.CTkTextbox(
             self.sql_messages_tab,
-            font=("Consolas", 13),
-            wrap="none"
+            font=FONTS.mono_body,
+            wrap="none",
+            fg_color="#050A0C",
+            text_color=COLORS.text_primary,
+            border_color=COLORS.border,
+            border_width=1
         )
         self.sql_result_box.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
         self.sql_result_box.configure(state="disabled")
