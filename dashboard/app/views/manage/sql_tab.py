@@ -1,5 +1,6 @@
 import uuid
 from pathlib import Path
+import tkinter as tk
 from tkinter import filedialog, ttk
 from typing import Callable
 
@@ -539,48 +540,50 @@ class SqlTab(ctk.CTkFrame):
         )
         table_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
         table_frame.grid_columnconfigure(0, weight=1)
-        table_frame.grid_columnconfigure(1, weight=0)
         table_frame.grid_rowconfigure(0, weight=1)
-        table_frame.grid_rowconfigure(1, weight=0)
-        table_frame.grid_columnconfigure(1, minsize=18)
-        table_frame.grid_rowconfigure(1, minsize=18)
+
+        tree_container = tk.Frame(
+            table_frame,
+            bg=COLORS.surface,
+            highlightthickness=0,
+            bd=0
+        )
+        tree_container.grid(
+            row=0,
+            column=0,
+            padx=6,
+            pady=6,
+            sticky="nsew"
+        )
+        tree_container.grid_columnconfigure(0, weight=1)
+        tree_container.grid_columnconfigure(1, weight=0)
+        tree_container.grid_rowconfigure(0, weight=1)
+        tree_container.grid_rowconfigure(1, weight=0)
 
         tree_style = apply_treeview_style("MoonHard.SqlResult.Treeview")
 
         tree = ttk.Treeview(
-            table_frame,
+            tree_container,
             columns=columns,
             show="headings",
             height=15,
             style=tree_style
         )
-        tree.grid(
-            row=0,
-            column=0,
-            sticky="nsew"
-        )
+        tree.grid(row=0, column=0, sticky="nsew")
 
         vertical_scrollbar = ttk.Scrollbar(
-            table_frame,
+            tree_container,
             orient="vertical",
             command=tree.yview
         )
-        vertical_scrollbar.grid(
-            row=0,
-            column=1,
-            sticky="ns"
-        )
+        vertical_scrollbar.grid(row=0, column=1, sticky="ns")
 
         horizontal_scrollbar = ttk.Scrollbar(
-            table_frame,
+            tree_container,
             orient="horizontal",
             command=tree.xview
         )
-        horizontal_scrollbar.grid(
-            row=1,
-            column=0,
-            sticky="ew"
-        )
+        horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
 
         tree.configure(
             yscrollcommand=vertical_scrollbar.set,
