@@ -156,6 +156,12 @@ class MoonHardClientAgent:
 
             elif message_type == "service_restart":
                 await self._handle_service_restart(websocket, payload)
+                
+            elif message_type == "service_start":
+                await self._handle_service_start(websocket, payload)
+
+            elif message_type == "service_stop":
+                await self._handle_service_stop(websocket, payload)
 
     async def _handle_provider_get_payways(self, websocket, payload: dict) -> None:
         """
@@ -628,6 +634,77 @@ class MoonHardClientAgent:
 
             result_message = {
                 "type": "service_restart_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "success": False,
+                "service_name": service_name,
+                "error": str(exc)
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+    async def _handle_service_start(self, websocket, payload: dict) -> None:
+        """
+        Ξεκινάει Windows service στον client και επιστρέφει αποτέλεσμα στο dashboard.
+        """
+
+        request_id = payload.get("request_id", "")
+        service_name = payload.get("service_name", "")
+
+        try:
+            start_result = await asyncio.to_thread(
+                self.windows_services_reader.start_service,
+                service_name
+            )
+
+            result_message = {
+                "type": "service_start_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                **start_result
+            }
+
+        except Exception as exc:
+            logger.exception("Windows service start failed.")
+
+            result_message = {
+                "type": "service_start_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "success": False,
+                "service_name": service_name,
+                "error": str(exc)
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+
+    async def _handle_service_stop(self, websocket, payload: dict) -> None:
+        """
+        Σταματάει Windows service στον client και επιστρέφει αποτέλεσμα στο dashboard.
+        """
+
+        request_id = payload.get("request_id", "")
+        service_name = payload.get("service_name", "")
+
+        try:
+            stop_result = await asyncio.to_thread(
+                self.windows_services_reader.stop_service,
+                service_name
+            )
+
+            result_message = {
+                "type": "service_stop_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                **stop_result
+            }
+
+        except Exception as exc:
+            logger.exception("Windows service stop failed.")
+
+            result_message = {
+                "type": "service_stop_result",
                 "request_id": request_id,
                 "client_code": self.identity["client_code"],
                 "success": False,

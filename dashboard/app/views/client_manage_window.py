@@ -239,6 +239,23 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "services_tab_view"):
             self.services_tab_view.handle_service_restart_result(payload)
+
+    def handle_service_start_result(self, payload: dict) -> None:
+        """
+        Προωθεί service start result στο ServicesTab.
+        """
+
+        if hasattr(self, "services_tab_view"):
+            self.services_tab_view.handle_service_action_result(payload)
+
+
+    def handle_service_stop_result(self, payload: dict) -> None:
+        """
+        Προωθεί service stop result στο ServicesTab.
+        """
+
+        if hasattr(self, "services_tab_view"):
+            self.services_tab_view.handle_service_action_result(payload)
         
     def _build_appsettings_tab(self) -> None:
         """

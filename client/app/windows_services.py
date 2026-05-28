@@ -134,3 +134,117 @@ class WindowsServicesReader:
             "message": f"Service restarted successfully: {service_name}",
             "output": completed.stdout.strip()
         }
+        
+    def start_service(self, service_name: str) -> dict:
+        """
+        Ξεκινάει ένα Windows service με βάση το service name.
+        """
+
+        if not service_name:
+            raise ValueError("Service name is empty.")
+
+        if not self._is_running_as_admin():
+            raise PermissionError(
+                "Starting Windows services requires Administrator rights. "
+                "Please run the MoonHard client as Administrator."
+            )
+
+        safe_service_name = service_name.replace("'", "''")
+
+        powershell_script = (
+            f"$name = '{safe_service_name}'; "
+            "$service = Get-Service -Name $name -ErrorAction Stop; "
+            "Start-Service -Name $name -ErrorAction Stop; "
+            "Start-Sleep -Seconds 2; "
+            "$service = Get-Service -Name $name -ErrorAction Stop; "
+            "[PSCustomObject]@{"
+            "Name=$service.Name;"
+            "DisplayName=$service.DisplayName;"
+            "Status=$service.Status.ToString()"
+            "} | ConvertTo-Json -Compress"
+        )
+
+        command = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            powershell_script
+        ]
+
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60
+        )
+
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.strip() or "Failed to start service.")
+
+        return {
+            "success": True,
+            "service_name": service_name,
+            "message": f"Service started successfully: {service_name}",
+            "output": completed.stdout.strip()
+        }
+
+    def stop_service(self, service_name: str) -> dict:
+        """
+        Σταματάει ένα Windows service με βάση το service name.
+        """
+
+        if not service_name:
+            raise ValueError("Service name is empty.")
+
+        if not self._is_running_as_admin():
+            raise PermissionError(
+                "Stopping Windows services requires Administrator rights. "
+                "Please run the MoonHard client as Administrator."
+            )
+
+        safe_service_name = service_name.replace("'", "''")
+
+        powershell_script = (
+            f"$name = '{safe_service_name}'; "
+            "$service = Get-Service -Name $name -ErrorAction Stop; "
+            "Stop-Service -Name $name -Force -ErrorAction Stop; "
+            "Start-Sleep -Seconds 2; "
+            "$service = Get-Service -Name $name -ErrorAction Stop; "
+            "[PSCustomObject]@{"
+            "Name=$service.Name;"
+            "DisplayName=$service.DisplayName;"
+            "Status=$service.Status.ToString()"
+            "} | ConvertTo-Json -Compress"
+        )
+
+        command = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            powershell_script
+        ]
+
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60
+        )
+
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.strip() or "Failed to stop service.")
+
+        return {
+            "success": True,
+            "service_name": service_name,
+            "message": f"Service stopped successfully: {service_name}",
+            "output": completed.stdout.strip()
+        }

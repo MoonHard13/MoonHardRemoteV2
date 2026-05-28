@@ -104,6 +104,36 @@ class ServicesTab(ctk.CTkFrame):
             **secondary_button_style()
         )
         clear_button.grid(row=1, column=2, padx=(0, SPACING.card_padding), pady=(0, 14))
+
+        start_button = ctk.CTkButton(
+            top_frame,
+            text="Start Selected",
+            width=130,
+            command=self.start_selected_service,
+            **primary_button_style()
+        )
+        start_button.grid(
+            row=1,
+            column=1,
+            padx=(0, 165),
+            pady=(0, 14),
+            sticky="e"
+        )
+
+        stop_button = ctk.CTkButton(
+            top_frame,
+            text="Stop Selected",
+            width=130,
+            command=self.stop_selected_service,
+            **danger_button_style()
+        )
+        stop_button.grid(
+            row=1,
+            column=1,
+            padx=(0, 310),
+            pady=(0, 14),
+            sticky="e"
+        )
         
         restart_button = ctk.CTkButton(
             top_frame,
@@ -274,29 +304,106 @@ class ServicesTab(ctk.CTkFrame):
                 }
             )
 
-    def handle_service_restart_result(self, payload: dict) -> None:
+    def start_selected_service(self) -> None:
         """
-        Εμφανίζει αποτέλεσμα restart service.
+        Στέλνει start request για το επιλεγμένο service.
+        """
+
+        service_name = self._get_selected_service_name()
+
+        if not service_name:
+            self.status_label.configure(
+                text="Select a service first.",
+                text_color=COLORS.danger
+            )
+            return
+
+        request_id = str(uuid.uuid4())
+
+        self.status_label.configure(
+            text=f"Starting service: {service_name}...",
+            text_color=COLORS.accent
+        )
+
+        if self.on_service_action_callback:
+            self.on_service_action_callback(
+                {
+                    "type": "service_start",
+                    "request_id": request_id,
+                    "client_code": self.client_code,
+                    "service_name": service_name
+                }
+            )
+
+    def stop_selected_service(self) -> None:
+        """
+        Στέλνει stop request για το επιλεγμένο service.
+        """
+
+        service_name = self._get_selected_service_name()
+
+        if not service_name:
+            self.status_label.configure(
+                text="Select a service first.",
+                text_color=COLORS.danger
+            )
+            return
+
+        request_id = str(uuid.uuid4())
+
+        self.status_label.configure(
+            text=f"Stopping service: {service_name}...",
+            text_color=COLORS.accent
+        )
+
+        if self.on_service_action_callback:
+            self.on_service_action_callback(
+                {
+                    "type": "service_stop",
+                    "request_id": request_id,
+                    "client_code": self.client_code,
+                    "service_name": service_name
+                }
+            )
+
+    def handle_service_action_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα start/stop/restart service.
         """
 
         if payload.get("client_code") != self.client_code:
             return
 
         service_name = payload.get("service_name", "")
+        message_type = payload.get("type", "")
+
+        action_name = (
+            message_type
+            .replace("service_", "")
+            .replace("_result", "")
+            .capitalize()
+        )
 
         if not payload.get("success"):
             self.status_label.configure(
-                text=f"Restart failed for {service_name}: {payload.get('error')}",
+                text=f"{action_name} failed for {service_name}: {payload.get('error')}",
                 text_color=COLORS.danger
             )
             return
 
         self.status_label.configure(
-            text=f"Restart completed: {service_name}. Refreshing services...",
+            text=f"{action_name} completed: {service_name}. Refreshing services...",
             text_color=COLORS.success
         )
 
         self.request_services()
+
+    def handle_service_restart_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα restart service.
+        """
+
+        self.handle_service_action_result(payload)
 
     def handle_services_result(self, payload: dict) -> None:
         """
