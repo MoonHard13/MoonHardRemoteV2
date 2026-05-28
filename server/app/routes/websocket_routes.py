@@ -1118,6 +1118,47 @@ class WebSocketRoutes:
                         )
                         continue
 
+                    if not sales_payway_oid:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_delete_payway_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "invoice_id": invoice_id,
+                                "sales_payway_oid": sales_payway_oid,
+                                "success": False,
+                                "error": "Missing sales_payway_oid.",
+                                "deleted_main_rows": 0,
+                                "deleted_history_rows": 0
+                            }
+                        )
+                        continue
+
+                    self.pending_requests[request_id] = websocket
+
+                    sent = await connection_manager.send_to_client(client_code, data)
+
+                    if not sent:
+                        self.pending_requests.pop(request_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "provider_delete_payway_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "invoice_id": invoice_id,
+                                "sales_payway_oid": sales_payway_oid,
+                                "success": False,
+                                "error": "Client is not connected.",
+                                "deleted_main_rows": 0,
+                                "deleted_history_rows": 0
+                            }
+                        )
+
+                    continue
+
                 if data.get("type") == "provider_delete_mydata":
                     request_id = data.get("request_id", "")
                     client_code = data.get("client_code", "")
@@ -1176,47 +1217,6 @@ class WebSocketRoutes:
                                 "documents": documents,
                                 "deleted_success_rows": 0,
                                 "deleted_response_rows": 0
-                            }
-                        )
-
-                    continue
-
-                    if not sales_payway_oid:
-                        await connection_manager.send_to_dashboard(
-                            websocket,
-                            {
-                                "type": "provider_delete_payway_result",
-                                "request_id": request_id,
-                                "client_code": client_code,
-                                "invoice_id": invoice_id,
-                                "sales_payway_oid": sales_payway_oid,
-                                "success": False,
-                                "error": "Missing sales_payway_oid.",
-                                "deleted_main_rows": 0,
-                                "deleted_history_rows": 0
-                            }
-                        )
-                        continue
-
-                    self.pending_requests[request_id] = websocket
-
-                    sent = await connection_manager.send_to_client(client_code, data)
-
-                    if not sent:
-                        self.pending_requests.pop(request_id, None)
-
-                        await connection_manager.send_to_dashboard(
-                            websocket,
-                            {
-                                "type": "provider_delete_payway_result",
-                                "request_id": request_id,
-                                "client_code": client_code,
-                                "invoice_id": invoice_id,
-                                "sales_payway_oid": sales_payway_oid,
-                                "success": False,
-                                "error": "Client is not connected.",
-                                "deleted_main_rows": 0,
-                                "deleted_history_rows": 0
                             }
                         )
 
