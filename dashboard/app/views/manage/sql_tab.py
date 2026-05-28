@@ -530,7 +530,13 @@ class SqlTab(ctk.CTkFrame):
         table_tab.grid_columnconfigure(0, weight=1)
         table_tab.grid_rowconfigure(0, weight=1)
 
-        table_frame = ctk.CTkFrame(table_tab, corner_radius=10)
+        table_frame = ctk.CTkFrame(
+            table_tab,
+            fg_color=COLORS.surface,
+            corner_radius=SPACING.small_radius,
+            border_width=1,
+            border_color=COLORS.border_soft
+        )
         table_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
         table_frame.grid_columnconfigure(0, weight=1)
         table_frame.grid_rowconfigure(0, weight=1)
@@ -567,7 +573,12 @@ class SqlTab(ctk.CTkFrame):
 
         for column in columns:
             tree.heading(column, text=column)
-            tree.column(column, width=160, minwidth=80, stretch=True)
+            tree.column(
+                column,
+                width=180,
+                minwidth=120,
+                stretch=False
+            )
 
         for row in rows:
             tree.insert("", "end", values=row)
