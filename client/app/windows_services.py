@@ -75,24 +75,28 @@ class WindowsServicesReader:
         if not service_name:
             raise ValueError("Service name is empty.")
 
+        safe_service_name = service_name.replace("'", "''")
+
+        powershell_script = (
+            f"$name = '{safe_service_name}'; "
+            "$service = Get-Service -Name $name -ErrorAction Stop; "
+            "Restart-Service -Name $name -Force -ErrorAction Stop; "
+            "Start-Sleep -Seconds 2; "
+            "$service = Get-Service -Name $name -ErrorAction Stop; "
+            "[PSCustomObject]@{"
+            "Name=$service.Name;"
+            "DisplayName=$service.DisplayName;"
+            "Status=$service.Status.ToString()"
+            "} | ConvertTo-Json -Compress"
+        )
+
         command = [
             "powershell",
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            (
-                "$name = $args[0]; "
-                "$service = Get-Service -Name $name -ErrorAction Stop; "
-                "Restart-Service -Name $name -Force -ErrorAction Stop; "
-                "$service = Get-Service -Name $name -ErrorAction Stop; "
-                "[PSCustomObject]@{"
-                "Name=$service.Name;"
-                "DisplayName=$service.DisplayName;"
-                "Status=$service.Status"
-                "} | ConvertTo-Json -Compress"
-            ),
-            service_name
+            powershell_script
         ]
 
         completed = subprocess.run(
