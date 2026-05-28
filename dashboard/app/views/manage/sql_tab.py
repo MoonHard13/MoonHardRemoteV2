@@ -562,7 +562,7 @@ class SqlTab(ctk.CTkFrame):
             tree_container,
             columns=columns,
             show="headings",
-            height=12,
+            height=10,
             style=tree_style
         )
 
