@@ -1069,6 +1069,133 @@ class ProviderTab(ctk.CTkFrame):
         errors = payload.get("errors") or []
         self._set_status(f"Loaded {len(errors)} Provider/MyDATA error row(s).")
         self._open_errors_window(errors)
+
+    def _open_errors_window(self, errors: list[dict]) -> None:
+        """
+        Ανοίγει themed popup με Provider/MyDATA errors.
+        """
+
+        window = ctk.CTkToplevel(self)
+        window.title("Provider / MyDATA Errors")
+        window.geometry("1100x600")
+        window.minsize(900, 460)
+        window.configure(fg_color=COLORS.background)
+
+        window.grid_columnconfigure(0, weight=1)
+        window.grid_rowconfigure(2, weight=1)
+
+        title = ctk.CTkLabel(
+            window,
+            text=f"Provider / MyDATA Errors ({len(errors)})",
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
+        )
+        title.grid(
+            row=0,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(SPACING.window_padding, SPACING.inner_padding),
+            sticky="w"
+        )
+
+        actions_frame = ctk.CTkFrame(window, **card_style())
+        actions_frame.grid(
+            row=1,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(0, SPACING.inner_padding),
+            sticky="ew"
+        )
+
+        table_frame = ctk.CTkFrame(window, **card_style())
+        table_frame.grid(
+            row=2,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(0, SPACING.window_padding),
+            sticky="nsew"
+        )
+        table_frame.grid_columnconfigure(0, weight=1)
+        table_frame.grid_rowconfigure(0, weight=1)
+
+        if errors:
+            columns = list(errors[0].keys())
+        else:
+            columns = ["Message"]
+
+        tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            height=18
+        )
+        tree.grid(row=0, column=0, sticky="nsew")
+
+        y_scroll = ttk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            command=tree.yview
+        )
+        y_scroll.grid(row=0, column=1, sticky="ns")
+
+        x_scroll = ttk.Scrollbar(
+            table_frame,
+            orient="horizontal",
+            command=tree.xview
+        )
+        x_scroll.grid(row=1, column=0, sticky="ew")
+
+        tree.configure(
+            yscrollcommand=y_scroll.set,
+            xscrollcommand=x_scroll.set
+        )
+
+        for column in columns:
+            tree.heading(column, text=column)
+            tree.column(column, width=180, minwidth=100, stretch=True)
+
+        if errors:
+            for error_row in errors:
+                tree.insert(
+                    "",
+                    "end",
+                    values=[error_row.get(column, "") for column in columns]
+                )
+        else:
+            tree.insert("", "end", values=["No errors found."])
+
+        copy_selected_button = ctk.CTkButton(
+            actions_frame,
+            text="Copy Selected",
+            width=130,
+            command=lambda: self._copy_tree_selected_rows(tree),
+            **secondary_button_style()
+        )
+        copy_selected_button.pack(side="left", padx=(10, 5), pady=10)
+
+        copy_all_button = ctk.CTkButton(
+            actions_frame,
+            text="Copy All",
+            width=100,
+            command=lambda: self._copy_tree_all_rows(tree),
+            **secondary_button_style()
+        )
+        copy_all_button.pack(side="left", padx=5, pady=10)
+
+        close_button = ctk.CTkButton(
+            actions_frame,
+            text="Close",
+            width=90,
+            command=window.destroy,
+            **secondary_button_style()
+        )
+        close_button.pack(side="right", padx=10, pady=10)
+
+        tree.bind("<Control-c>", lambda _event: self._copy_tree_selected_rows(tree))
+        tree.bind(
+            "<Button-3>",
+            lambda event: self._show_tree_copy_menu(event, tree)
+        )
         
     def _open_payways_window(
         self,
