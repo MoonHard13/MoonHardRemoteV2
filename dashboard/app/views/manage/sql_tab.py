@@ -11,7 +11,8 @@ from app.ui.theme import (
     card_style,
     primary_button_style,
     secondary_button_style,
-    danger_button_style
+    danger_button_style,
+    apply_treeview_style
 )
 
 
@@ -534,11 +535,14 @@ class SqlTab(ctk.CTkFrame):
         table_frame.grid_columnconfigure(0, weight=1)
         table_frame.grid_rowconfigure(0, weight=1)
 
+        tree_style = apply_treeview_style("MoonHard.SqlResult.Treeview")
+
         tree = ttk.Treeview(
             table_frame,
             columns=columns,
             show="headings",
-            height=15
+            height=15,
+            style=tree_style
         )
         tree.grid(row=0, column=0, sticky="nsew")
 
