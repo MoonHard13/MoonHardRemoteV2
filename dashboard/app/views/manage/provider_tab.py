@@ -1497,27 +1497,47 @@ class ProviderTab(ctk.CTkFrame):
         self._request_payways_for_invoice(invoice_id)
 
     def handle_delete_mydata_result(self, payload: dict) -> None:
-            
-        def _copy_tree_selected_rows(self, tree: ttk.Treeview) -> None:
-            """
-            Αντιγράφει τις επιλεγμένες γραμμές ενός Treeview.
-            """
+        """
+        Εμφανίζει αποτέλεσμα διαγραφής MyDATA responses.
+        """
 
-            selected_items = tree.selection()
+        if payload.get("client_code") != self.client_code:
+            return
 
-            if not selected_items:
-                return
+        if not payload.get("success"):
+            self._set_status(
+                f"MyDATA delete failed: {payload.get('error')}"
+            )
+            return
 
-            lines: list[str] = []
+        deleted_rows = payload.get("deleted_rows", 0)
+        documents = payload.get("documents") or []
 
-            for item in selected_items:
-                values = tree.item(item, "values")
-                lines.append("\t".join(str(value) for value in values))
+        self._set_status(
+            f"MyDATA deleted successfully. Deleted rows: {deleted_rows}, documents: {len(documents)}."
+        )
 
-            copied_text = "\n".join(lines)
 
-            self.clipboard_clear()
-            self.clipboard_append(copied_text)
+    def _copy_tree_selected_rows(self, tree: ttk.Treeview) -> None:
+        """
+        Αντιγράφει τις επιλεγμένες γραμμές ενός Treeview.
+        """
+
+        selected_items = tree.selection()
+
+        if not selected_items:
+            return
+
+        lines: list[str] = []
+
+        for item in selected_items:
+            values = tree.item(item, "values")
+            lines.append("\t".join(str(value) for value in values))
+
+        copied_text = "\n".join(lines)
+
+        self.clipboard_clear()
+        self.clipboard_append(copied_text)
 
 
     def _copy_tree_all_rows(self, tree: ttk.Treeview) -> None:
