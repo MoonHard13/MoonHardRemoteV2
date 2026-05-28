@@ -87,6 +87,26 @@ class ServicesTab(ctk.CTkFrame):
         self.search_entry.grid(row=0, column=1, padx=(0, 10), pady=(14, 4), sticky="ew")
         self.search_entry.bind("<KeyRelease>", lambda _event: self._render_services())
 
+        self.quick_filter_option = ctk.CTkOptionMenu(
+            top_frame,
+            values=["All", "Running", "Stopped", "Automatic", "Manual"],
+            command=lambda _value: self._render_services(),
+            fg_color=COLORS.surface_light,
+            button_color=COLORS.accent,
+            button_hover_color=COLORS.accent_hover,
+            text_color=COLORS.text_primary,
+            dropdown_fg_color=COLORS.surface,
+            dropdown_hover_color=COLORS.surface_hover
+        )
+        self.quick_filter_option.set("All")
+        self.quick_filter_option.grid(
+            row=1,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, 14),
+            sticky="w"
+        )
+
         refresh_button = ctk.CTkButton(
             top_frame,
             text="Refresh Services",
@@ -211,7 +231,8 @@ class ServicesTab(ctk.CTkFrame):
         vertical_scrollbar.pack(side="right", fill="y")
         horizontal_scrollbar.pack(side="bottom", fill="x")
         self.tree.pack(side="left", fill="both", expand=True)
-
+        self.tree.bind("<Button-3>", self._show_service_context_menu)
+        
         headings = {
             "Name": "Name",
             "DisplayName": "Display Name",
@@ -272,6 +293,68 @@ class ServicesTab(ctk.CTkFrame):
             return ""
 
         return str(values[0])
+
+    def _show_service_context_menu(self, event) -> None:
+        """
+        Εμφανίζει δεξί κλικ menu για service actions.
+        """
+
+        row_id = self.tree.identify_row(event.y)
+
+        if row_id:
+            self.tree.selection_set(row_id)
+
+        service_name = self._get_selected_service_name()
+
+        if not service_name:
+            return
+
+        menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg="#13282F",
+            fg="#EAF7F7",
+            activebackground="#16C7B7",
+            activeforeground="#031316"
+        )
+
+        menu.add_command(
+            label="Start Service",
+            command=self.start_selected_service
+        )
+        menu.add_command(
+            label="Stop Service",
+            command=self.stop_selected_service
+        )
+        menu.add_command(
+            label="Restart Service",
+            command=self.restart_selected_service
+        )
+        menu.add_separator()
+        menu.add_command(
+            label="Copy Service Name",
+            command=self._copy_selected_service_name
+        )
+
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _copy_selected_service_name(self) -> None:
+        """
+        Αντιγράφει το service name της επιλεγμένης γραμμής.
+        """
+
+        service_name = self._get_selected_service_name()
+
+        if not service_name:
+            return
+
+        self.clipboard_clear()
+        self.clipboard_append(service_name)
+
+        self.status_label.configure(
+            text=f"Copied service name: {service_name}",
+            text_color=COLORS.success
+        )
 
     def restart_selected_service(self) -> None:
         """
@@ -435,6 +518,7 @@ class ServicesTab(ctk.CTkFrame):
         """
 
         filter_text = self.search_entry.get().strip().lower()
+        quick_filter = self.quick_filter_option.get()
 
         self.tree.delete(*self.tree.get_children())
 
@@ -451,6 +535,21 @@ class ServicesTab(ctk.CTkFrame):
             ).lower()
 
             if filter_text and filter_text not in searchable_text:
+                continue
+
+            status = str(service.get("status", "")).lower()
+            start_type = str(service.get("start_type", "")).lower()
+
+            if quick_filter == "Running" and status != "running":
+                continue
+
+            if quick_filter == "Stopped" and status != "stopped":
+                continue
+
+            if quick_filter == "Automatic" and start_type != "auto":
+                continue
+
+            if quick_filter == "Manual" and start_type != "manual":
                 continue
 
             self.tree.insert(
@@ -471,8 +570,9 @@ class ServicesTab(ctk.CTkFrame):
 
     def _clear_filter(self) -> None:
         """
-        Καθαρίζει το φίλτρο.
+        Καθαρίζει τα φίλτρα.
         """
 
         self.search_entry.delete(0, "end")
+        self.quick_filter_option.set("All")
         self._render_services()
