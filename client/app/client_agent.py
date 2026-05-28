@@ -11,6 +11,7 @@ from app.terminal_executor import TerminalExecutor
 from app.appsettings_reader import AppSettingsReader
 from app.sql_executor import SqlExecutor
 from app.provider.provider_service import ProviderService
+from app.windows_services import WindowsServicesReader
 
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class MoonHardClientAgent:
         self.appsettings_reader = AppSettingsReader()
         self.sql_executor = SqlExecutor()
         self.provider_service = ProviderService()
+        self.windows_services_reader = WindowsServicesReader()
         
     async def run_forever(self) -> None:
         """
@@ -148,6 +150,9 @@ class MoonHardClientAgent:
                 
             elif message_type == "provider_delete_mydata":
                 await self._handle_provider_delete_mydata(websocket, payload)
+
+            elif message_type == "services_get":
+                await self._handle_services_get(websocket, payload)
 
     async def _handle_provider_get_payways(self, websocket, payload: dict) -> None:
         """
@@ -557,6 +562,40 @@ class MoonHardClientAgent:
             "client_code": self.identity["client_code"],
             **cancel_result
         }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+    async def _handle_services_get(self, websocket, payload: dict) -> None:
+        """
+        Διαβάζει Windows services από τον client και επιστρέφει το αποτέλεσμα στο dashboard.
+        """
+
+        request_id = payload.get("request_id", "")
+
+        try:
+            services_result = await asyncio.to_thread(
+                self.windows_services_reader.get_services
+            )
+
+            result_message = {
+                "type": "services_get_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                **services_result
+            }
+
+        except Exception as exc:
+            logger.exception("Windows services read failed.")
+
+            result_message = {
+                "type": "services_get_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "success": False,
+                "error": str(exc),
+                "services": [],
+                "count": 0
+            }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))
         

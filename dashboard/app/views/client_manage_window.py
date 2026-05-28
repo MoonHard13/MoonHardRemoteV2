@@ -8,6 +8,7 @@ from app.views.manage.overview_tab import OverviewTab
 from app.views.manage.terminal_tab import TerminalTab
 from app.views.manage.appsettings_tab import AppSettingsTab
 from app.views.manage.sql_tab import SqlTab
+from app.views.manage.services_tab import ServicesTab
 
 
 class ClientManageWindow(ctk.CTkToplevel):
@@ -24,7 +25,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         on_terminal_command_callback: Callable[[dict], None] | None = None,
         on_terminal_autocomplete_callback: Callable[[dict], None] | None = None,
         on_sql_execute_callback: Callable[[dict], None] | None = None,
-        on_provider_request_callback: Callable[[dict], None] | None = None
+        on_provider_request_callback: Callable[[dict], None] | None = None,
+        on_services_request_callback: Callable[[dict], None] | None = None
         
     ) -> None:
         """
@@ -44,6 +46,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.bo_connections: list[dict] = []
         self.selected_bo_connection_id: int = 1
         self.on_provider_request_callback = on_provider_request_callback
+        self.on_services_request_callback = on_services_request_callback
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
@@ -98,12 +101,16 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.provider_tab = self.tabs.add("Provider")
         self.provider_tab.grid_columnconfigure(0, weight=1)
         self.provider_tab.grid_rowconfigure(0, weight=1)
+        self.services_tab = self.tabs.add("Services")
+        self.services_tab.grid_columnconfigure(0, weight=1)
+        self.services_tab.grid_rowconfigure(0, weight=1)
 
         self._build_overview_tab()
         self._build_terminal_tab()
         self._build_appsettings_tab()
         self._build_sql_tab()
         self._build_provider_tab()
+        self._build_services_tab()
         
     def _build_header(self) -> None:
         """
@@ -167,6 +174,18 @@ class ClientManageWindow(ctk.CTkToplevel):
         )
         self.terminal_tab_view.grid(row=0, column=0, sticky="nsew")
 
+    def _build_services_tab(self) -> None:
+        """
+        Δημιουργεί το Services tab μέσω ξεχωριστού ServicesTab component.
+        """
+
+        self.services_tab_view = ServicesTab(
+            self.services_tab,
+            client_code=self.client_code,
+            on_services_request_callback=self.on_services_request_callback
+        )
+        self.services_tab_view.grid(row=0, column=0, sticky="nsew")
+
     def handle_terminal_result(self, payload: dict) -> None:
         """
         Προωθεί terminal result στο TerminalTab.
@@ -201,6 +220,14 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "terminal_tab_view"):
             self.terminal_tab_view.handle_terminal_autocomplete_error(payload)
+
+    def handle_services_get_result(self, payload: dict) -> None:
+        """
+        Προωθεί services result στο ServicesTab.
+        """
+
+        if hasattr(self, "services_tab_view"):
+            self.services_tab_view.handle_services_result(payload)
         
     def _build_appsettings_tab(self) -> None:
         """
