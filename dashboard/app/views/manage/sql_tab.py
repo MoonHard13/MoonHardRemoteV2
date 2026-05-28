@@ -542,6 +542,8 @@ class SqlTab(ctk.CTkFrame):
         table_frame.grid_columnconfigure(1, weight=0)
         table_frame.grid_rowconfigure(0, weight=1)
         table_frame.grid_rowconfigure(1, weight=0)
+        table_frame.grid_columnconfigure(1, minsize=18)
+        table_frame.grid_rowconfigure(1, minsize=18)
 
         tree_style = apply_treeview_style("MoonHard.SqlResult.Treeview")
 
@@ -555,39 +557,29 @@ class SqlTab(ctk.CTkFrame):
         tree.grid(
             row=0,
             column=0,
-            sticky="nsew",
-            padx=(0, 6),
-            pady=(0, 6)
+            sticky="nsew"
         )
 
-        vertical_scrollbar = ctk.CTkScrollbar(
+        vertical_scrollbar = ttk.Scrollbar(
             table_frame,
-            orientation="vertical",
-            command=tree.yview,
-            fg_color=COLORS.surface,
-            button_color=COLORS.surface_light,
-            button_hover_color=COLORS.accent
+            orient="vertical",
+            command=tree.yview
         )
         vertical_scrollbar.grid(
             row=0,
             column=1,
-            sticky="ns",
-            pady=(0, 6)
+            sticky="ns"
         )
 
-        horizontal_scrollbar = ctk.CTkScrollbar(
+        horizontal_scrollbar = ttk.Scrollbar(
             table_frame,
-            orientation="horizontal",
-            command=tree.xview,
-            fg_color=COLORS.surface,
-            button_color=COLORS.surface_light,
-            button_hover_color=COLORS.accent
+            orient="horizontal",
+            command=tree.xview
         )
         horizontal_scrollbar.grid(
             row=1,
             column=0,
-            sticky="ew",
-            padx=(0, 6)
+            sticky="ew"
         )
 
         tree.configure(
@@ -599,8 +591,8 @@ class SqlTab(ctk.CTkFrame):
             tree.heading(column, text=column)
             tree.column(
                 column,
-                width=180,
-                minwidth=120,
+                width=240,
+                minwidth=180,
                 stretch=False
             )
 
