@@ -9,6 +9,7 @@ from app.views.manage.terminal_tab import TerminalTab
 from app.views.manage.appsettings_tab import AppSettingsTab
 from app.views.manage.sql_tab import SqlTab
 from app.views.manage.services_tab import ServicesTab
+from app.views.manage.processes_tab import ProcessesTab
 
 
 class ClientManageWindow(ctk.CTkToplevel):
@@ -27,7 +28,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         on_sql_execute_callback: Callable[[dict], None] | None = None,
         on_provider_request_callback: Callable[[dict], None] | None = None,
         on_services_request_callback: Callable[[dict], None] | None = None,
-        on_service_action_callback: Callable[[dict], None] | None = None
+        on_service_action_callback: Callable[[dict], None] | None = None,
+        on_processes_request_callback: Callable[[dict], None] | None = None
         
     ) -> None:
         """
@@ -49,6 +51,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.on_provider_request_callback = on_provider_request_callback
         self.on_services_request_callback = on_services_request_callback
         self.on_service_action_callback = on_service_action_callback
+        self.on_processes_request_callback = on_processes_request_callback
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
@@ -106,6 +109,9 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.services_tab = self.tabs.add("Services")
         self.services_tab.grid_columnconfigure(0, weight=1)
         self.services_tab.grid_rowconfigure(0, weight=1)
+        self.processes_tab = self.tabs.add("Processes")
+        self.processes_tab.grid_columnconfigure(0, weight=1)
+        self.processes_tab.grid_rowconfigure(0, weight=1)
 
         self._build_overview_tab()
         self._build_terminal_tab()
@@ -113,6 +119,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self._build_sql_tab()
         self._build_provider_tab()
         self._build_services_tab()
+        self._build_processes_tab()
         
     def _build_header(self) -> None:
         """
@@ -189,6 +196,18 @@ class ClientManageWindow(ctk.CTkToplevel):
         )
         self.services_tab_view.grid(row=0, column=0, sticky="nsew")
 
+    def _build_processes_tab(self) -> None:
+        """
+        Δημιουργεί το Processes tab μέσω ξεχωριστού ProcessesTab component.
+        """
+
+        self.processes_tab_view = ProcessesTab(
+            self.processes_tab,
+            client_code=self.client_code,
+            on_processes_request_callback=self.on_processes_request_callback
+        )
+        self.processes_tab_view.grid(row=0, column=0, sticky="nsew")
+
     def handle_terminal_result(self, payload: dict) -> None:
         """
         Προωθεί terminal result στο TerminalTab.
@@ -256,6 +275,14 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "services_tab_view"):
             self.services_tab_view.handle_service_action_result(payload)
+
+    def handle_processes_get_result(self, payload: dict) -> None:
+        """
+        Προωθεί processes result στο ProcessesTab.
+        """
+
+        if hasattr(self, "processes_tab_view"):
+            self.processes_tab_view.handle_processes_result(payload)
         
     def _build_appsettings_tab(self) -> None:
         """

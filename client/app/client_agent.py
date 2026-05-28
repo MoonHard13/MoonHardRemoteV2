@@ -12,6 +12,7 @@ from app.appsettings_reader import AppSettingsReader
 from app.sql_executor import SqlExecutor
 from app.provider.provider_service import ProviderService
 from app.windows_services import WindowsServicesReader
+from app.process_reader import ProcessReader
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class MoonHardClientAgent:
         self.sql_executor = SqlExecutor()
         self.provider_service = ProviderService()
         self.windows_services_reader = WindowsServicesReader()
+        self.process_reader = ProcessReader()
         
     async def run_forever(self) -> None:
         """
@@ -162,6 +164,9 @@ class MoonHardClientAgent:
 
             elif message_type == "service_stop":
                 await self._handle_service_stop(websocket, payload)
+
+            elif message_type == "processes_get":
+                await self._handle_processes_get(websocket, payload)
 
     async def _handle_provider_get_payways(self, websocket, payload: dict) -> None:
         """
@@ -481,6 +486,40 @@ class MoonHardClientAgent:
                 "documents": documents,
                 "deleted_success_rows": 0,
                 "deleted_response_rows": 0
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+    async def _handle_processes_get(self, websocket, payload: dict) -> None:
+        """
+        Διαβάζει running processes από τον client και επιστρέφει αποτέλεσμα στο dashboard.
+        """
+
+        request_id = payload.get("request_id", "")
+
+        try:
+            processes_result = await asyncio.to_thread(
+                self.process_reader.get_processes
+            )
+
+            result_message = {
+                "type": "processes_get_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                **processes_result
+            }
+
+        except Exception as exc:
+            logger.exception("Process list read failed.")
+
+            result_message = {
+                "type": "processes_get_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "success": False,
+                "error": str(exc),
+                "processes": [],
+                "count": 0
             }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))

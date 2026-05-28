@@ -1,0 +1,431 @@
+import tkinter as tk
+import uuid
+from tkinter import ttk
+from typing import Callable
+
+import customtkinter as ctk
+
+from app.ui.theme import (
+    COLORS,
+    FONTS,
+    SPACING,
+    card_style,
+    primary_button_style,
+    secondary_button_style,
+    apply_treeview_style
+)
+
+
+class ProcessesTab(ctk.CTkFrame):
+    """
+    Tab για προβολή running processes του client.
+    """
+
+    def __init__(
+        self,
+        parent,
+        client_code: str,
+        on_processes_request_callback: Callable[[dict], None] | None = None
+    ) -> None:
+        """
+        Δημιουργεί το Processes tab.
+        """
+
+        super().__init__(parent, corner_radius=0, fg_color="transparent")
+
+        self.client_code = client_code
+        self.on_processes_request_callback = on_processes_request_callback
+        self.processes: list[dict] = []
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        """
+        Δημιουργεί το UI του Processes tab.
+        """
+
+        top_frame = ctk.CTkFrame(self, **card_style())
+        top_frame.grid(
+            row=0,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=SPACING.card_padding,
+            sticky="ew"
+        )
+        top_frame.grid_columnconfigure(1, weight=1)
+
+        title = ctk.CTkLabel(
+            top_frame,
+            text="Task Manager / Processes",
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
+        )
+        title.grid(
+            row=0,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(14, 4),
+            sticky="w"
+        )
+
+        self.status_label = ctk.CTkLabel(
+            top_frame,
+            text="Ready",
+            font=FONTS.body,
+            text_color=COLORS.text_secondary
+        )
+        self.status_label.grid(
+            row=1,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, 14),
+            sticky="w"
+        )
+
+        self.search_entry = ctk.CTkEntry(
+            top_frame,
+            placeholder_text="Filter by process name, PID, memory, path...",
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+            placeholder_text_color=COLORS.text_muted
+        )
+        self.search_entry.grid(
+            row=0,
+            column=1,
+            padx=(0, 10),
+            pady=(14, 4),
+            sticky="ew"
+        )
+        self.search_entry.bind("<KeyRelease>", lambda _event: self._render_processes())
+
+        self.quick_filter_option = ctk.CTkOptionMenu(
+            top_frame,
+            values=["All", "High Memory", "Has Path"],
+            command=lambda _value: self._render_processes(),
+            fg_color=COLORS.surface_light,
+            button_color=COLORS.accent,
+            button_hover_color=COLORS.accent_hover,
+            text_color=COLORS.text_primary,
+            dropdown_fg_color=COLORS.surface,
+            dropdown_hover_color=COLORS.surface_hover
+        )
+        self.quick_filter_option.set("All")
+        self.quick_filter_option.grid(
+            row=1,
+            column=1,
+            padx=(0, 10),
+            pady=(0, 14),
+            sticky="w"
+        )
+
+        refresh_button = ctk.CTkButton(
+            top_frame,
+            text="Refresh Processes",
+            width=160,
+            command=self.request_processes,
+            **primary_button_style()
+        )
+        refresh_button.grid(
+            row=0,
+            column=2,
+            padx=(0, SPACING.card_padding),
+            pady=(14, 4)
+        )
+
+        clear_button = ctk.CTkButton(
+            top_frame,
+            text="Clear",
+            width=80,
+            command=self._clear_filter,
+            **secondary_button_style()
+        )
+        clear_button.grid(
+            row=1,
+            column=2,
+            padx=(0, SPACING.card_padding),
+            pady=(0, 14)
+        )
+
+        table_frame = ctk.CTkFrame(self, **card_style())
+        table_frame.grid(
+            row=1,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, SPACING.card_padding),
+            sticky="nsew"
+        )
+        table_frame.grid_columnconfigure(0, weight=1)
+        table_frame.grid_rowconfigure(0, weight=1)
+
+        tree_container = tk.Frame(
+            table_frame,
+            bg=COLORS.background,
+            highlightthickness=0,
+            bd=0
+        )
+        tree_container.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
+
+        tree_style = apply_treeview_style("MoonHard.Processes.Treeview")
+
+        self.tree = ttk.Treeview(
+            tree_container,
+            columns=("Name", "PID", "CPU", "MemoryMB", "Path"),
+            show="headings",
+            height=16,
+            style=tree_style
+        )
+
+        vertical_scrollbar = tk.Scrollbar(
+            tree_container,
+            orient="vertical",
+            command=self.tree.yview,
+            width=18,
+            bg="#D1D5DB",
+            activebackground="#16C7B7",
+            troughcolor="#13282F",
+            relief="flat",
+            bd=0
+        )
+
+        horizontal_scrollbar = tk.Scrollbar(
+            tree_container,
+            orient="horizontal",
+            command=self.tree.xview,
+            width=18,
+            bg="#D1D5DB",
+            activebackground="#16C7B7",
+            troughcolor="#13282F",
+            relief="flat",
+            bd=0
+        )
+
+        self.tree.configure(
+            yscrollcommand=vertical_scrollbar.set,
+            xscrollcommand=horizontal_scrollbar.set
+        )
+
+        vertical_scrollbar.pack(side="right", fill="y")
+        horizontal_scrollbar.pack(side="bottom", fill="x")
+        self.tree.pack(side="left", fill="both", expand=True)
+
+        headings = {
+            "Name": "Process Name",
+            "PID": "PID",
+            "CPU": "CPU",
+            "MemoryMB": "Memory MB",
+            "Path": "Path"
+        }
+
+        widths = {
+            "Name": 220,
+            "PID": 90,
+            "CPU": 120,
+            "MemoryMB": 130,
+            "Path": 600
+        }
+
+        for column, heading in headings.items():
+            self.tree.heading(column, text=heading)
+            self.tree.column(
+                column,
+                width=widths[column],
+                minwidth=80,
+                stretch=False
+            )
+
+        self.tree.bind("<Button-3>", self._show_process_context_menu)
+
+    def request_processes(self) -> None:
+        """
+        Στέλνει request για ανάγνωση processes από τον client.
+        """
+
+        request_id = str(uuid.uuid4())
+
+        self.status_label.configure(
+            text="Loading processes...",
+            text_color=COLORS.accent
+        )
+
+        if self.on_processes_request_callback:
+            self.on_processes_request_callback(
+                {
+                    "type": "processes_get",
+                    "request_id": request_id,
+                    "client_code": self.client_code
+                }
+            )
+
+    def handle_processes_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα processes.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if not payload.get("success"):
+            self.status_label.configure(
+                text=f"Failed: {payload.get('error')}",
+                text_color=COLORS.danger
+            )
+            return
+
+        self.processes = payload.get("processes") or []
+
+        self.status_label.configure(
+            text=f"Loaded {len(self.processes)} processes.",
+            text_color=COLORS.success
+        )
+
+        self._render_processes()
+
+    def _render_processes(self) -> None:
+        """
+        Κάνει render τη λίστα processes με τοπικό φίλτρο.
+        """
+
+        filter_text = self.search_entry.get().strip().lower()
+        quick_filter = self.quick_filter_option.get()
+
+        self.tree.delete(*self.tree.get_children())
+
+        shown_count = 0
+
+        for process in self.processes:
+            searchable_text = " ".join(
+                [
+                    str(process.get("name", "")),
+                    str(process.get("pid", "")),
+                    str(process.get("cpu", "")),
+                    str(process.get("memory_mb", "")),
+                    str(process.get("path", ""))
+                ]
+            ).lower()
+
+            if filter_text and filter_text not in searchable_text:
+                continue
+
+            memory_mb = self._safe_float(process.get("memory_mb", 0))
+
+            if quick_filter == "High Memory" and memory_mb < 300:
+                continue
+
+            if quick_filter == "Has Path" and not process.get("path"):
+                continue
+
+            self.tree.insert(
+                "",
+                "end",
+                values=(
+                    process.get("name", ""),
+                    process.get("pid", ""),
+                    process.get("cpu", ""),
+                    process.get("memory_mb", ""),
+                    process.get("path", "")
+                )
+            )
+            shown_count += 1
+
+        self.status_label.configure(
+            text=f"Showing {shown_count} / {len(self.processes)} processes."
+        )
+
+    def _show_process_context_menu(self, event) -> None:
+        """
+        Εμφανίζει δεξί κλικ menu για process copy actions.
+        """
+
+        row_id = self.tree.identify_row(event.y)
+
+        if row_id:
+            self.tree.selection_set(row_id)
+
+        selected_values = self._get_selected_process_values()
+
+        if not selected_values:
+            return
+
+        menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg="#13282F",
+            fg="#EAF7F7",
+            activebackground="#16C7B7",
+            activeforeground="#031316"
+        )
+
+        menu.add_command(
+            label="Copy Process Name",
+            command=lambda: self._copy_selected_value(0, "process name")
+        )
+        menu.add_command(
+            label="Copy PID",
+            command=lambda: self._copy_selected_value(1, "PID")
+        )
+        menu.add_command(
+            label="Copy Path",
+            command=lambda: self._copy_selected_value(4, "path")
+        )
+
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _get_selected_process_values(self) -> tuple:
+        """
+        Επιστρέφει τα values της επιλεγμένης γραμμής.
+        """
+
+        selected_items = self.tree.selection()
+
+        if not selected_items:
+            return tuple()
+
+        values = self.tree.item(selected_items[0], "values")
+
+        if not values:
+            return tuple()
+
+        return values
+
+    def _copy_selected_value(self, value_index: int, label: str) -> None:
+        """
+        Αντιγράφει συγκεκριμένη τιμή από την επιλεγμένη γραμμή.
+        """
+
+        values = self._get_selected_process_values()
+
+        if not values or len(values) <= value_index:
+            return
+
+        value = str(values[value_index])
+
+        self.clipboard_clear()
+        self.clipboard_append(value)
+
+        self.status_label.configure(
+            text=f"Copied {label}: {value}",
+            text_color=COLORS.success
+        )
+
+    def _clear_filter(self) -> None:
+        """
+        Καθαρίζει τα φίλτρα.
+        """
+
+        self.search_entry.delete(0, "end")
+        self.quick_filter_option.set("All")
+        self._render_processes()
+
+    def _safe_float(self, value) -> float:
+        """
+        Μετατρέπει τιμή σε float με ασφάλεια.
+        """
+
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
