@@ -26,7 +26,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         on_terminal_autocomplete_callback: Callable[[dict], None] | None = None,
         on_sql_execute_callback: Callable[[dict], None] | None = None,
         on_provider_request_callback: Callable[[dict], None] | None = None,
-        on_services_request_callback: Callable[[dict], None] | None = None
+        on_services_request_callback: Callable[[dict], None] | None = None,
+        on_service_action_callback: Callable[[dict], None] | None = None
         
     ) -> None:
         """
@@ -47,6 +48,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.selected_bo_connection_id: int = 1
         self.on_provider_request_callback = on_provider_request_callback
         self.on_services_request_callback = on_services_request_callback
+        self.on_service_action_callback = on_service_action_callback
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
@@ -182,7 +184,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.services_tab_view = ServicesTab(
             self.services_tab,
             client_code=self.client_code,
-            on_services_request_callback=self.on_services_request_callback
+            on_services_request_callback=self.on_services_request_callback,
+            on_service_action_callback=self.on_service_action_callback
         )
         self.services_tab_view.grid(row=0, column=0, sticky="nsew")
 
@@ -228,6 +231,14 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "services_tab_view"):
             self.services_tab_view.handle_services_result(payload)
+ 
+    def handle_service_restart_result(self, payload: dict) -> None:
+        """
+        Προωθεί service restart result στο ServicesTab.
+        """
+
+        if hasattr(self, "services_tab_view"):
+            self.services_tab_view.handle_service_restart_result(payload)
         
     def _build_appsettings_tab(self) -> None:
         """

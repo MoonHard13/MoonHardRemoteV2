@@ -66,3 +66,50 @@ class WindowsServicesReader:
             "services": services,
             "count": len(services)
         }
+        
+    def restart_service(self, service_name: str) -> dict:
+        """
+        Κάνει restart ένα Windows service με βάση το service name.
+        """
+
+        if not service_name:
+            raise ValueError("Service name is empty.")
+
+        command = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            (
+                "$name = $args[0]; "
+                "$service = Get-Service -Name $name -ErrorAction Stop; "
+                "Restart-Service -Name $name -Force -ErrorAction Stop; "
+                "$service = Get-Service -Name $name -ErrorAction Stop; "
+                "[PSCustomObject]@{"
+                "Name=$service.Name;"
+                "DisplayName=$service.DisplayName;"
+                "Status=$service.Status"
+                "} | ConvertTo-Json -Compress"
+            ),
+            service_name
+        ]
+
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60
+        )
+
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.strip() or "Failed to restart service.")
+
+        return {
+            "success": True,
+            "service_name": service_name,
+            "message": f"Service restarted successfully: {service_name}",
+            "output": completed.stdout.strip()
+        }

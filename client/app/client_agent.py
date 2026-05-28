@@ -154,6 +154,9 @@ class MoonHardClientAgent:
             elif message_type == "services_get":
                 await self._handle_services_get(websocket, payload)
 
+            elif message_type == "service_restart":
+                await self._handle_service_restart(websocket, payload)
+
     async def _handle_provider_get_payways(self, websocket, payload: dict) -> None:
         """
         Φέρνει τρόπους πληρωμής για παραστατικό από τον client υπολογιστή.
@@ -595,6 +598,41 @@ class MoonHardClientAgent:
                 "error": str(exc),
                 "services": [],
                 "count": 0
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+    async def _handle_service_restart(self, websocket, payload: dict) -> None:
+        """
+        Κάνει restart Windows service στον client και επιστρέφει αποτέλεσμα στο dashboard.
+        """
+
+        request_id = payload.get("request_id", "")
+        service_name = payload.get("service_name", "")
+
+        try:
+            restart_result = await asyncio.to_thread(
+                self.windows_services_reader.restart_service,
+                service_name
+            )
+
+            result_message = {
+                "type": "service_restart_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                **restart_result
+            }
+
+        except Exception as exc:
+            logger.exception("Windows service restart failed.")
+
+            result_message = {
+                "type": "service_restart_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "success": False,
+                "service_name": service_name,
+                "error": str(exc)
             }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))

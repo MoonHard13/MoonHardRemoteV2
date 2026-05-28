@@ -12,6 +12,7 @@ from app.ui.theme import (
     card_style,
     primary_button_style,
     secondary_button_style,
+    danger_button_style,
     apply_treeview_style
 )
 
@@ -25,7 +26,8 @@ class ServicesTab(ctk.CTkFrame):
         self,
         parent,
         client_code: str,
-        on_services_request_callback: Callable[[dict], None] | None = None
+        on_services_request_callback: Callable[[dict], None] | None = None,
+        on_service_action_callback: Callable[[dict], None] | None = None
     ) -> None:
         """
         Δημιουργεί το Services tab.
@@ -35,6 +37,7 @@ class ServicesTab(ctk.CTkFrame):
 
         self.client_code = client_code
         self.on_services_request_callback = on_services_request_callback
+        self.on_service_action_callback = on_service_action_callback
         self.services: list[dict] = []
 
         self.grid_columnconfigure(0, weight=1)
@@ -101,6 +104,21 @@ class ServicesTab(ctk.CTkFrame):
             **secondary_button_style()
         )
         clear_button.grid(row=1, column=2, padx=(0, SPACING.card_padding), pady=(0, 14))
+        
+        restart_button = ctk.CTkButton(
+            top_frame,
+            text="Restart Selected",
+            width=150,
+            command=self.restart_selected_service,
+            **danger_button_style()
+        )
+        restart_button.grid(
+            row=1,
+            column=1,
+            padx=(0, 10),
+            pady=(0, 14),
+            sticky="e"
+        )
 
         table_frame = ctk.CTkFrame(self, **card_style())
         table_frame.grid(
@@ -207,6 +225,78 @@ class ServicesTab(ctk.CTkFrame):
                     "client_code": self.client_code
                 }
             )
+
+    def _get_selected_service_name(self) -> str:
+        """
+        Επιστρέφει το service name της επιλεγμένης γραμμής.
+        """
+
+        selected_items = self.tree.selection()
+
+        if not selected_items:
+            return ""
+
+        values = self.tree.item(selected_items[0], "values")
+
+        if not values:
+            return ""
+
+        return str(values[0])
+
+    def restart_selected_service(self) -> None:
+        """
+        Στέλνει restart request για το επιλεγμένο service.
+        """
+
+        service_name = self._get_selected_service_name()
+
+        if not service_name:
+            self.status_label.configure(
+                text="Select a service first.",
+                text_color=COLORS.danger
+            )
+            return
+
+        request_id = str(uuid.uuid4())
+
+        self.status_label.configure(
+            text=f"Restarting service: {service_name}...",
+            text_color=COLORS.accent
+        )
+
+        if self.on_service_action_callback:
+            self.on_service_action_callback(
+                {
+                    "type": "service_restart",
+                    "request_id": request_id,
+                    "client_code": self.client_code,
+                    "service_name": service_name
+                }
+            )
+
+    def handle_service_restart_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα restart service.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        service_name = payload.get("service_name", "")
+
+        if not payload.get("success"):
+            self.status_label.configure(
+                text=f"Restart failed for {service_name}: {payload.get('error')}",
+                text_color=COLORS.danger
+            )
+            return
+
+        self.status_label.configure(
+            text=f"Restart completed: {service_name}. Refreshing services...",
+            text_color=COLORS.success
+        )
+
+        self.request_services()
 
     def handle_services_result(self, payload: dict) -> None:
         """

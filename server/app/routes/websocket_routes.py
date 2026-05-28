@@ -298,6 +298,24 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") in ("service_restart_result",):
+                    request_id = data.get("request_id", "")
+
+                    dashboard_websocket = self.pending_requests.pop(
+                        request_id,
+                        None
+                    )
+
+                    if dashboard_websocket:
+                        await connection_manager.send_to_dashboard(
+                            dashboard_websocket,
+                            data
+                        )
+                    else:
+                        await connection_manager.broadcast_to_dashboards(data)
+
+                    continue
+
                 if data.get("type") in ("services_get_result",):
                     request_id = data.get("request_id", "")
 
@@ -709,6 +727,54 @@ class WebSocketRoutes:
                                 "error": "Client is not connected.",
                                 "services": [],
                                 "count": 0
+                            }
+                        )
+
+                    continue
+
+                if data.get("type") == "service_restart":
+                    request_id = data.get("request_id", "")
+                    client_code = data.get("client_code", "")
+                    service_name = data.get("service_name", "")
+
+                    if not request_id or not client_code or not service_name:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "service_restart_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "service_name": service_name,
+                                "error": "Missing request_id, client_code or service_name."
+                            }
+                        )
+                        continue
+
+                    self.pending_requests[request_id] = websocket
+
+                    sent = await connection_manager.send_to_client(
+                        client_code,
+                        {
+                            "type": "service_restart",
+                            "request_id": request_id,
+                            "client_code": client_code,
+                            "service_name": service_name
+                        }
+                    )
+
+                    if not sent:
+                        self.pending_requests.pop(request_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "service_restart_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "service_name": service_name,
+                                "error": "Client is not connected."
                             }
                         )
 
