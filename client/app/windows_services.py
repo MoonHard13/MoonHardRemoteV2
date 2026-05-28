@@ -1,12 +1,23 @@
 import subprocess
 import csv
 import io
+import ctypes
 
 
 class WindowsServicesReader:
     """
     Διαβάζει Windows services από τον client υπολογιστή.
     """
+
+    def _is_running_as_admin(self) -> bool:
+        """
+        Ελέγχει αν ο client τρέχει με δικαιώματα Administrator.
+        """
+
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False
 
     def get_services(self) -> dict:
         """
@@ -74,6 +85,12 @@ class WindowsServicesReader:
 
         if not service_name:
             raise ValueError("Service name is empty.")
+
+        if not self._is_running_as_admin():
+            raise PermissionError(
+                "Restarting Windows services requires Administrator rights. "
+                "Please run the MoonHard client as Administrator."
+            )
 
         safe_service_name = service_name.replace("'", "''")
 
