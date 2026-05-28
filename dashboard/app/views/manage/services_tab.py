@@ -58,7 +58,9 @@ class ServicesTab(ctk.CTkFrame):
             pady=SPACING.card_padding,
             sticky="ew"
         )
+        top_frame.grid_columnconfigure(0, weight=0)
         top_frame.grid_columnconfigure(1, weight=1)
+        top_frame.grid_columnconfigure(2, weight=0)
 
         title = ctk.CTkLabel(
             top_frame,
@@ -74,7 +76,14 @@ class ServicesTab(ctk.CTkFrame):
             font=FONTS.body,
             text_color=COLORS.text_secondary
         )
-        self.status_label.grid(row=1, column=0, padx=SPACING.card_padding, pady=(0, 14), sticky="w")
+        self.status_label.grid(
+            row=2,
+            column=0,
+            columnspan=3,
+            padx=SPACING.card_padding,
+            pady=(0, 14),
+            sticky="w"
+        )
 
         self.search_entry = ctk.CTkEntry(
             top_frame,
@@ -103,7 +112,7 @@ class ServicesTab(ctk.CTkFrame):
             row=1,
             column=0,
             padx=SPACING.card_padding,
-            pady=(0, 14),
+            pady=(0, 8),
             sticky="w"
         )
 
@@ -123,7 +132,7 @@ class ServicesTab(ctk.CTkFrame):
             command=self._clear_filter,
             **secondary_button_style()
         )
-        clear_button.grid(row=1, column=2, padx=(0, SPACING.card_padding), pady=(0, 14))
+        clear_button.grid(row=2, column=2, padx=(0, SPACING.card_padding), pady=(0, 14))
 
         start_button = ctk.CTkButton(
             top_frame,
@@ -133,7 +142,7 @@ class ServicesTab(ctk.CTkFrame):
             **primary_button_style()
         )
         start_button.grid(
-            row=1,
+            row=2,
             column=1,
             padx=(0, 165),
             pady=(0, 14),
@@ -148,7 +157,7 @@ class ServicesTab(ctk.CTkFrame):
             **danger_button_style()
         )
         stop_button.grid(
-            row=1,
+            row=2,
             column=1,
             padx=(0, 310),
             pady=(0, 14),
@@ -163,7 +172,7 @@ class ServicesTab(ctk.CTkFrame):
             **danger_button_style()
         )
         restart_button.grid(
-            row=1,
+            row=2,
             column=1,
             padx=(0, 10),
             pady=(0, 14),
