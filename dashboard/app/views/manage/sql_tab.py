@@ -539,7 +539,9 @@ class SqlTab(ctk.CTkFrame):
         )
         table_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
         table_frame.grid_columnconfigure(0, weight=1)
+        table_frame.grid_columnconfigure(1, weight=0)
         table_frame.grid_rowconfigure(0, weight=1)
+        table_frame.grid_rowconfigure(1, weight=0)
 
         tree_style = apply_treeview_style("MoonHard.SqlResult.Treeview")
 
@@ -550,21 +552,43 @@ class SqlTab(ctk.CTkFrame):
             height=15,
             style=tree_style
         )
-        tree.grid(row=0, column=0, sticky="nsew")
-
-        vertical_scrollbar = ttk.Scrollbar(
-            table_frame,
-            orient="vertical",
-            command=tree.yview
+        tree.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=(0, 6),
+            pady=(0, 6)
         )
-        vertical_scrollbar.grid(row=0, column=1, sticky="ns")
 
-        horizontal_scrollbar = ttk.Scrollbar(
+        vertical_scrollbar = ctk.CTkScrollbar(
             table_frame,
-            orient="horizontal",
-            command=tree.xview
+            orientation="vertical",
+            command=tree.yview,
+            fg_color=COLORS.surface,
+            button_color=COLORS.surface_light,
+            button_hover_color=COLORS.accent
         )
-        horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
+        vertical_scrollbar.grid(
+            row=0,
+            column=1,
+            sticky="ns",
+            pady=(0, 6)
+        )
+
+        horizontal_scrollbar = ctk.CTkScrollbar(
+            table_frame,
+            orientation="horizontal",
+            command=tree.xview,
+            fg_color=COLORS.surface,
+            button_color=COLORS.surface_light,
+            button_hover_color=COLORS.accent
+        )
+        horizontal_scrollbar.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=(0, 6)
+        )
 
         tree.configure(
             yscrollcommand=vertical_scrollbar.set,
