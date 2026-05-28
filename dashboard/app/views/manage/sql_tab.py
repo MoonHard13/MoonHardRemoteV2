@@ -544,7 +544,7 @@ class SqlTab(ctk.CTkFrame):
 
         tree_container = tk.Frame(
             table_frame,
-            bg=COLORS.surface,
+            bg=COLORS.background,
             highlightthickness=0,
             bd=0
         )
@@ -555,10 +555,6 @@ class SqlTab(ctk.CTkFrame):
             pady=6,
             sticky="nsew"
         )
-        tree_container.grid_columnconfigure(0, weight=1)
-        tree_container.grid_columnconfigure(1, weight=0)
-        tree_container.grid_rowconfigure(0, weight=1)
-        tree_container.grid_rowconfigure(1, weight=0)
 
         tree_style = apply_treeview_style("MoonHard.SqlResult.Treeview")
 
@@ -566,36 +562,49 @@ class SqlTab(ctk.CTkFrame):
             tree_container,
             columns=columns,
             show="headings",
-            height=15,
+            height=12,
             style=tree_style
         )
-        tree.grid(row=0, column=0, sticky="nsew")
 
-        vertical_scrollbar = ttk.Scrollbar(
+        vertical_scrollbar = tk.Scrollbar(
             tree_container,
             orient="vertical",
-            command=tree.yview
+            command=tree.yview,
+            width=18,
+            bg="#D1D5DB",
+            activebackground="#16C7B7",
+            troughcolor="#13282F",
+            relief="flat",
+            bd=0
         )
-        vertical_scrollbar.grid(row=0, column=1, sticky="ns")
 
-        horizontal_scrollbar = ttk.Scrollbar(
+        horizontal_scrollbar = tk.Scrollbar(
             tree_container,
             orient="horizontal",
-            command=tree.xview
+            command=tree.xview,
+            width=18,
+            bg="#D1D5DB",
+            activebackground="#16C7B7",
+            troughcolor="#13282F",
+            relief="flat",
+            bd=0
         )
-        horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
 
         tree.configure(
             yscrollcommand=vertical_scrollbar.set,
             xscrollcommand=horizontal_scrollbar.set
         )
 
+        vertical_scrollbar.pack(side="right", fill="y")
+        horizontal_scrollbar.pack(side="bottom", fill="x")
+        tree.pack(side="left", fill="both", expand=True)
+
         for column in columns:
             tree.heading(column, text=column)
             tree.column(
                 column,
-                width=240,
-                minwidth=180,
+                width=320,
+                minwidth=220,
                 stretch=False
             )
 
