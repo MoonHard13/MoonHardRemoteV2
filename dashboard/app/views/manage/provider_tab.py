@@ -11,7 +11,8 @@ from app.ui.theme import (
     card_style,
     primary_button_style,
     secondary_button_style,
-    danger_button_style
+    danger_button_style,
+    apply_treeview_style
 )
 
 
@@ -287,11 +288,14 @@ class ProviderTab(ctk.CTkFrame):
         )
         clear_filter_button.grid(row=0, column=2, padx=(8, 0), sticky="e")
 
+        tree_style = apply_treeview_style("MoonHard.Provider.Treeview")
+
         self.provider_tree = ttk.Treeview(
             table_frame,
             columns=("Select", "Type", "Name", "Date", "Number", "AFM", "ID"),
             show="headings",
-            height=16
+            height=16,
+            style=tree_style
         )
         self.provider_tree.grid(row=1, column=0, sticky="nsew")
 
@@ -1123,11 +1127,14 @@ class ProviderTab(ctk.CTkFrame):
         else:
             columns = ["Message"]
 
+        tree_style = apply_treeview_style("MoonHard.ProviderErrors.Treeview")
+
         tree = ttk.Treeview(
             table_frame,
             columns=columns,
             show="headings",
-            height=18
+            height=18,
+            style=tree_style
         )
         tree.grid(row=0, column=0, sticky="nsew")
 
@@ -1262,11 +1269,14 @@ class ProviderTab(ctk.CTkFrame):
         else:
             columns = ["Message"]
 
+        tree_style = apply_treeview_style("MoonHard.Payways.Treeview")
+
         tree = ttk.Treeview(
             table_frame,
             columns=columns,
             show="headings",
-            height=16
+            height=16,
+            style=tree_style
         )
 
         self.current_payways_tree = tree

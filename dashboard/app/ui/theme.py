@@ -4,6 +4,7 @@
 """
 
 from dataclasses import dataclass
+from tkinter import ttk
 
 
 @dataclass(frozen=True)
@@ -146,3 +147,51 @@ def transparent_style() -> dict:
     return {
         "fg_color": "transparent"
     }
+    
+def apply_treeview_style(style_name: str = "MoonHard.Treeview") -> str:
+    """
+    Εφαρμόζει κοινό dark style για ttk.Treeview.
+    Επιστρέφει το style name για χρήση στο Treeview.
+    """
+
+    style = ttk.Style()
+
+    style.theme_use("default")
+
+    style.configure(
+        style_name,
+        background=COLORS.surface,
+        foreground=COLORS.text_primary,
+        fieldbackground=COLORS.surface,
+        bordercolor=COLORS.border_soft,
+        borderwidth=0,
+        rowheight=28,
+        font=FONTS.body
+    )
+
+    style.configure(
+        f"{style_name}.Heading",
+        background=COLORS.surface_light,
+        foreground=COLORS.text_primary,
+        relief="flat",
+        font=FONTS.body_bold
+    )
+
+    style.map(
+        style_name,
+        background=[
+            ("selected", COLORS.accent_soft)
+        ],
+        foreground=[
+            ("selected", COLORS.text_primary)
+        ]
+    )
+
+    style.map(
+        f"{style_name}.Heading",
+        background=[
+            ("active", COLORS.surface_hover)
+        ]
+    )
+
+    return style_name
