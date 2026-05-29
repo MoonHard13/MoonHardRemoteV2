@@ -32,6 +32,7 @@ class UpdatesTab(ctk.CTkFrame):
 
         self.client_code = client_code
         self.on_update_request_callback = on_update_request_callback
+        self.latest_update_payload: dict = {}
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -78,6 +79,16 @@ class UpdatesTab(ctk.CTkFrame):
         )
         check_button.grid(row=0, column=1, padx=(0, 18), pady=(16, 4), sticky="e")
 
+        self.download_button = ctk.CTkButton(
+            top_frame,
+            text="Download Package",
+            width=160,
+            command=self.request_update_download,
+            state="disabled",
+            **secondary_button_style()
+        )
+        self.download_button.grid(row=0, column=2, padx=(0, 18), pady=(16, 4), sticky="e")
+
         clear_button = ctk.CTkButton(
             top_frame,
             text="Clear",
@@ -85,7 +96,7 @@ class UpdatesTab(ctk.CTkFrame):
             command=self.clear_result,
             **secondary_button_style()
         )
-        clear_button.grid(row=1, column=1, padx=(0, 18), pady=(0, 16), sticky="e")
+        clear_button.grid(row=1, column=2, padx=(0, 18), pady=(0, 16), sticky="e")
 
         result_frame = ctk.CTkFrame(self, **card_style())
         result_frame.grid(
@@ -158,6 +169,17 @@ class UpdatesTab(ctk.CTkFrame):
             return
 
         update_available = bool(payload.get("update_available", False))
+        self.latest_update_payload = payload
+
+        can_download = (
+            update_available
+            and bool(payload.get("download_url"))
+            and bool(payload.get("sha256"))
+        )
+
+        self.download_button.configure(
+            state="normal" if can_download else "disabled"
+        )
         status_text = "Update available" if update_available else "Client is up to date"
         status_color = COLORS.warning if update_available else COLORS.success
 
@@ -206,3 +228,81 @@ class UpdatesTab(ctk.CTkFrame):
         self.result_textbox.delete("1.0", "end")
         self.result_textbox.insert("1.0", text)
         self.result_textbox.configure(state="disabled")
+        
+    def request_update_download(self) -> None:
+        """
+        Στέλνει request για download update package στον client.
+        """
+
+        if not self.latest_update_payload:
+            self.status_label.configure(
+                text="Run update check first.",
+                text_color=COLORS.danger
+            )
+            return
+
+        download_url = self.latest_update_payload.get("download_url", "")
+        sha256 = self.latest_update_payload.get("sha256", "")
+        latest_version = self.latest_update_payload.get("latest_version", "")
+
+        if not download_url or not sha256:
+            self.status_label.configure(
+                text="Missing download URL or SHA256.",
+                text_color=COLORS.danger
+            )
+            return
+
+        request_id = str(uuid.uuid4())
+
+        self.status_label.configure(
+            text="Downloading update package...",
+            text_color=COLORS.accent
+        )
+
+        if self.on_update_request_callback:
+            self.on_update_request_callback(
+                {
+                    "type": "client_update_download",
+                    "request_id": request_id,
+                    "client_code": self.client_code,
+                    "download_url": download_url,
+                    "sha256": sha256,
+                    "latest_version": latest_version
+                }
+            )
+            
+    def handle_update_download_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα download update package.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if not payload.get("success"):
+            error = payload.get("error", "Unknown download error.")
+            self.status_label.configure(
+                text=f"Download failed: {error}",
+                text_color=COLORS.danger
+            )
+            self._set_result_text(f"Download failed:\n\n{error}")
+            return
+
+        self.status_label.configure(
+            text="Download completed and SHA256 verified.",
+            text_color=COLORS.success
+        )
+
+        result_text = (
+            "=== Update Package Download ===\n\n"
+            f"Latest version:      {payload.get('latest_version', '-')}\n"
+            f"Saved path:          {payload.get('saved_path', '-')}\n"
+            f"File size bytes:     {payload.get('file_size_bytes', '-')}\n"
+            f"SHA256 verified:     {'Yes' if payload.get('sha256_verified') else 'No'}\n\n"
+            "=== Hash Info ===\n\n"
+            f"Expected SHA256: {payload.get('expected_sha256', '-')}\n"
+            f"Actual SHA256:   {payload.get('actual_sha256', '-')}\n\n"
+            "The package was downloaded only. It has not been installed yet.\n"
+        )
+
+        self._set_result_text(result_text)

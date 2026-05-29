@@ -321,6 +321,14 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "updates_tab_view"):
             self.updates_tab_view.handle_update_check_result(payload)
+
+    def handle_client_update_download_result(self, payload: dict) -> None:
+        """
+        Προωθεί update download result στο UpdatesTab.
+        """
+
+        if hasattr(self, "updates_tab_view"):
+            self.updates_tab_view.handle_update_download_result(payload)
         
     def _build_appsettings_tab(self) -> None:
         """

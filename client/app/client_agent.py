@@ -176,6 +176,9 @@ class MoonHardClientAgent:
             elif message_type == "client_update_check":
                 await self._handle_client_update_check(websocket, payload)
 
+            elif message_type == "client_update_download":
+                await self._handle_client_update_download(websocket, payload)
+
     async def _handle_provider_get_payways(self, websocket, payload: dict) -> None:
         """
         Φέρνει τρόπους πληρωμής για παραστατικό από τον client υπολογιστή.
@@ -1198,6 +1201,51 @@ class MoonHardClientAgent:
                 "sha256": "",
                 "mandatory": False,
                 "release_notes": "",
+                "error": str(exc)
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+        
+    async def _handle_client_update_download(self, websocket, payload: dict) -> None:
+        """
+        Κατεβάζει update package από GitHub Releases και επιστρέφει αποτέλεσμα.
+        """
+
+        request_id = payload.get("request_id", "")
+        download_url = payload.get("download_url", "")
+        expected_sha256 = payload.get("sha256", "")
+        latest_version = payload.get("latest_version", "")
+
+        try:
+            download_result = await asyncio.to_thread(
+                self.client_update_checker.download_update_package,
+                download_url,
+                expected_sha256,
+                latest_version
+            )
+
+            result_message = {
+                "type": "client_update_download_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                **download_result
+            }
+
+        except Exception as exc:
+            logger.exception("Client update download failed.")
+
+            result_message = {
+                "type": "client_update_download_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "success": False,
+                "download_url": download_url,
+                "saved_path": "",
+                "file_size_bytes": 0,
+                "expected_sha256": expected_sha256,
+                "actual_sha256": "",
+                "sha256_verified": False,
+                "latest_version": latest_version,
                 "error": str(exc)
             }
 

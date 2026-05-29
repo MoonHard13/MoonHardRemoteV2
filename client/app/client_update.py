@@ -1,5 +1,9 @@
 import json
 import urllib.request
+import hashlib
+
+from pathlib import Path
+
 from urllib.error import URLError, HTTPError
 
 from app.config import ClientConfig
@@ -131,3 +135,86 @@ class ClientUpdateChecker:
             numbers.append(0)
 
         return tuple(numbers)
+    
+    def download_update_package(
+        self,
+        download_url: str,
+        expected_sha256: str,
+        latest_version: str
+    ) -> dict:
+        """
+        Κατεβάζει το update ZIP από GitHub Releases και κάνει SHA256 verification.
+        """
+
+        if not download_url:
+            raise ValueError("Download URL is empty.")
+
+        if not expected_sha256:
+            raise ValueError("Expected SHA256 is empty.")
+
+        safe_version = str(latest_version or "unknown").strip() or "unknown"
+
+        downloads_dir = (
+            Path("C:/ProgramData/MoonHardRemoteV2")
+            / "updates"
+            / "downloads"
+        )
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+
+        package_path = downloads_dir / f"moonhard-client-{safe_version}.zip"
+
+        request = urllib.request.Request(
+            download_url,
+            headers={
+                "User-Agent": "MoonHardRemoteV2-ClientUpdater"
+            }
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                with package_path.open("wb") as output_file:
+                    while True:
+                        chunk = response.read(1024 * 1024)
+
+                        if not chunk:
+                            break
+
+                        output_file.write(chunk)
+
+        except HTTPError as exc:
+            raise RuntimeError(f"Package HTTP error: {exc.code}") from exc
+
+        except URLError as exc:
+            raise RuntimeError(f"Package connection error: {exc.reason}") from exc
+
+        actual_sha256 = self._calculate_sha256(package_path)
+        sha256_verified = actual_sha256.lower() == expected_sha256.lower()
+
+        if not sha256_verified:
+            raise RuntimeError(
+                f"SHA256 verification failed. Expected {expected_sha256}, got {actual_sha256}"
+            )
+
+        return {
+            "success": True,
+            "download_url": download_url,
+            "saved_path": str(package_path),
+            "file_size_bytes": package_path.stat().st_size,
+            "expected_sha256": expected_sha256,
+            "actual_sha256": actual_sha256,
+            "sha256_verified": True,
+            "latest_version": latest_version
+        }
+
+    def _calculate_sha256(self, file_path: Path) -> str:
+        """
+        Υπολογίζει το SHA256 ενός αρχείου.
+        """
+
+        sha256_hash = hashlib.sha256()
+
+        with file_path.open("rb") as file:
+            for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                sha256_hash.update(chunk)
+
+        return sha256_hash.hexdigest()

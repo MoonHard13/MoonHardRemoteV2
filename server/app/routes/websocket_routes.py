@@ -388,6 +388,24 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") in ("client_update_download_result",):
+                    request_id = data.get("request_id", "")
+
+                    dashboard_websocket = self.pending_requests.pop(
+                        request_id,
+                        None
+                    )
+
+                    if dashboard_websocket:
+                        await connection_manager.send_to_dashboard(
+                            dashboard_websocket,
+                            data
+                        )
+                    else:
+                        await connection_manager.broadcast_to_dashboards(data)
+
+                    continue
+
                 if data.get("type") in ("services_get_result",):
                     request_id = data.get("request_id", "")
 
@@ -1410,6 +1428,70 @@ class WebSocketRoutes:
                                 "sha256": "",
                                 "mandatory": False,
                                 "release_notes": "",
+                                "error": "Client is not connected."
+                            }
+                        )
+
+                    continue
+
+                if data.get("type") == "client_update_download":
+                    request_id = data.get("request_id", "")
+                    client_code = data.get("client_code", "")
+                    download_url = data.get("download_url", "")
+                    sha256 = data.get("sha256", "")
+                    latest_version = data.get("latest_version", "")
+
+                    if not request_id or not client_code or not download_url or not sha256:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_update_download_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "download_url": download_url,
+                                "saved_path": "",
+                                "file_size_bytes": 0,
+                                "expected_sha256": sha256,
+                                "actual_sha256": "",
+                                "sha256_verified": False,
+                                "latest_version": latest_version,
+                                "error": "Missing request_id, client_code, download_url or sha256."
+                            }
+                        )
+                        continue
+
+                    self.pending_requests[request_id] = websocket
+
+                    sent = await connection_manager.send_to_client(
+                        client_code,
+                        {
+                            "type": "client_update_download",
+                            "request_id": request_id,
+                            "client_code": client_code,
+                            "download_url": download_url,
+                            "sha256": sha256,
+                            "latest_version": latest_version
+                        }
+                    )
+
+                    if not sent:
+                        self.pending_requests.pop(request_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_update_download_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "download_url": download_url,
+                                "saved_path": "",
+                                "file_size_bytes": 0,
+                                "expected_sha256": sha256,
+                                "actual_sha256": "",
+                                "sha256_verified": False,
+                                "latest_version": latest_version,
                                 "error": "Client is not connected."
                             }
                         )
