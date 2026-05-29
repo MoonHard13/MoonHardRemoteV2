@@ -230,18 +230,6 @@ class ClientManageWindow(ctk.CTkToplevel):
         )
         self.updates_tab_view.grid(row=0, column=0, sticky="nsew")
 
-    def _build_updates_tab(self) -> None:
-        """
-        Δημιουργεί το Updates tab μέσω ξεχωριστού UpdatesTab component.
-        """
-
-        self.updates_tab_view = UpdatesTab(
-            self.updates_tab,
-            client_code=self.client_code,
-            on_update_request_callback=self.on_update_request_callback
-        )
-        self.updates_tab_view.grid(row=0, column=0, sticky="nsew")
-
     def handle_terminal_result(self, payload: dict) -> None:
         """
         Προωθεί terminal result στο TerminalTab.
@@ -325,6 +313,14 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "processes_tab_view"):
             self.processes_tab_view.handle_process_kill_result(payload)
+
+    def handle_client_update_check_result(self, payload: dict) -> None:
+        """
+        Προωθεί update check result στο UpdatesTab.
+        """
+
+        if hasattr(self, "updates_tab_view"):
+            self.updates_tab_view.handle_update_check_result(payload)
         
     def _build_appsettings_tab(self) -> None:
         """
