@@ -260,6 +260,7 @@ class ProcessesTab(ctk.CTkFrame):
             )
 
         self.tree.bind("<Button-3>", self._show_process_context_menu)
+        self.tree.bind("<Double-1>", self._open_selected_process_details)
 
     def request_processes(self) -> None:
         """
@@ -404,6 +405,129 @@ class ProcessesTab(ctk.CTkFrame):
         )
 
         menu.tk_popup(event.x_root, event.y_root)
+
+    def _open_selected_process_details(self, _event=None) -> None:
+        """
+        Ανοίγει popup με λεπτομέρειες για το επιλεγμένο process.
+        """
+
+        values = self._get_selected_process_values()
+
+        if not values:
+            self.status_label.configure(
+                text="Select a process first.",
+                text_color=COLORS.danger
+            )
+            return
+
+        process_data = {
+            "Process Name": values[0] if len(values) > 0 else "",
+            "PID": values[1] if len(values) > 1 else "",
+            "CPU Time": values[2] if len(values) > 2 else "",
+            "Memory MB": values[3] if len(values) > 3 else "",
+            "Threads": values[4] if len(values) > 4 else "",
+            "Handles": values[5] if len(values) > 5 else "",
+            "Path": values[6] if len(values) > 6 else ""
+        }
+
+        popup = ctk.CTkToplevel(self)
+        popup.title("Process Details")
+        popup.geometry("720x430")
+        popup.minsize(620, 360)
+        popup.configure(fg_color=COLORS.background)
+        popup.grab_set()
+
+        popup.grid_columnconfigure(0, weight=1)
+        popup.grid_rowconfigure(1, weight=1)
+
+        title = ctk.CTkLabel(
+            popup,
+            text=f"Process Details — {process_data['Process Name']}",
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
+        )
+        title.grid(
+            row=0,
+            column=0,
+            padx=20,
+            pady=(20, 10),
+            sticky="w"
+        )
+
+        details_frame = ctk.CTkFrame(
+            popup,
+            **card_style()
+        )
+        details_frame.grid(
+            row=1,
+            column=0,
+            padx=20,
+            pady=(0, 16),
+            sticky="nsew"
+        )
+        details_frame.grid_columnconfigure(1, weight=1)
+
+        for row_index, (label, value) in enumerate(process_data.items()):
+            label_widget = ctk.CTkLabel(
+                details_frame,
+                text=f"{label}:",
+                font=FONTS.body,
+                text_color=COLORS.text_secondary
+            )
+            label_widget.grid(
+                row=row_index,
+                column=0,
+                padx=(16, 12),
+                pady=8,
+                sticky="nw"
+            )
+
+            value_widget = ctk.CTkLabel(
+                details_frame,
+                text=str(value),
+                font=FONTS.body,
+                text_color=COLORS.text_primary,
+                wraplength=500,
+                justify="left"
+            )
+            value_widget.grid(
+                row=row_index,
+                column=1,
+                padx=(0, 16),
+                pady=8,
+                sticky="w"
+            )
+
+        button_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        button_frame.grid(
+            row=2,
+            column=0,
+            padx=20,
+            pady=(0, 20),
+            sticky="e"
+        )
+
+        copy_path_button = ctk.CTkButton(
+            button_frame,
+            text="Copy Path",
+            width=110,
+            command=lambda: self._copy_text_from_popup(
+                popup,
+                process_data.get("Path", ""),
+                "path"
+            ),
+            **secondary_button_style()
+        )
+        copy_path_button.grid(row=0, column=0, padx=(0, 10))
+
+        close_button = ctk.CTkButton(
+            button_frame,
+            text="Close",
+            width=100,
+            command=popup.destroy,
+            **primary_button_style()
+        )
+        close_button.grid(row=0, column=1)
 
     def _get_selected_process_values(self) -> tuple:
         """
@@ -625,3 +749,24 @@ class ProcessesTab(ctk.CTkFrame):
         )
 
         self.request_processes()
+        
+    def _copy_text_from_popup(
+        self,
+        popup: ctk.CTkToplevel,
+        text: str,
+        label: str
+    ) -> None:
+        """
+        Αντιγράφει κείμενο από popup.
+        """
+
+        if not text:
+            return
+
+        popup.clipboard_clear()
+        popup.clipboard_append(text)
+
+        self.status_label.configure(
+            text=f"Copied {label}.",
+            text_color=COLORS.success
+        )
