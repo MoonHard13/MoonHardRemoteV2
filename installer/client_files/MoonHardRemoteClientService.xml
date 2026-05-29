@@ -1,0 +1,28 @@
+<service>
+  <id>MoonHardRemoteClient</id>
+  <name>MoonHard Remote Client</name>
+  <description>MoonHard Remote v2 Client Agent</description>
+
+  <executable>C:\Program Files\MoonHardRemoteV2\Client\MoonHardRemoteClient.exe</executable>
+  <workingdirectory>C:\Program Files\MoonHardRemoteV2\Client</workingdirectory>
+
+  <serviceaccount>
+    <domain>LocalSystem</domain>
+  </serviceaccount>
+
+  <startmode>Automatic</startmode>
+
+  <env name="MOONHARD_CLIENT_DATA_DIR" value="C:\ProgramData\MoonHardRemoteV2" />
+
+  <logpath>C:\ProgramData\MoonHardRemoteV2\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10485760</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <onfailure action="restart" delay="60 sec" />
+
+  <resetfailure>1 hour</resetfailure>
+</service>

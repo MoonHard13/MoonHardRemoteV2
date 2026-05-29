@@ -22,3 +22,5 @@ logs/
 build/
 dist/
 *.spec
+WinSW-x64.exe
+installer/output/
