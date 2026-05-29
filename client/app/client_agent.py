@@ -173,8 +173,8 @@ class MoonHardClientAgent:
             elif message_type == "process_kill":
                 await self._handle_process_kill(websocket, payload)
 
-            elif message_type == "process_kill":
-                await self._handle_process_kill(websocket, payload)
+            elif message_type == "client_update_check":
+                await self._handle_client_update_check(websocket, payload)
 
     async def _handle_provider_get_payways(self, websocket, payload: dict) -> None:
         """
@@ -584,6 +584,45 @@ class MoonHardClientAgent:
                 return connection
 
         return None
+
+    async def _handle_client_update_check(self, websocket, payload: dict) -> None:
+        """
+        Ελέγχει αν υπάρχει διαθέσιμη νεότερη έκδοση client.
+        """
+
+        request_id = payload.get("request_id", "")
+
+        try:
+            update_result = await asyncio.to_thread(
+                self.client_update_checker.check_for_update
+            )
+
+            result_message = {
+                "type": "client_update_check_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                **update_result
+            }
+
+        except Exception as exc:
+            logger.exception("Client update check failed.")
+
+            result_message = {
+                "type": "client_update_check_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "success": False,
+                "current_version": self.config.app_version,
+                "latest_version": "",
+                "update_available": False,
+                "download_url": "",
+                "sha256": "",
+                "mandatory": False,
+                "release_notes": "",
+                "error": str(exc)
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
     
     async def _handle_sql_test_connection(self, websocket, payload: dict) -> None:
         """
