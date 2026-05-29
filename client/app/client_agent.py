@@ -168,6 +168,9 @@ class MoonHardClientAgent:
             elif message_type == "processes_get":
                 await self._handle_processes_get(websocket, payload)
 
+            elif message_type == "process_kill":
+                await self._handle_process_kill(websocket, payload)
+
     async def _handle_provider_get_payways(self, websocket, payload: dict) -> None:
         """
         Φέρνει τρόπους πληρωμής για παραστατικό από τον client υπολογιστή.
@@ -520,6 +523,44 @@ class MoonHardClientAgent:
                 "error": str(exc),
                 "processes": [],
                 "count": 0
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+    async def _handle_process_kill(self, websocket, payload: dict) -> None:
+        """
+        Τερματίζει process στον client και επιστρέφει αποτέλεσμα στο dashboard.
+        """
+
+        request_id = payload.get("request_id", "")
+        pid = payload.get("pid", "")
+        process_name = payload.get("process_name", "")
+
+        try:
+            kill_result = await asyncio.to_thread(
+                self.process_reader.kill_process,
+                int(pid),
+                process_name
+            )
+
+            result_message = {
+                "type": "process_kill_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                **kill_result
+            }
+
+        except Exception as exc:
+            logger.exception("Process kill failed.")
+
+            result_message = {
+                "type": "process_kill_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "success": False,
+                "pid": pid,
+                "process_name": process_name,
+                "error": str(exc)
             }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))

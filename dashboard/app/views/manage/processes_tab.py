@@ -12,6 +12,7 @@ from app.ui.theme import (
     card_style,
     primary_button_style,
     secondary_button_style,
+    danger_button_style,
     apply_treeview_style
 )
 
@@ -25,7 +26,8 @@ class ProcessesTab(ctk.CTkFrame):
         self,
         parent,
         client_code: str,
-        on_processes_request_callback: Callable[[dict], None] | None = None
+        on_processes_request_callback: Callable[[dict], None] | None = None,
+        on_process_action_callback: Callable[[dict], None] | None = None
     ) -> None:
         """
         Δημιουργεί το Processes tab.
@@ -35,6 +37,7 @@ class ProcessesTab(ctk.CTkFrame):
 
         self.client_code = client_code
         self.on_processes_request_callback = on_processes_request_callback
+        self.on_process_action_callback = on_process_action_callback
         self.processes: list[dict] = []
 
         self.grid_columnconfigure(0, weight=1)
@@ -148,6 +151,21 @@ class ProcessesTab(ctk.CTkFrame):
             column=2,
             padx=(0, SPACING.card_padding),
             pady=(0, 14)
+        )
+
+        kill_button = ctk.CTkButton(
+            top_frame,
+            text="Kill Selected",
+            width=130,
+            command=self.kill_selected_process,
+            **danger_button_style()
+        )
+        kill_button.grid(
+            row=1,
+            column=1,
+            padx=(150, 10),
+            pady=(0, 14),
+            sticky="w"
         )
 
         table_frame = ctk.CTkFrame(self, **card_style())
@@ -368,6 +386,11 @@ class ProcessesTab(ctk.CTkFrame):
         )
 
         menu.add_command(
+            label="Kill Process",
+            command=self.kill_selected_process
+        )
+        menu.add_separator()
+        menu.add_command(
             label="Copy Process Name",
             command=lambda: self._copy_selected_value(0, "process name")
         )
@@ -398,6 +421,21 @@ class ProcessesTab(ctk.CTkFrame):
             return tuple()
 
         return values
+
+    def _get_selected_process_info(self) -> dict:
+        """
+        Επιστρέφει βασικά στοιχεία του επιλεγμένου process.
+        """
+
+        values = self._get_selected_process_values()
+
+        if not values:
+            return {}
+
+        return {
+            "process_name": str(values[0]),
+            "pid": str(values[1])
+        }
 
     def _copy_selected_value(self, value_index: int, label: str) -> None:
         """
@@ -437,3 +475,153 @@ class ProcessesTab(ctk.CTkFrame):
             return float(value)
         except (TypeError, ValueError):
             return 0.0
+        
+    def kill_selected_process(self) -> None:
+        """
+        Ζητάει επιβεβαίωση και στέλνει kill request για το επιλεγμένο process.
+        """
+
+        process_info = self._get_selected_process_info()
+
+        if not process_info:
+            self.status_label.configure(
+                text="Select a process first.",
+                text_color=COLORS.danger
+            )
+            return
+
+        process_name = process_info.get("process_name", "")
+        pid = process_info.get("pid", "")
+
+        critical_processes = {
+            "system",
+            "registry",
+            "wininit",
+            "winlogon",
+            "csrss",
+            "lsass",
+            "services",
+            "smss",
+            "dwm",
+            "svchost"
+        }
+
+        if process_name.strip().lower() in critical_processes:
+            self.status_label.configure(
+                text=f"Blocked critical process: {process_name}",
+                text_color=COLORS.danger
+            )
+            return
+
+        self._open_kill_confirmation_popup(process_name, pid)
+
+    def _open_kill_confirmation_popup(self, process_name: str, pid: str) -> None:
+        """
+        Ανοίγει popup επιβεβαίωσης πριν τον τερματισμό process.
+        """
+
+        popup = ctk.CTkToplevel(self)
+        popup.title("Confirm Process Kill")
+        popup.geometry("460x220")
+        popup.resizable(False, False)
+        popup.configure(fg_color=COLORS.background)
+        popup.grab_set()
+
+        popup.grid_columnconfigure(0, weight=1)
+
+        title = ctk.CTkLabel(
+            popup,
+            text="Kill selected process?",
+            font=FONTS.subtitle,
+            text_color=COLORS.danger
+        )
+        title.grid(row=0, column=0, padx=20, pady=(20, 8), sticky="w")
+
+        message = ctk.CTkLabel(
+            popup,
+            text=(
+                f"Process: {process_name}\n"
+                f"PID: {pid}\n\n"
+                "This action will force-close the process."
+            ),
+            font=FONTS.body,
+            text_color=COLORS.text_primary,
+            justify="left"
+        )
+        message.grid(row=1, column=0, padx=20, pady=(0, 16), sticky="w")
+
+        button_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        button_frame.grid(row=2, column=0, padx=20, pady=(0, 20), sticky="e")
+
+        cancel_button = ctk.CTkButton(
+            button_frame,
+            text="Cancel",
+            width=100,
+            command=popup.destroy,
+            **secondary_button_style()
+        )
+        cancel_button.grid(row=0, column=0, padx=(0, 10))
+
+        kill_button = ctk.CTkButton(
+            button_frame,
+            text="Kill",
+            width=100,
+            command=lambda: self._send_kill_process_request(popup, process_name, pid),
+            **danger_button_style()
+        )
+        kill_button.grid(row=0, column=1)
+
+    def _send_kill_process_request(
+        self,
+        popup: ctk.CTkToplevel,
+        process_name: str,
+        pid: str
+    ) -> None:
+        """
+        Στέλνει kill request για process.
+        """
+
+        popup.destroy()
+
+        request_id = str(uuid.uuid4())
+
+        self.status_label.configure(
+            text=f"Killing process: {process_name} ({pid})...",
+            text_color=COLORS.accent
+        )
+
+        if self.on_process_action_callback:
+            self.on_process_action_callback(
+                {
+                    "type": "process_kill",
+                    "request_id": request_id,
+                    "client_code": self.client_code,
+                    "pid": pid,
+                    "process_name": process_name
+                }
+            )
+            
+    def handle_process_kill_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα kill process.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        process_name = payload.get("process_name", "")
+        pid = payload.get("pid", "")
+
+        if not payload.get("success"):
+            self.status_label.configure(
+                text=f"Kill failed for {process_name} ({pid}): {payload.get('error')}",
+                text_color=COLORS.danger
+            )
+            return
+
+        self.status_label.configure(
+            text=f"Killed process: {process_name} ({pid}). Refreshing processes...",
+            text_color=COLORS.success
+        )
+
+        self.request_processes()

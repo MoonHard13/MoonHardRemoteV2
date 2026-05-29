@@ -29,7 +29,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         on_provider_request_callback: Callable[[dict], None] | None = None,
         on_services_request_callback: Callable[[dict], None] | None = None,
         on_service_action_callback: Callable[[dict], None] | None = None,
-        on_processes_request_callback: Callable[[dict], None] | None = None
+        on_processes_request_callback: Callable[[dict], None] | None = None,
+        on_process_action_callback: Callable[[dict], None] | None = None
         
     ) -> None:
         """
@@ -52,6 +53,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.on_services_request_callback = on_services_request_callback
         self.on_service_action_callback = on_service_action_callback
         self.on_processes_request_callback = on_processes_request_callback
+        self.on_process_action_callback = on_process_action_callback
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
@@ -204,7 +206,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.processes_tab_view = ProcessesTab(
             self.processes_tab,
             client_code=self.client_code,
-            on_processes_request_callback=self.on_processes_request_callback
+            on_processes_request_callback=self.on_processes_request_callback,
+            on_process_action_callback=self.on_process_action_callback
         )
         self.processes_tab_view.grid(row=0, column=0, sticky="nsew")
 
@@ -283,6 +286,14 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "processes_tab_view"):
             self.processes_tab_view.handle_processes_result(payload)
+
+    def handle_process_kill_result(self, payload: dict) -> None:
+        """
+        Προωθεί process kill result στο ProcessesTab.
+        """
+
+        if hasattr(self, "processes_tab_view"):
+            self.processes_tab_view.handle_process_kill_result(payload)
         
     def _build_appsettings_tab(self) -> None:
         """
