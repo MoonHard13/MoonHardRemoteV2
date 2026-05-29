@@ -173,7 +173,7 @@ class ProcessesTab(ctk.CTkFrame):
 
         self.tree = ttk.Treeview(
             tree_container,
-            columns=("Name", "PID", "CPU", "MemoryMB", "Path"),
+            columns=("Name", "PID", "CpuTime", "MemoryMB", "Threads", "Handles", "Path"),
             show="headings",
             height=16,
             style=tree_style
@@ -215,16 +215,20 @@ class ProcessesTab(ctk.CTkFrame):
         headings = {
             "Name": "Process Name",
             "PID": "PID",
-            "CPU": "CPU",
+            "CpuTime": "CPU Time",
             "MemoryMB": "Memory MB",
+            "Threads": "Threads",
+            "Handles": "Handles",
             "Path": "Path"
         }
 
         widths = {
             "Name": 220,
             "PID": 90,
-            "CPU": 120,
+            "CpuTime": 120,
             "MemoryMB": 130,
+            "Threads": 100,
+            "Handles": 100,
             "Path": 600
         }
 
@@ -301,8 +305,10 @@ class ProcessesTab(ctk.CTkFrame):
                 [
                     str(process.get("name", "")),
                     str(process.get("pid", "")),
-                    str(process.get("cpu", "")),
+                    str(process.get("cpu_time", "")),
                     str(process.get("memory_mb", "")),
+                    str(process.get("threads", "")),
+                    str(process.get("handles", "")),
                     str(process.get("path", ""))
                 ]
             ).lower()
@@ -324,8 +330,10 @@ class ProcessesTab(ctk.CTkFrame):
                 values=(
                     process.get("name", ""),
                     process.get("pid", ""),
-                    process.get("cpu", ""),
+                    process.get("cpu_time", ""),
                     process.get("memory_mb", ""),
+                    process.get("threads", ""),
+                    process.get("handles", ""),
                     process.get("path", "")
                 )
             )
@@ -369,7 +377,7 @@ class ProcessesTab(ctk.CTkFrame):
         )
         menu.add_command(
             label="Copy Path",
-            command=lambda: self._copy_selected_value(4, "path")
+            command=lambda: self._copy_selected_value(6, "path")
         )
 
         menu.tk_popup(event.x_root, event.y_root)

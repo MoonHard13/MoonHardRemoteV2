@@ -24,8 +24,10 @@ class ProcessReader:
                 "Select-Object "
                 "ProcessName,"
                 "Id,"
-                "CPU,"
+                "@{Name='CpuTime';Expression={if ($_.CPU -ne $null) {[math]::Round($_.CPU, 2)} else {0}}},"
                 "@{Name='MemoryMB';Expression={[math]::Round($_.WorkingSet64 / 1MB, 2)}},"
+                "Threads,"
+                "Handles,"
                 "@{Name='Path';Expression={$_.Path}} | "
                 "Sort-Object WorkingSet64 -Descending | "
                 "ConvertTo-Csv -NoTypeInformation"
@@ -61,8 +63,10 @@ class ProcessReader:
                 {
                     "name": row.get("ProcessName", ""),
                     "pid": row.get("Id", ""),
-                    "cpu": row.get("CPU", ""),
+                    "cpu_time": row.get("CpuTime", ""),
                     "memory_mb": row.get("MemoryMB", ""),
+                    "threads": row.get("Threads", ""),
+                    "handles": row.get("Handles", ""),
                     "path": row.get("Path", "")
                 }
             )
