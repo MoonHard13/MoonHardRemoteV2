@@ -445,7 +445,7 @@ class MoonHardDashboardApp(ctk.CTk):
             on_service_action_callback=self._send_service_action,
             on_processes_request_callback=self._send_processes_request,
             on_process_action_callback=self._send_process_action,
-            on_process_action_callback=self._send_process_action
+            on_update_request_callback=self._send_update_request
         )
 
         self.manage_windows[client_code] = window
