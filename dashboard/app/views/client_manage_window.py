@@ -10,6 +10,7 @@ from app.views.manage.appsettings_tab import AppSettingsTab
 from app.views.manage.sql_tab import SqlTab
 from app.views.manage.services_tab import ServicesTab
 from app.views.manage.processes_tab import ProcessesTab
+from app.views.manage.updates_tab import UpdatesTab
 
 
 class ClientManageWindow(ctk.CTkToplevel):
@@ -30,7 +31,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         on_services_request_callback: Callable[[dict], None] | None = None,
         on_service_action_callback: Callable[[dict], None] | None = None,
         on_processes_request_callback: Callable[[dict], None] | None = None,
-        on_process_action_callback: Callable[[dict], None] | None = None
+        on_process_action_callback: Callable[[dict], None] | None = None,
+        on_update_request_callback: Callable[[dict], None] | None = None
         
     ) -> None:
         """
@@ -54,6 +56,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.on_service_action_callback = on_service_action_callback
         self.on_processes_request_callback = on_processes_request_callback
         self.on_process_action_callback = on_process_action_callback
+        self.on_update_request_callback = on_update_request_callback
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
@@ -114,6 +117,9 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.processes_tab = self.tabs.add("Processes")
         self.processes_tab.grid_columnconfigure(0, weight=1)
         self.processes_tab.grid_rowconfigure(0, weight=1)
+        self.updates_tab = self.tabs.add("Updates")
+        self.updates_tab.grid_columnconfigure(0, weight=1)
+        self.updates_tab.grid_rowconfigure(0, weight=1)
 
         self._build_overview_tab()
         self._build_terminal_tab()
@@ -122,6 +128,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self._build_provider_tab()
         self._build_services_tab()
         self._build_processes_tab()
+        self._build_updates_tab()
         
     def _build_header(self) -> None:
         """
@@ -210,6 +217,30 @@ class ClientManageWindow(ctk.CTkToplevel):
             on_process_action_callback=self.on_process_action_callback
         )
         self.processes_tab_view.grid(row=0, column=0, sticky="nsew")
+
+    def _build_updates_tab(self) -> None:
+        """
+        Δημιουργεί το Updates tab μέσω ξεχωριστού UpdatesTab component.
+        """
+
+        self.updates_tab_view = UpdatesTab(
+            self.updates_tab,
+            client_code=self.client_code,
+            on_update_request_callback=self.on_update_request_callback
+        )
+        self.updates_tab_view.grid(row=0, column=0, sticky="nsew")
+
+    def _build_updates_tab(self) -> None:
+        """
+        Δημιουργεί το Updates tab μέσω ξεχωριστού UpdatesTab component.
+        """
+
+        self.updates_tab_view = UpdatesTab(
+            self.updates_tab,
+            client_code=self.client_code,
+            on_update_request_callback=self.on_update_request_callback
+        )
+        self.updates_tab_view.grid(row=0, column=0, sticky="nsew")
 
     def handle_terminal_result(self, payload: dict) -> None:
         """

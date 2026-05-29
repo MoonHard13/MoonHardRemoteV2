@@ -311,6 +311,13 @@ class MoonHardDashboardApp(ctk.CTk):
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_process_kill_result(payload)
 
+        elif message_type == "client_update_check_result":
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_client_update_check_result(payload)
+
     def _set_connection_status_threadsafe(self, status: str) -> None:
         """
         Μεταφέρει την αλλαγή κατάστασης σύνδεσης στο κύριο GUI thread.
@@ -401,6 +408,14 @@ class MoonHardDashboardApp(ctk.CTk):
 
         if self.websocket_client:
             self.websocket_client.send_message(payload)
+ 
+    def _send_update_request(self, payload: dict) -> None:
+        """
+        Στέλνει update request στον server.
+        """
+
+        if self.websocket_client:
+            self.websocket_client.send_message(payload)
         
     def _open_manage_window(self, client: dict) -> None:
         """
@@ -429,6 +444,7 @@ class MoonHardDashboardApp(ctk.CTk):
             on_services_request_callback=self._send_services_request,
             on_service_action_callback=self._send_service_action,
             on_processes_request_callback=self._send_processes_request,
+            on_process_action_callback=self._send_process_action,
             on_process_action_callback=self._send_process_action
         )
 

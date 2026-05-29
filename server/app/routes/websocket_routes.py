@@ -370,6 +370,24 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") in ("client_update_check_result",):
+                    request_id = data.get("request_id", "")
+
+                    dashboard_websocket = self.pending_requests.pop(
+                        request_id,
+                        None
+                    )
+
+                    if dashboard_websocket:
+                        await connection_manager.send_to_dashboard(
+                            dashboard_websocket,
+                            data
+                        )
+                    else:
+                        await connection_manager.broadcast_to_dashboards(data)
+
+                    continue
+
                 if data.get("type") in ("services_get_result",):
                     request_id = data.get("request_id", "")
 
@@ -1334,6 +1352,64 @@ class WebSocketRoutes:
                                 "success": False,
                                 "pid": pid,
                                 "process_name": process_name,
+                                "error": "Client is not connected."
+                            }
+                        )
+
+                    continue
+
+                if data.get("type") == "client_update_check":
+                    request_id = data.get("request_id", "")
+                    client_code = data.get("client_code", "")
+
+                    if not request_id or not client_code:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_update_check_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "current_version": "",
+                                "latest_version": "",
+                                "update_available": False,
+                                "download_url": "",
+                                "sha256": "",
+                                "mandatory": False,
+                                "release_notes": "",
+                                "error": "Missing request_id or client_code."
+                            }
+                        )
+                        continue
+
+                    self.pending_requests[request_id] = websocket
+
+                    sent = await connection_manager.send_to_client(
+                        client_code,
+                        {
+                            "type": "client_update_check",
+                            "request_id": request_id,
+                            "client_code": client_code
+                        }
+                    )
+
+                    if not sent:
+                        self.pending_requests.pop(request_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_update_check_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "success": False,
+                                "current_version": "",
+                                "latest_version": "",
+                                "update_available": False,
+                                "download_url": "",
+                                "sha256": "",
+                                "mandatory": False,
+                                "release_notes": "",
                                 "error": "Client is not connected."
                             }
                         )
