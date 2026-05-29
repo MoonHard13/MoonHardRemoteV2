@@ -13,7 +13,7 @@ class ClientConfig:
         Φορτώνει τις βασικές ρυθμίσεις του client.
         """
 
-        load_dotenv()
+        self._load_environment()
 
         self.app_name = "MoonHard Remote v2 Client"
         self.app_version = "1.0.0"
@@ -35,3 +35,20 @@ class ClientConfig:
         self.log_dir = self.program_data_dir / "logs"
         self.reconnect_seconds = 5
         self.heartbeat_seconds = 30
+        
+    def _load_environment(self) -> None:
+        """
+        Φορτώνει μεταβλητές περιβάλλοντος από ασφαλείς πιθανές τοποθεσίες.
+        """
+
+        possible_env_paths = [
+            Path.cwd() / ".env",
+            Path(r"C:\ProgramData\MoonHardRemoteV2") / ".env"
+        ]
+
+        for env_path in possible_env_paths:
+            if env_path.exists():
+                load_dotenv(env_path)
+                return
+
+        load_dotenv()
