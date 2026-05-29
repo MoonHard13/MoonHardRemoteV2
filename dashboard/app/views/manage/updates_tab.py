@@ -100,7 +100,7 @@ class UpdatesTab(ctk.CTkFrame):
 
         self.result_textbox = ctk.CTkTextbox(
             result_frame,
-            fg_color=COLORS.surface_dark,
+            fg_color=COLORS.background,
             text_color=COLORS.text_primary,
             border_color=COLORS.border,
             border_width=1,
