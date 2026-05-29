@@ -391,10 +391,6 @@ class ProcessesTab(ctk.CTkFrame):
 
             filtered_processes.append(process)
 
-        self.status_label.configure(
-            text=f"Showing {shown_count} / {len(self.processes)} processes."
-        )
-
         filtered_processes = self._sort_processes(filtered_processes)
 
         for process in filtered_processes:
@@ -413,6 +409,10 @@ class ProcessesTab(ctk.CTkFrame):
             )
 
         shown_count = len(filtered_processes)
+        
+        self.status_label.configure(
+            text=f"Showing {shown_count} / {len(self.processes)} processes."
+        )
 
     def _show_process_context_menu(self, event) -> None:
         """
