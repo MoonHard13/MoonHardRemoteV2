@@ -41,6 +41,8 @@ class ProcessesTab(ctk.CTkFrame):
         self.processes: list[dict] = []
         self.auto_refresh_enabled = False
         self.auto_refresh_job = None
+        self.sort_column = "MemoryMB"
+        self.sort_reverse = True
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -288,7 +290,13 @@ class ProcessesTab(ctk.CTkFrame):
         }
 
         for column, heading in headings.items():
-            self.tree.heading(column, text=heading)
+            self.tree.heading(
+                column,
+                text=heading,
+                command=lambda selected_column=column: self._sort_by_column(
+                    selected_column
+                )
+            )
             self.tree.column(
                 column,
                 width=widths[column],
@@ -356,6 +364,7 @@ class ProcessesTab(ctk.CTkFrame):
 
         shown_count = 0
 
+        filtered_processes = []
         for process in self.processes:
             searchable_text = " ".join(
                 [
@@ -380,6 +389,15 @@ class ProcessesTab(ctk.CTkFrame):
             if quick_filter == "Has Path" and not process.get("path"):
                 continue
 
+            filtered_processes.append(process)
+
+        self.status_label.configure(
+            text=f"Showing {shown_count} / {len(self.processes)} processes."
+        )
+
+        filtered_processes = self._sort_processes(filtered_processes)
+
+        for process in filtered_processes:
             self.tree.insert(
                 "",
                 "end",
@@ -393,11 +411,8 @@ class ProcessesTab(ctk.CTkFrame):
                     process.get("path", "")
                 )
             )
-            shown_count += 1
 
-        self.status_label.configure(
-            text=f"Showing {shown_count} / {len(self.processes)} processes."
-        )
+        shown_count = len(filtered_processes)
 
     def _show_process_context_menu(self, event) -> None:
         """
@@ -892,3 +907,60 @@ class ProcessesTab(ctk.CTkFrame):
 
         self._cancel_auto_refresh()
         super().destroy()
+        
+    def _sort_by_column(self, column: str) -> None:
+        """
+        Αλλάζει το sorting column και κάνει render ξανά.
+        """
+
+        if self.sort_column == column:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_column = column
+            self.sort_reverse = column in {
+                "PID",
+                "CpuTime",
+                "MemoryMB",
+                "Threads",
+                "Handles"
+            }
+
+        self._render_processes()
+
+    def _sort_processes(self, processes: list[dict]) -> list[dict]:
+        """
+        Ταξινομεί τα processes με βάση την επιλεγμένη στήλη.
+        """
+
+        key_map = {
+            "Name": "name",
+            "PID": "pid",
+            "CpuTime": "cpu_time",
+            "MemoryMB": "memory_mb",
+            "Threads": "threads",
+            "Handles": "handles",
+            "Path": "path"
+        }
+
+        process_key = key_map.get(self.sort_column, "memory_mb")
+
+        numeric_keys = {
+            "pid",
+            "cpu_time",
+            "memory_mb",
+            "threads",
+            "handles"
+        }
+
+        if process_key in numeric_keys:
+            return sorted(
+                processes,
+                key=lambda process: self._safe_float(process.get(process_key, 0)),
+                reverse=self.sort_reverse
+            )
+
+        return sorted(
+            processes,
+            key=lambda process: str(process.get(process_key, "")).lower(),
+            reverse=self.sort_reverse
+        )
