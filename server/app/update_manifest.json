@@ -1,8 +1,8 @@
 {
   "product": "moonhard-remote-client",
-  "latest_version": "1.0.0",
-  "download_url": "",
-  "sha256": "",
+  "latest_version": "1.0.1",
+  "download_url": "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.1/moonhard-client-1.0.1.zip",
+  "sha256": "sha256:e4823737ddbba93003b799bed447ef6bb44e520f3ce41af5e24ebac7a0c25034",
   "mandatory": false,
-  "release_notes": "Initial update manifest. No downloadable package yet."
+  "release_notes": "Test client update package from GitHub Releases."
 }
