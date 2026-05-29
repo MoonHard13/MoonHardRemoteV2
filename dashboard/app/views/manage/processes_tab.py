@@ -39,6 +39,8 @@ class ProcessesTab(ctk.CTkFrame):
         self.on_processes_request_callback = on_processes_request_callback
         self.on_process_action_callback = on_process_action_callback
         self.processes: list[dict] = []
+        self.auto_refresh_enabled = False
+        self.auto_refresh_job = None
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -151,6 +153,41 @@ class ProcessesTab(ctk.CTkFrame):
             column=2,
             padx=(0, SPACING.card_padding),
             pady=(0, 14)
+        )
+
+        self.auto_refresh_checkbox = ctk.CTkCheckBox(
+            top_frame,
+            text="Auto Refresh",
+            command=self._toggle_auto_refresh,
+            fg_color=COLORS.accent,
+            hover_color=COLORS.accent_hover,
+            text_color=COLORS.text_primary
+        )
+        self.auto_refresh_checkbox.grid(
+            row=2,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, 14),
+            sticky="w"
+        )
+
+        self.refresh_interval_option = ctk.CTkOptionMenu(
+            top_frame,
+            values=["5s", "10s", "30s"],
+            fg_color=COLORS.surface_light,
+            button_color=COLORS.accent,
+            button_hover_color=COLORS.accent_hover,
+            text_color=COLORS.text_primary,
+            dropdown_fg_color=COLORS.surface,
+            dropdown_hover_color=COLORS.surface_hover
+        )
+        self.refresh_interval_option.set("10s")
+        self.refresh_interval_option.grid(
+            row=2,
+            column=1,
+            padx=(0, 10),
+            pady=(0, 14),
+            sticky="w"
         )
 
         kill_button = ctk.CTkButton(
@@ -770,3 +807,88 @@ class ProcessesTab(ctk.CTkFrame):
             text=f"Copied {label}.",
             text_color=COLORS.success
         )
+        
+    def _toggle_auto_refresh(self) -> None:
+        """
+        Ενεργοποιεί ή απενεργοποιεί το auto refresh των processes.
+        """
+
+        self.auto_refresh_enabled = bool(self.auto_refresh_checkbox.get())
+
+        if self.auto_refresh_enabled:
+            self.status_label.configure(
+                text="Auto refresh enabled.",
+                text_color=COLORS.success
+            )
+            self.request_processes()
+            self._schedule_auto_refresh()
+        else:
+            self._cancel_auto_refresh()
+            self.status_label.configure(
+                text="Auto refresh disabled.",
+                text_color=COLORS.text_secondary
+            )
+
+    def _schedule_auto_refresh(self) -> None:
+        """
+        Προγραμματίζει το επόμενο auto refresh.
+        """
+
+        if not self.auto_refresh_enabled:
+            return
+
+        self._cancel_auto_refresh()
+
+        interval_ms = self._get_refresh_interval_ms()
+
+        self.auto_refresh_job = self.after(
+            interval_ms,
+            self._run_auto_refresh
+        )
+
+    def _run_auto_refresh(self) -> None:
+        """
+        Εκτελεί auto refresh και προγραμματίζει το επόμενο.
+        """
+
+        if not self.auto_refresh_enabled:
+            return
+
+        self.request_processes()
+        self._schedule_auto_refresh()
+
+    def _cancel_auto_refresh(self) -> None:
+        """
+        Ακυρώνει το υπάρχον auto refresh job.
+        """
+
+        if self.auto_refresh_job:
+            try:
+                self.after_cancel(self.auto_refresh_job)
+            except Exception:
+                pass
+
+            self.auto_refresh_job = None
+
+    def _get_refresh_interval_ms(self) -> int:
+        """
+        Επιστρέφει το interval του auto refresh σε milliseconds.
+        """
+
+        selected_interval = self.refresh_interval_option.get()
+
+        interval_map = {
+            "5s": 5000,
+            "10s": 10000,
+            "30s": 30000
+        }
+
+        return interval_map.get(selected_interval, 10000)
+    
+    def destroy(self) -> None:
+        """
+        Καθαρίζει το auto refresh job πριν καταστραφεί το tab.
+        """
+
+        self._cancel_auto_refresh()
+        super().destroy()
