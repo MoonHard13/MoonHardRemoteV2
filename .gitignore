@@ -24,3 +24,10 @@ dist/
 *.spec
 WinSW-x64.exe
 installer/output/
+installer/output/
+installer/client_files/_internal/
+installer/client_files/MoonHardRemoteClient.exe
+installer/client_files/MoonHardRemoteClientService.exe
+
+# Installer local secrets
+installer/secrets/

@@ -1,3 +1,5 @@
+#include "secrets\client_token.iss"
+
 [Setup]
 AppId={{8C7C9E7D-5E4A-4B6E-8C3A-1F7E51A01001}
 AppName=MoonHard Remote Client
@@ -30,34 +32,21 @@ Name: "{app}"; Permissions: system-readexec admins-full users-readexec
 Source: "client_files\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Code]
+procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ClientTokenPage: TInputQueryWizardPage;
-
-procedure InitializeWizard;
+  EnvFilePath: String;
+  EnvContent: String;
 begin
-  ClientTokenPage :=
-    CreateInputQueryPage(
-      wpSelectDir,
-      'MoonHard Remote Client Settings',
-      'Enter the client connection settings.',
-      'Type the client token that matches your Render server configuration.'
-    );
-
-  ClientTokenPage.Add('Client Token:', False);
-  ClientTokenPage.Values[0] := '';
-end;
-
-function NextButtonClick(CurPageID: Integer): Boolean;
-begin
-  Result := True;
-
-  if CurPageID = ClientTokenPage.ID then
+  if CurStep = ssPostInstall then
   begin
-    if Trim(ClientTokenPage.Values[0]) = '' then
-    begin
-      MsgBox('Client Token is required.', mbError, MB_OK);
-      Result := False;
-    end;
+    EnvFilePath := ExpandConstant('{commonappdata}\MoonHardRemoteV2\.env');
+
+    EnvContent :=
+      'CLIENT_TOKEN={#ClientToken}' + #13#10 +
+      'SERVER_WEBSOCKET_URL=wss://moonhardremotev2.onrender.com/ws/client' + #13#10 +
+      'MOONHARD_CLIENT_DATA_DIR=C:\ProgramData\MoonHardRemoteV2' + #13#10;
+
+    SaveStringToFile(EnvFilePath, EnvContent, False);
   end;
 end;
 
