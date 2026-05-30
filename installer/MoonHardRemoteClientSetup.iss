@@ -50,24 +50,6 @@ begin
   end;
 end;
 
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  EnvFilePath: String;
-  EnvContent: String;
-begin
-  if CurStep = ssPostInstall then
-  begin
-    EnvFilePath := ExpandConstant('{commonappdata}\MoonHardRemoteV2\.env');
-
-    EnvContent :=
-      'CLIENT_TOKEN=' + Trim(ClientTokenPage.Values[0]) + #13#10 +
-      'SERVER_WEBSOCKET_URL=wss://moonhardremotev2.onrender.com/ws/client' + #13#10 +
-      'MOONHARD_CLIENT_DATA_DIR=C:\ProgramData\MoonHardRemoteV2' + #13#10;
-
-    SaveStringToFile(EnvFilePath, EnvContent, False);
-  end;
-end;
-
 [Run]
 Filename: "{cmd}"; Parameters: "/C cd /d ""{app}"" && MoonHardRemoteClientService.exe stop"; Flags: runhidden waituntilterminated; StatusMsg: "Stopping existing MoonHard service..."; Check: FileExists(ExpandConstant('{app}\MoonHardRemoteClientService.exe'))
 Filename: "{cmd}"; Parameters: "/C cd /d ""{app}"" && MoonHardRemoteClientService.exe uninstall"; Flags: runhidden waituntilterminated; StatusMsg: "Removing existing MoonHard service..."; Check: FileExists(ExpandConstant('{app}\MoonHardRemoteClientService.exe'))
