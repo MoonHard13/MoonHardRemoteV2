@@ -1,6 +1,8 @@
 import json
 import urllib.request
 import hashlib
+import shutil
+import zipfile
 
 from pathlib import Path
 
@@ -204,6 +206,91 @@ class ClientUpdateChecker:
             "actual_sha256": actual_sha256,
             "sha256_verified": True,
             "latest_version": latest_version
+        }
+
+    def extract_update_package(
+        self,
+        package_path: str,
+        latest_version: str
+    ) -> dict:
+        """
+        Κάνει extract το update ZIP και ελέγχει ότι περιέχει τα βασικά αρχεία client.
+        """
+
+        if not package_path:
+            raise ValueError("Package path is empty.")
+
+        package_file = Path(package_path)
+
+        if not package_file.exists() or not package_file.is_file():
+            raise FileNotFoundError(f"Package file not found: {package_file}")
+
+        safe_version = str(latest_version or "unknown").strip() or "unknown"
+
+        extracted_dir = (
+            Path("C:/ProgramData/MoonHardRemoteV2")
+            / "updates"
+            / "extracted"
+            / safe_version
+        )
+
+        if extracted_dir.exists():
+            shutil.rmtree(extracted_dir)
+
+        extracted_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with zipfile.ZipFile(package_file, "r") as zip_file:
+                zip_file.extractall(extracted_dir)
+
+        except zipfile.BadZipFile as exc:
+            raise RuntimeError(f"Invalid ZIP package: {package_file}") from exc
+
+        validation_result = self._validate_extracted_package(extracted_dir)
+
+        if not validation_result["valid"]:
+            raise RuntimeError(
+                "Extracted package validation failed: "
+                + ", ".join(validation_result["missing_items"])
+            )
+
+        extracted_files_count = sum(
+            1 for item in extracted_dir.rglob("*") if item.is_file()
+        )
+
+        return {
+            "success": True,
+            "package_path": str(package_file),
+            "extracted_path": str(extracted_dir),
+            "latest_version": latest_version,
+            "extracted_files_count": extracted_files_count,
+            "required_items": validation_result["required_items"],
+            "missing_items": [],
+            "package_valid": True
+        }
+
+    def _validate_extracted_package(self, extracted_dir: Path) -> dict:
+        """
+        Ελέγχει ότι το extracted update package έχει την αναμενόμενη δομή.
+        """
+
+        required_items = [
+            "MoonHardRemoteClient.exe",
+            "_internal"
+        ]
+
+        missing_items: list[str] = []
+
+        for required_item in required_items:
+            required_path = extracted_dir / required_item
+
+            if not required_path.exists():
+                missing_items.append(required_item)
+
+        return {
+            "valid": len(missing_items) == 0,
+            "required_items": required_items,
+            "missing_items": missing_items
         }
 
     def _calculate_sha256(self, file_path: Path) -> str:

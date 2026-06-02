@@ -33,7 +33,8 @@ class UpdatesTab(ctk.CTkFrame):
         self.client_code = client_code
         self.on_update_request_callback = on_update_request_callback
         self.latest_update_payload: dict = {}
-
+        self.latest_download_payload: dict = {}
+        
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
@@ -89,6 +90,16 @@ class UpdatesTab(ctk.CTkFrame):
         )
         self.download_button.grid(row=0, column=2, padx=(0, 18), pady=(16, 4), sticky="e")
 
+        self.extract_button = ctk.CTkButton(
+            top_frame,
+            text="Extract Package",
+            width=150,
+            command=self.request_update_extract,
+            state="disabled",
+            **secondary_button_style()
+        )
+        self.extract_button.grid(row=0, column=3, padx=(0, 18), pady=(16, 4), sticky="e")
+
         clear_button = ctk.CTkButton(
             top_frame,
             text="Clear",
@@ -96,7 +107,7 @@ class UpdatesTab(ctk.CTkFrame):
             command=self.clear_result,
             **secondary_button_style()
         )
-        clear_button.grid(row=1, column=2, padx=(0, 18), pady=(0, 16), sticky="e")
+        clear_button.grid(row=1, column=3, padx=(0, 18), pady=(0, 16), sticky="e")
 
         result_frame = ctk.CTkFrame(self, **card_style())
         result_frame.grid(
@@ -219,6 +230,10 @@ class UpdatesTab(ctk.CTkFrame):
             "Press 'Check for Update' to compare this client with the server manifest."
         )
 
+        self.latest_download_payload = {}
+        self.download_button.configure(state="disabled")
+        self.extract_button.configure(state="disabled")
+
     def _set_result_text(self, text: str) -> None:
         """
         Ενημερώνει το textbox αποτελέσματος.
@@ -293,6 +308,9 @@ class UpdatesTab(ctk.CTkFrame):
             text_color=COLORS.success
         )
 
+        self.latest_download_payload = payload
+        self.extract_button.configure(state="normal")
+
         result_text = (
             "=== Update Package Download ===\n\n"
             f"Latest version:      {payload.get('latest_version', '-')}\n"
@@ -306,3 +324,83 @@ class UpdatesTab(ctk.CTkFrame):
         )
 
         self._set_result_text(result_text)
+        
+    def request_update_extract(self) -> None:
+        """
+        Στέλνει request για extract και validation του update package.
+        """
+
+        if not self.latest_download_payload:
+            self.status_label.configure(
+                text="Download package first.",
+                text_color=COLORS.danger
+            )
+            return
+
+        package_path = self.latest_download_payload.get("saved_path", "")
+        latest_version = self.latest_download_payload.get("latest_version", "")
+
+        if not package_path:
+            self.status_label.configure(
+                text="Missing downloaded package path.",
+                text_color=COLORS.danger
+            )
+            return
+
+        request_id = str(uuid.uuid4())
+
+        self.status_label.configure(
+            text="Extracting update package...",
+            text_color=COLORS.accent
+        )
+
+        if self.on_update_request_callback:
+            self.on_update_request_callback(
+                {
+                    "type": "client_update_extract",
+                    "request_id": request_id,
+                    "client_code": self.client_code,
+                    "package_path": package_path,
+                    "latest_version": latest_version
+                }
+            )
+            
+    def request_update_extract(self) -> None:
+        """
+        Στέλνει request για extract και validation του update package.
+        """
+
+        if not self.latest_download_payload:
+            self.status_label.configure(
+                text="Download package first.",
+                text_color=COLORS.danger
+            )
+            return
+
+        package_path = self.latest_download_payload.get("saved_path", "")
+        latest_version = self.latest_download_payload.get("latest_version", "")
+
+        if not package_path:
+            self.status_label.configure(
+                text="Missing downloaded package path.",
+                text_color=COLORS.danger
+            )
+            return
+
+        request_id = str(uuid.uuid4())
+
+        self.status_label.configure(
+            text="Extracting update package...",
+            text_color=COLORS.accent
+        )
+
+        if self.on_update_request_callback:
+            self.on_update_request_callback(
+                {
+                    "type": "client_update_extract",
+                    "request_id": request_id,
+                    "client_code": self.client_code,
+                    "package_path": package_path,
+                    "latest_version": latest_version
+                }
+            )

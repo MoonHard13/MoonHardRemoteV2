@@ -760,3 +760,11 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "provider_tab_view"):
             self.provider_tab_view.handle_note_types_result(payload)
+            
+    def handle_client_update_extract_result(self, payload: dict) -> None:
+        """
+        Προωθεί update extract result στο UpdatesTab.
+        """
+
+        if hasattr(self, "updates_tab_view"):
+            self.updates_tab_view.handle_update_extract_result(payload)

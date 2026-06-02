@@ -179,6 +179,9 @@ class MoonHardClientAgent:
             elif message_type == "client_update_download":
                 await self._handle_client_update_download(websocket, payload)
 
+            elif message_type == "client_update_extract":
+                await self._handle_client_update_extract(websocket, payload)
+
     async def _handle_provider_get_payways(self, websocket, payload: dict) -> None:
         """
         Φέρνει τρόπους πληρωμής για παραστατικό από τον client υπολογιστή.
@@ -1246,6 +1249,52 @@ class MoonHardClientAgent:
                 "actual_sha256": "",
                 "sha256_verified": False,
                 "latest_version": latest_version,
+                "error": str(exc)
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+        
+    async def _handle_client_update_extract(self, websocket, payload: dict) -> None:
+        """
+        Κάνει extract και validation στο downloaded update package.
+        """
+
+        request_id = payload.get("request_id", "")
+        package_path = payload.get("package_path", "")
+        latest_version = payload.get("latest_version", "")
+
+        try:
+            extract_result = await asyncio.to_thread(
+                self.client_update_checker.extract_update_package,
+                package_path,
+                latest_version
+            )
+
+            result_message = {
+                "type": "client_update_extract_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                **extract_result
+            }
+
+        except Exception as exc:
+            logger.exception("Client update extract failed.")
+
+            result_message = {
+                "type": "client_update_extract_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "success": False,
+                "package_path": package_path,
+                "extracted_path": "",
+                "latest_version": latest_version,
+                "extracted_files_count": 0,
+                "required_items": [
+                    "MoonHardRemoteClient.exe",
+                    "_internal"
+                ],
+                "missing_items": [],
+                "package_valid": False,
                 "error": str(exc)
             }
 
