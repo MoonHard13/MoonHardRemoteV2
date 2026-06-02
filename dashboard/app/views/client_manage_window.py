@@ -139,7 +139,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         pc_name = self.client.get("pc_name", "-")
         username = self.client.get("username", "-")
         status = self.client.get("status", "-")
-
+        app_version = self.client.get("app_version", "-")
+        
         header = ctk.CTkFrame(self, **card_style())
         header.grid(
             row=0,
@@ -160,7 +161,13 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         info = ctk.CTkLabel(
             header,
-            text=f"PC: {pc_name} | User: {username} | Status: {status} | Code: {self.client_code}",
+            text=(
+                f"PC: {pc_name} | "
+                f"User: {username} | "
+                f"Status: {status} | "
+                f"Version: {app_version} | "
+                f"Code: {self.client_code}"
+            ),
             font=FONTS.body,
             text_color=COLORS.text_secondary,
             anchor="w"
