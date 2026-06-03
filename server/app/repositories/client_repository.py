@@ -309,3 +309,27 @@ class ClientRepository:
             }
 
         return data[0]
+    
+    def delete_client(self, client_code: str) -> dict[str, Any]:
+        """
+        Διαγράφει έναν client από τη βάση με βάση το client_code.
+        """
+
+        if not client_code:
+            raise ValueError("Missing client_code.")
+
+        logger.info("Deleting client from database: %s", client_code)
+
+        response = (
+            self.db
+            .table("clients")
+            .delete()
+            .eq("client_code", client_code)
+            .execute()
+        )
+
+        return {
+            "deleted": True,
+            "client_code": client_code,
+            "data": response.data or []
+        }

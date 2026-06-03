@@ -578,6 +578,53 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") == "delete_client":
+                    client_code = data.get("client_code", "")
+
+                    if not client_code:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "delete_client_error",
+                                "client_code": client_code,
+                                "message": "Missing client_code."
+                            }
+                        )
+                        continue
+
+                    try:
+                        connection_manager.disconnect_client(client_code)
+
+                        deleted_client = self.client_repository.delete_client(
+                            client_code=client_code
+                        )
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "delete_client_success",
+                                "client_code": client_code,
+                                "message": "Client deleted successfully.",
+                                "deleted_client": deleted_client
+                            }
+                        )
+
+                        await self.broadcast_clients_list()
+
+                    except Exception as exc:
+                        logger.exception("Failed to delete client.")
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "delete_client_error",
+                                "client_code": client_code,
+                                "message": str(exc)
+                            }
+                        )
+
+                    continue
+
                 if data.get("type") == "get_client_appsettings":
                     client_code = data.get("client_code", "")
 

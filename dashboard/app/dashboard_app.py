@@ -104,7 +104,8 @@ class MoonHardDashboardApp(ctk.CTk):
 
         self.clients_view = ClientsView(
             self,
-            on_manage_callback=self._open_manage_window
+            on_manage_callback=self._open_manage_window,
+            on_delete_callback=self._delete_client
         )
         self.clients_view.grid(
             row=1,
@@ -162,6 +163,16 @@ class MoonHardDashboardApp(ctk.CTk):
 
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_terminal_result(payload)
+
+        elif message_type == "delete_client_success":
+            logger.info("Client deleted successfully: %s", payload.get("client_code"))
+
+        elif message_type == "delete_client_error":
+            logger.error(
+                "Client delete failed for %s: %s",
+                payload.get("client_code"),
+                payload.get("message")
+            )
 
         elif message_type == "terminal_error":
             client_code = payload.get("client_code", "")
@@ -551,3 +562,21 @@ class MoonHardDashboardApp(ctk.CTk):
             )
 
         return tuple(sorted(snapshot_items))
+    
+    def _delete_client(self, client: dict) -> None:
+        """
+        Στέλνει αίτημα διαγραφής client στον server.
+        """
+
+        client_code = client.get("client_code", "")
+
+        if not client_code:
+            return
+
+        if self.websocket_client:
+            self.websocket_client.send_message(
+                {
+                    "type": "delete_client",
+                    "client_code": client_code
+                }
+            )

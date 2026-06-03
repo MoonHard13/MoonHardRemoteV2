@@ -15,7 +15,7 @@ class ClientsView(ctk.CTkFrame):
     Προβολή λίστας clients στο dashboard.
     """
 
-    def __init__(self, parent, on_manage_callback=None) -> None:
+    def __init__(self, parent, on_manage_callback=None, on_delete_callback=None) -> None:
         """
         Δημιουργεί το UI της λίστας clients.
         """
@@ -28,7 +28,8 @@ class ClientsView(ctk.CTkFrame):
         self.status_filter: str = "All"
         self.last_clients_snapshot: tuple = tuple()
         self.on_manage_callback = on_manage_callback
-        
+        self.on_delete_callback = on_delete_callback 
+               
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -316,7 +317,19 @@ class ClientsView(ctk.CTkFrame):
             state="normal" if ws_connected else "disabled",
             **primary_button_style()
         )
-        manage_button.grid(row=0, column=3, padx=(0, 15), pady=12, sticky="e")
+        manage_button.grid(row=0, column=3, padx=(0, 8), pady=12, sticky="e")
+        
+        delete_button = ctk.CTkButton(
+            row,
+            text="Delete",
+            width=80,
+            command=lambda c=client: self._open_delete_callback(c),
+            state="disabled" if ws_connected else "normal",
+            fg_color=COLORS.danger,
+            hover_color=COLORS.danger_hover,
+            text_color=COLORS.text_primary
+        )
+        delete_button.grid(row=0, column=4, padx=(0, 15), pady=12, sticky="e")
         
     def _open_manage_callback(self, client: dict) -> None:
         """
@@ -326,3 +339,26 @@ class ClientsView(ctk.CTkFrame):
         if self.on_manage_callback:
             self.on_manage_callback(client)
             
+    def _open_delete_callback(self, client: dict) -> None:
+        """
+        Ζητάει επιβεβαίωση και ενημερώνει το dashboard ότι ο χρήστης θέλει διαγραφή client.
+        """
+
+        client_code = client.get("client_code", "-")
+        display_name = client.get("display_name") or client.get("pc_name") or client_code
+
+        confirm = ctk.CTkInputDialog(
+            text=(
+                f"Type DELETE to remove this client from dashboard and database:\n\n"
+                f"{display_name}\n{client_code}"
+            ),
+            title="Confirm Client Delete"
+        )
+
+        answer = confirm.get_input()
+
+        if answer != "DELETE":
+            return
+
+        if self.on_delete_callback:
+            self.on_delete_callback(client)
