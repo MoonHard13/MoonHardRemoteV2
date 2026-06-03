@@ -32,6 +32,38 @@ Name: "{app}"; Permissions: system-readexec admins-full users-readexec
 Source: "client_files\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Code]
+function RunCommand(CommandLine: String): Integer;
+var
+  ResultCode: Integer;
+begin
+  Exec(
+    ExpandConstant('{cmd}'),
+    '/C ' + CommandLine,
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+
+  Result := ResultCode;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+
+  { Σταματάει το service πριν ξεκινήσει η αντιγραφή αρχείων }
+  RunCommand('sc stop MoonHardRemoteClient');
+
+  { Περιμένει λίγο ώστε να απελευθερωθεί το MoonHardRemoteClient.exe }
+  Sleep(5000);
+
+  { Αφαιρεί το service registration πριν την αντικατάσταση αρχείων }
+  RunCommand('cd /d "' + ExpandConstant('{app}') + '" && MoonHardRemoteClientService.exe uninstall');
+
+  { Περιμένει λίγο ακόμη για να κλείσει πλήρως το service wrapper }
+  Sleep(3000);
+end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   EnvFilePath: String;
