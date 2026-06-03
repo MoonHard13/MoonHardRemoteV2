@@ -13,6 +13,10 @@ $WinSWSource = Join-Path $ProjectRoot "tools\winsw\MoonHardRemoteClientService.e
 $WinSWDestination = Join-Path $InstallerClientFilesDir "MoonHardRemoteClientService.exe"
 $ServiceXml = Join-Path $InstallerClientFilesDir "MoonHardRemoteClientService.xml"
 $SecretFile = Join-Path $ProjectRoot "installer\secrets\client_token.iss"
+$UpdaterAppName = "MoonHardUpdater"
+$UpdaterDistDir = Join-Path $ProjectRoot "dist\$UpdaterAppName"
+$UpdaterBuiltExe = Join-Path $UpdaterDistDir "$UpdaterAppName.exe"
+$UpdaterDestination = Join-Path $InstallerClientFilesDir "$UpdaterAppName.exe"
 
 $InnoCompilerCandidates = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
@@ -79,6 +83,24 @@ if (-not (Test-Path $BuiltExe)) {
     throw "PyInstaller build failed. Missing EXE: $BuiltExe"
 }
 
+Write-Host ""
+Write-Host "Step 2B - Building updater EXE with PyInstaller..." -ForegroundColor Cyan
+
+python -m PyInstaller `
+  --noconfirm `
+  --clean `
+  --onedir `
+  --name $UpdaterAppName `
+  --console `
+  --paths .\updater `
+  .\updater\app\update_runner.py
+
+if (-not (Test-Path $UpdaterBuiltExe)) {
+    throw "Updater PyInstaller build failed. Missing EXE: $UpdaterBuiltExe"
+}
+
+Write-Host "Updater EXE built: $UpdaterBuiltExe" -ForegroundColor Green
+
 Write-Host "Client EXE built: $BuiltExe" -ForegroundColor Green
 
 Write-Host ""
@@ -87,13 +109,19 @@ Write-Host "Step 3/6 - Preparing installer client_files folder..." -ForegroundCo
 New-Item -ItemType Directory -Force $InstallerClientFilesDir | Out-Null
 Remove-Item (Join-Path $InstallerClientFilesDir "_internal") -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $InstallerClientFilesDir "$AppName.exe") -Force -ErrorAction SilentlyContinue
+Remove-Item $UpdaterDestination -Force -ErrorAction SilentlyContinue
 Remove-Item $WinSWDestination -Force -ErrorAction SilentlyContinue
 
 Copy-Item (Join-Path $ClientDistDir "*") $InstallerClientFilesDir -Recurse -Force
+Copy-Item $UpdaterBuiltExe $UpdaterDestination -Force
 Copy-Item $WinSWSource $WinSWDestination -Force
 
 if (-not (Test-Path (Join-Path $InstallerClientFilesDir "$AppName.exe"))) {
     throw "Installer payload missing client EXE."
+}
+
+if (-not (Test-Path $UpdaterDestination)) {
+    throw "Installer payload missing updater EXE."
 }
 
 if (-not (Test-Path $WinSWDestination)) {
