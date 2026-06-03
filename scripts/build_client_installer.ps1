@@ -74,6 +74,7 @@ python -m PyInstaller `
   --name $AppName `
   --console `
   --paths .\client `
+  --collect-data certifi `
   .\client\app\main.py
 
 $BuiltExe = Join-Path $ClientDistDir "$AppName.exe"

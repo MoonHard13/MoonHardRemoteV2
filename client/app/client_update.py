@@ -3,6 +3,8 @@ import urllib.request
 import hashlib
 import shutil
 import zipfile
+import ssl
+import certifi
 
 from pathlib import Path
 
@@ -98,7 +100,11 @@ class ClientUpdateChecker:
         )
 
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
+            with urllib.request.urlopen(
+                request,
+                timeout=15,
+                context=self._create_ssl_context()
+            ) as response:
                 raw_data = response.read().decode("utf-8")
 
         except HTTPError as exc:
@@ -173,7 +179,11 @@ class ClientUpdateChecker:
         )
 
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(
+                request,
+                timeout=60,
+                context=self._create_ssl_context()
+            ) as response:
                 with package_path.open("wb") as output_file:
                     while True:
                         chunk = response.read(1024 * 1024)
@@ -305,3 +315,10 @@ class ClientUpdateChecker:
                 sha256_hash.update(chunk)
 
         return sha256_hash.hexdigest()
+    
+    def _create_ssl_context(self) -> ssl.SSLContext:
+        """
+        Δημιουργεί SSL context με αξιόπιστα certificates από το certifi.
+        """
+
+        return ssl.create_default_context(cafile=certifi.where())
