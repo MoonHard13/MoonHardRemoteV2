@@ -34,6 +34,7 @@ class UpdatesTab(ctk.CTkFrame):
         self.on_update_request_callback = on_update_request_callback
         self.latest_update_payload: dict = {}
         self.latest_download_payload: dict = {}
+        self.latest_extract_payload: dict = {}
         
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -100,6 +101,16 @@ class UpdatesTab(ctk.CTkFrame):
         )
         self.extract_button.grid(row=0, column=3, padx=(0, 18), pady=(16, 4), sticky="e")
 
+        self.apply_button = ctk.CTkButton(
+            top_frame,
+            text="Apply Update",
+            width=140,
+            command=self.request_update_apply,
+            state="disabled",
+            **primary_button_style()
+        )
+        self.apply_button.grid(row=0, column=4, padx=(0, 18), pady=(16, 4), sticky="e")
+
         clear_button = ctk.CTkButton(
             top_frame,
             text="Clear",
@@ -107,7 +118,7 @@ class UpdatesTab(ctk.CTkFrame):
             command=self.clear_result,
             **secondary_button_style()
         )
-        clear_button.grid(row=1, column=3, padx=(0, 18), pady=(0, 16), sticky="e")
+        clear_button.grid(row=1, column=4, padx=(0, 18), pady=(0, 16), sticky="e")
 
         result_frame = ctk.CTkFrame(self, **card_style())
         result_frame.grid(
@@ -233,6 +244,8 @@ class UpdatesTab(ctk.CTkFrame):
         self.latest_download_payload = {}
         self.download_button.configure(state="disabled")
         self.extract_button.configure(state="disabled")
+        self.latest_extract_payload = {}
+        self.apply_button.configure(state="disabled")
 
     def _set_result_text(self, text: str) -> None:
         """
@@ -365,24 +378,24 @@ class UpdatesTab(ctk.CTkFrame):
                 }
             )
             
-    def request_update_extract(self) -> None:
+    def request_update_apply(self) -> None:
         """
-        Στέλνει request για extract και validation του update package.
+        Στέλνει request για silent apply του extracted update package.
         """
 
-        if not self.latest_download_payload:
+        if not self.latest_extract_payload:
             self.status_label.configure(
-                text="Download package first.",
+                text="Extract package first.",
                 text_color=COLORS.danger
             )
             return
 
-        package_path = self.latest_download_payload.get("saved_path", "")
-        latest_version = self.latest_download_payload.get("latest_version", "")
+        extracted_path = self.latest_extract_payload.get("extracted_path", "")
+        latest_version = self.latest_extract_payload.get("latest_version", "")
 
-        if not package_path:
+        if not extracted_path:
             self.status_label.configure(
-                text="Missing downloaded package path.",
+                text="Missing extracted package path.",
                 text_color=COLORS.danger
             )
             return
@@ -390,17 +403,54 @@ class UpdatesTab(ctk.CTkFrame):
         request_id = str(uuid.uuid4())
 
         self.status_label.configure(
-            text="Extracting update package...",
+            text="Starting silent updater on client...",
             text_color=COLORS.accent
         )
+
+        self.apply_button.configure(state="disabled")
 
         if self.on_update_request_callback:
             self.on_update_request_callback(
                 {
-                    "type": "client_update_extract",
+                    "type": "client_update_apply",
                     "request_id": request_id,
                     "client_code": self.client_code,
-                    "package_path": package_path,
+                    "extracted_path": extracted_path,
                     "latest_version": latest_version
                 }
             )
+            
+    def handle_update_apply_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα εκκίνησης του silent updater.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if not payload.get("success"):
+            error = payload.get("error", "Unknown apply error.")
+            self.status_label.configure(
+                text=f"Apply failed to start: {error}",
+                text_color=COLORS.danger
+            )
+            self._set_result_text(f"Apply failed to start:\n\n{error}")
+            self.apply_button.configure(state="normal")
+            return
+
+        self.status_label.configure(
+            text="Silent updater started. Waiting for client reconnect...",
+            text_color=COLORS.warning
+        )
+
+        result_text = (
+            "=== Apply Update Started ===\n\n"
+            f"Latest version:   {payload.get('latest_version', '-')}\n"
+            f"Extracted path:   {payload.get('extracted_path', '-')}\n"
+            f"Updater path:     {payload.get('updater_path', '-')}\n\n"
+            "The updater was started silently on the client.\n"
+            "The client service will stop, update files, start again, and reconnect.\n\n"
+            "This window may temporarily show the client as offline during update.\n"
+        )
+
+        self._set_result_text(result_text)

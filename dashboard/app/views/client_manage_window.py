@@ -768,3 +768,11 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "updates_tab_view"):
             self.updates_tab_view.handle_update_extract_result(payload)
+            
+    def handle_client_update_apply_result(self, payload: dict) -> None:
+        """
+        Προωθεί update apply result στο UpdatesTab.
+        """
+
+        if hasattr(self, "updates_tab_view"):
+            self.updates_tab_view.handle_update_apply_result(payload)

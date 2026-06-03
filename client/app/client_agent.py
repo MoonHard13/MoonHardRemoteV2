@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import subprocess
 
 import websockets
 
@@ -14,6 +15,7 @@ from app.provider.provider_service import ProviderService
 from app.windows_services import WindowsServicesReader
 from app.process_reader import ProcessReader
 from app.client_update import ClientUpdateChecker
+from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
@@ -181,6 +183,9 @@ class MoonHardClientAgent:
 
             elif message_type == "client_update_extract":
                 await self._handle_client_update_extract(websocket, payload)
+
+            elif message_type == "client_update_apply":
+                await self._handle_client_update_apply(websocket, payload)
 
     async def _handle_provider_get_payways(self, websocket, payload: dict) -> None:
         """
@@ -1295,6 +1300,92 @@ class MoonHardClientAgent:
                 ],
                 "missing_items": [],
                 "package_valid": False,
+                "error": str(exc)
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+        
+    async def _handle_client_update_apply(self, websocket, payload: dict) -> None:
+        """
+        Ξεκινάει silent external updater και επιστρέφει άμεσα αποτέλεσμα εκκίνησης.
+        Ο updater θα σταματήσει το service, άρα δεν περιμένουμε να τελειώσει.
+        """
+
+        request_id = payload.get("request_id", "")
+        extracted_path = payload.get("extracted_path", "")
+        latest_version = payload.get("latest_version", "")
+
+        updater_path = (
+            Path(r"C:\Program Files\MoonHardRemoteV2\Client")
+            / "MoonHardUpdater.exe"
+        )
+
+        try:
+            if not extracted_path:
+                raise ValueError("Extracted path is empty.")
+
+            extracted_dir = Path(extracted_path)
+
+            if not extracted_dir.exists() or not extracted_dir.is_dir():
+                raise FileNotFoundError(f"Extracted path not found: {extracted_dir}")
+
+            if not updater_path.exists() or not updater_path.is_file():
+                raise FileNotFoundError(f"Updater EXE not found: {updater_path}")
+
+            command = [
+                str(updater_path),
+                "--mode",
+                "apply",
+                "--extracted-path",
+                str(extracted_dir)
+            ]
+
+            creation_flags = 0
+
+            if hasattr(subprocess, "CREATE_NO_WINDOW"):
+                creation_flags |= subprocess.CREATE_NO_WINDOW
+
+            if hasattr(subprocess, "DETACHED_PROCESS"):
+                creation_flags |= subprocess.DETACHED_PROCESS
+
+            subprocess.Popen(
+                command,
+                cwd=str(updater_path.parent),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                creationflags=creation_flags,
+                close_fds=True
+            )
+
+            logger.info(
+                "Silent updater started. updater_path=%s extracted_path=%s",
+                updater_path,
+                extracted_dir
+            )
+
+            result_message = {
+                "type": "client_update_apply_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "success": True,
+                "extracted_path": str(extracted_dir),
+                "latest_version": latest_version,
+                "updater_path": str(updater_path),
+                "message": "Silent updater started. Client service will restart."
+            }
+
+        except Exception as exc:
+            logger.exception("Client update apply start failed.")
+
+            result_message = {
+                "type": "client_update_apply_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "success": False,
+                "extracted_path": extracted_path,
+                "latest_version": latest_version,
+                "updater_path": str(updater_path),
                 "error": str(exc)
             }
 
