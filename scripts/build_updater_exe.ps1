@@ -17,7 +17,7 @@ python -m PyInstaller `
   --paths .\updater `
   .\updater\app\update_runner.py
 
-$UpdaterExe = Join-Path $ProjectRoot "dist\$AppName\$AppName.exe"
+$UpdaterExe = Join-Path $ProjectRoot "dist\$AppName.exe"
 
 if (-not (Test-Path $UpdaterExe)) {
     throw "Updater build failed. Missing EXE: $UpdaterExe"

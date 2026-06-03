@@ -88,7 +88,7 @@ Write-Host "Step 2B - Building updater EXE with PyInstaller..." -ForegroundColor
 python -m PyInstaller `
   --noconfirm `
   --clean `
-  --onedir `
+  --onefile `
   --name $UpdaterAppName `
   --console `
   --paths .\updater `
