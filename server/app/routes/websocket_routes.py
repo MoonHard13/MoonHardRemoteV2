@@ -30,9 +30,20 @@ class WebSocketRoutes:
     async def broadcast_clients_list(self) -> None:
         """
         Στέλνει την τρέχουσα λίστα clients σε όλα τα ενεργά dashboards.
+        Περιλαμβάνει και πραγματική WebSocket κατάσταση σύνδεσης.
         """
 
         clients = self.client_repository.get_all_clients()
+
+        for client in clients:
+            client_code = str(client.get("client_code", ""))
+            ws_connected = connection_manager.is_client_connected(client_code)
+
+            client["ws_connected"] = ws_connected
+            client["controllable"] = ws_connected
+
+            if not ws_connected:
+                client["status"] = "offline"
 
         await connection_manager.broadcast_to_dashboards(
             {

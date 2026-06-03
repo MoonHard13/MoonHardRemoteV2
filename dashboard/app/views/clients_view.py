@@ -159,6 +159,7 @@ class ClientsView(ctk.CTkFrame):
                     str(client.get("pc_name", "")),
                     str(client.get("username", "")),
                     str(client.get("status", "")),
+                    str(client.get("ws_connected", "")),
                     str(client.get("app_version", "")),
                 )
             )
@@ -252,7 +253,9 @@ class ClientsView(ctk.CTkFrame):
 
         status = str(client.get("status", "offline")).lower()
         status_color = COLORS.success if status == "online" else COLORS.danger
-
+        ws_connected = bool(client.get("ws_connected", False))
+        controllable_text = "CONNECTED" if ws_connected else "NOT CONNECTED"
+        
         client_code = client.get("client_code", "-")
         display_name = client.get("display_name") or client.get("pc_name") or "-"
         pc_name = client.get("pc_name", "-")
@@ -299,7 +302,7 @@ class ClientsView(ctk.CTkFrame):
 
         status_text = ctk.CTkLabel(
             row,
-            text=status.upper(),
+            text=f"{status.upper()} / {controllable_text}",
             font=FONTS.body_bold,
             text_color=status_color
         )
@@ -310,6 +313,7 @@ class ClientsView(ctk.CTkFrame):
             text="Manage",
             width=100,
             command=lambda c=client: self._open_manage_callback(c),
+            state="normal" if ws_connected else "disabled",
             **primary_button_style()
         )
         manage_button.grid(row=0, column=3, padx=(0, 15), pady=12, sticky="e")
