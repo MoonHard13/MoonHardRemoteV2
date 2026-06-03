@@ -377,6 +377,47 @@ class UpdatesTab(ctk.CTkFrame):
                     "latest_version": latest_version
                 }
             )
+
+    def handle_update_extract_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα extract και validation update package.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if not payload.get("success"):
+            error = payload.get("error", "Unknown extract error.")
+            self.status_label.configure(
+                text=f"Extract failed: {error}",
+                text_color=COLORS.danger
+            )
+            self._set_result_text(f"Extract failed:\n\n{error}")
+            self.apply_button.configure(state="disabled")
+            return
+
+        self.latest_extract_payload = payload
+        self.apply_button.configure(state="normal")
+
+        self.status_label.configure(
+            text="Package extracted and validated.",
+            text_color=COLORS.success
+        )
+
+        result_text = (
+            "=== Update Package Extract ===\n\n"
+            f"Latest version:        {payload.get('latest_version', '-')}\n"
+            f"Package path:          {payload.get('package_path', '-')}\n"
+            f"Extracted path:        {payload.get('extracted_path', '-')}\n"
+            f"Files extracted:       {payload.get('extracted_files_count', '-')}\n"
+            f"Package valid:         {'Yes' if payload.get('package_valid') else 'No'}\n\n"
+            "=== Required Items ===\n\n"
+            f"{', '.join(payload.get('required_items', []))}\n\n"
+            "The package was extracted and validated only.\n"
+            "It has not been installed yet.\n"
+        )
+
+        self._set_result_text(result_text)
             
     def request_update_apply(self) -> None:
         """
