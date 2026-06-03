@@ -14,8 +14,7 @@ $WinSWDestination = Join-Path $InstallerClientFilesDir "MoonHardRemoteClientServ
 $ServiceXml = Join-Path $InstallerClientFilesDir "MoonHardRemoteClientService.xml"
 $SecretFile = Join-Path $ProjectRoot "installer\secrets\client_token.iss"
 $UpdaterAppName = "MoonHardUpdater"
-$UpdaterDistDir = Join-Path $ProjectRoot "dist\$UpdaterAppName"
-$UpdaterBuiltExe = Join-Path $UpdaterDistDir "$UpdaterAppName.exe"
+$UpdaterBuiltExe = Join-Path $ProjectRoot "dist\$UpdaterAppName.exe"
 $UpdaterDestination = Join-Path $InstallerClientFilesDir "$UpdaterAppName.exe"
 
 $InnoCompilerCandidates = @(

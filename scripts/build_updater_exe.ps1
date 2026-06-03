@@ -11,7 +11,7 @@ Write-Host "Building MoonHardUpdater.exe..." -ForegroundColor Cyan
 python -m PyInstaller `
   --noconfirm `
   --clean `
-  --onedir `
+  --onefile `
   --name $AppName `
   --console `
   --paths .\updater `

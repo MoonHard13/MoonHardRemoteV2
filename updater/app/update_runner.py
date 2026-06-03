@@ -1,6 +1,8 @@
 import argparse
 import logging
 import shutil
+import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -85,6 +87,147 @@ class MoonHardUpdateRunner:
 
         return backup_path
 
+    def run_command(self, command: list[str], timeout: int = 60) -> subprocess.CompletedProcess:
+        """
+        Εκτελεί εντολή συστήματος και επιστρέφει το αποτέλεσμα.
+        """
+
+        self.logger.info("Running command: %s", " ".join(command))
+
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            shell=False
+        )
+
+        if completed.stdout:
+            self.logger.info("Command stdout: %s", completed.stdout.strip())
+
+        if completed.stderr:
+            self.logger.warning("Command stderr: %s", completed.stderr.strip())
+
+        return completed
+
+    def stop_service(self) -> None:
+        """
+        Σταματάει το MoonHard client service.
+        """
+
+        self.logger.info("Stopping service: %s", self.config.service_name)
+
+        self.run_command(
+            ["sc", "stop", self.config.service_name],
+            timeout=60
+        )
+
+        for _attempt in range(30):
+            if self.get_service_state() == "STOPPED":
+                self.logger.info("Service stopped successfully.")
+                return
+
+            time.sleep(1)
+
+        raise RuntimeError("Service did not stop within timeout.")
+
+    def start_service(self) -> None:
+        """
+        Ξεκινάει το MoonHard client service.
+        """
+
+        self.logger.info("Starting service: %s", self.config.service_name)
+
+        completed = self.run_command(
+            ["sc", "start", self.config.service_name],
+            timeout=60
+        )
+
+        if completed.returncode not in (0, 1056):
+            raise RuntimeError(
+                f"Failed to start service. Return code: {completed.returncode}"
+            )
+
+        for _attempt in range(30):
+            if self.get_service_state() == "RUNNING":
+                self.logger.info("Service started successfully.")
+                return
+
+            time.sleep(1)
+
+        raise RuntimeError("Service did not start within timeout.")
+
+    def get_service_state(self) -> str:
+        """
+        Επιστρέφει την τρέχουσα κατάσταση του Windows service.
+        """
+
+        completed = self.run_command(
+            ["sc", "query", self.config.service_name],
+            timeout=30
+        )
+
+        output = f"{completed.stdout}\n{completed.stderr}".upper()
+
+        if "RUNNING" in output:
+            return "RUNNING"
+
+        if "STOPPED" in output:
+            return "STOPPED"
+
+        if "STOP_PENDING" in output:
+            return "STOP_PENDING"
+
+        if "START_PENDING" in output:
+            return "START_PENDING"
+
+        return "UNKNOWN"
+
+    def replace_installed_files(self, extracted_path: Path) -> None:
+        """
+        Αντικαθιστά τα installed client αρχεία με τα extracted update αρχεία.
+        """
+
+        self.logger.info(
+            "Replacing installed files from %s to %s",
+            extracted_path,
+            self.config.install_dir
+        )
+
+        protected_items = {
+            "MoonHardRemoteClientService.exe",
+            "MoonHardRemoteClientService.xml",
+            "MoonHardUpdater.exe",
+            "unins000.exe",
+            "unins000.dat"
+        }
+
+        for item in self.config.install_dir.iterdir():
+            if item.name in protected_items:
+                self.logger.info("Keeping protected item: %s", item)
+                continue
+
+            if item.is_dir():
+                self.logger.info("Removing directory: %s", item)
+                shutil.rmtree(item)
+
+            else:
+                self.logger.info("Removing file: %s", item)
+                item.unlink()
+
+        for source_item in extracted_path.iterdir():
+            destination_item = self.config.install_dir / source_item.name
+
+            if source_item.is_dir():
+                self.logger.info("Copying directory: %s -> %s", source_item, destination_item)
+                shutil.copytree(source_item, destination_item)
+
+            else:
+                self.logger.info("Copying file: %s -> %s", source_item, destination_item)
+                shutil.copy2(source_item, destination_item)
+
+        self.logger.info("Installed files replaced successfully.")
+
     def run_prepare_only(self, extracted_path: Path) -> dict:
         """
         Εκτελεί μόνο validation και backup χωρίς αντικατάσταση αρχείων.
@@ -110,7 +253,46 @@ class MoonHardUpdateRunner:
         self.logger.info("Prepare-only completed successfully.")
 
         return result
+    def run_apply(self, extracted_path: Path) -> dict:
+        """
+        Εκτελεί πραγματικό update του installed client.
+        """
 
+        self.logger.info("Starting updater apply mode.")
+        self.logger.info("Extracted path: %s", extracted_path)
+
+        self.validate_extracted_package(extracted_path)
+        self.validate_installation_folder()
+
+        self.stop_service()
+
+        backup_path = self.create_backup()
+
+        try:
+            self.replace_installed_files(extracted_path)
+            self.start_service()
+
+        except Exception:
+            self.logger.exception("Apply update failed. Attempting to restart service.")
+            try:
+                self.start_service()
+            except Exception:
+                self.logger.exception("Failed to restart service after apply failure.")
+
+            raise
+
+        result = {
+            "success": True,
+            "mode": "apply",
+            "extracted_path": str(extracted_path),
+            "install_dir": str(self.config.install_dir),
+            "backup_path": str(backup_path),
+            "message": "Update applied successfully."
+        }
+
+        self.logger.info("Apply update completed successfully.")
+
+        return result
 
 def setup_logging(config: UpdaterConfig) -> None:
     """
@@ -142,7 +324,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--mode",
-        choices=["prepare-only"],
+        choices=["prepare-only", "apply"],
         required=True,
         help="Updater execution mode."
     )
@@ -176,7 +358,15 @@ def main() -> None:
                 extracted_path=Path(args.extracted_path)
             )
 
-            logger.info("Updater result: %s", result)
+        elif args.mode == "apply":
+            result = runner.run_apply(
+                extracted_path=Path(args.extracted_path)
+            )
+
+        else:
+            raise ValueError(f"Unsupported mode: {args.mode}")
+
+        logger.info("Updater result: %s", result)
 
     except Exception:
         logger.exception("Updater failed.")
