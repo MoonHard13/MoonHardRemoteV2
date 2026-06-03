@@ -26,6 +26,7 @@ class ClientsView(ctk.CTkFrame):
         self.clients: list[dict] = []
         self.filter_text: str = ""
         self.status_filter: str = "All"
+        self.last_clients_snapshot: tuple = tuple()
         self.on_manage_callback = on_manage_callback
         
         self._build_ui()
@@ -94,7 +95,16 @@ class ClientsView(ctk.CTkFrame):
             command=self._clear_filters,
             **secondary_button_style()
         )
-        clear_button.grid(row=0, column=2)
+        clear_button.grid(row=0, column=2, padx=(0, 10))
+
+        self.refresh_button = ctk.CTkButton(
+            filter_frame,
+            text="Refresh",
+            width=90,
+            command=self.force_refresh,
+            **primary_button_style()
+        )
+        self.refresh_button.grid(row=0, column=3)
 
         self.scroll_frame = ctk.CTkScrollableFrame(
             self,
@@ -110,13 +120,21 @@ class ClientsView(ctk.CTkFrame):
         )
         self.scroll_frame.grid_columnconfigure(0, weight=1)
 
-    def update_clients(self, clients: list[dict]) -> None:
+    def update_clients(self, clients: list[dict], force: bool = False) -> bool:
         """
-        Ανανεώνει τη λίστα clients στο GUI.
+        Ανανεώνει τη λίστα clients μόνο όταν αλλάξει ουσιαστικά η κατάσταση.
         """
 
+        new_snapshot = self._create_clients_snapshot(clients)
+
+        if not force and new_snapshot == self.last_clients_snapshot:
+            return False
+
+        self.last_clients_snapshot = new_snapshot
         self.clients = clients
         self._apply_filters()
+
+        return True
 
     def _apply_filters(self) -> None:
         """
@@ -274,3 +292,32 @@ class ClientsView(ctk.CTkFrame):
 
         if self.on_manage_callback:
             self.on_manage_callback(client)
+            
+    def force_refresh(self) -> None:
+        """
+        Κάνει χειροκίνητο refresh της λίστας clients.
+        """
+
+        self._apply_filters()
+
+    def _create_clients_snapshot(self, clients: list[dict]) -> tuple:
+        """
+        Δημιουργεί σταθερό snapshot ώστε να αποφεύγονται άσκοπα redraws.
+        """
+
+        snapshot_items: list[tuple] = []
+
+        for client in clients:
+            snapshot_items.append(
+                (
+                    str(client.get("client_code", "")),
+                    str(client.get("display_name", "")),
+                    str(client.get("pc_name", "")),
+                    str(client.get("username", "")),
+                    str(client.get("status", "")),
+                    str(client.get("app_version", "")),
+                    str(client.get("last_seen", "")),
+                )
+            )
+
+        return tuple(sorted(snapshot_items))

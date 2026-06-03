@@ -145,9 +145,10 @@ class MoonHardDashboardApp(ctk.CTk):
         if message_type == "clients_list":
             clients = payload.get("clients", [])
 
-            self.clients_view.update_clients(clients)
+            updated = self.clients_view.update_clients(clients)
 
-            logger.info("Dashboard clients list updated. Count: %s", len(clients))
+            if updated:
+                logger.info("Dashboard clients list updated. Count: %s", len(clients))
 
         elif message_type == "rename_client_success":
             logger.info("Client renamed successfully.")
@@ -529,3 +530,24 @@ class MoonHardDashboardApp(ctk.CTk):
 
         if self.websocket_client:
             self.websocket_client.send_message(payload)
+            
+    def _create_clients_snapshot(self, clients: list[dict]) -> tuple:
+        """
+        Δημιουργεί σταθερό snapshot ώστε να αποφεύγονται άσκοπα redraws.
+        """
+
+        snapshot_items: list[tuple] = []
+
+        for client in clients:
+            snapshot_items.append(
+                (
+                    str(client.get("client_code", "")),
+                    str(client.get("display_name", "")),
+                    str(client.get("pc_name", "")),
+                    str(client.get("username", "")),
+                    str(client.get("status", "")),
+                    str(client.get("app_version", "")),
+                )
+            )
+
+        return tuple(sorted(snapshot_items))
