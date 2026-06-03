@@ -228,6 +228,54 @@ class MoonHardUpdateRunner:
 
         self.logger.info("Installed files replaced successfully.")
 
+    def rollback_from_backup(self, backup_path: Path) -> None:
+        """
+        Επαναφέρει τα installed client αρχεία από backup σε περίπτωση αποτυχίας update.
+        """
+
+        self.logger.warning("Starting rollback from backup: %s", backup_path)
+
+        if not backup_path.exists() or not backup_path.is_dir():
+            raise FileNotFoundError(f"Backup path not found: {backup_path}")
+
+        protected_items = {
+            "MoonHardRemoteClientService.exe",
+            "MoonHardRemoteClientService.xml",
+            "MoonHardUpdater.exe",
+            "unins000.exe",
+            "unins000.dat"
+        }
+
+        for item in self.config.install_dir.iterdir():
+            if item.name in protected_items:
+                self.logger.info("Keeping protected item during rollback: %s", item)
+                continue
+
+            if item.is_dir():
+                self.logger.info("Removing directory during rollback: %s", item)
+                shutil.rmtree(item)
+
+            else:
+                self.logger.info("Removing file during rollback: %s", item)
+                item.unlink()
+
+        for backup_item in backup_path.iterdir():
+            if backup_item.name in protected_items:
+                self.logger.info("Skipping protected backup item: %s", backup_item)
+                continue
+
+            destination_item = self.config.install_dir / backup_item.name
+
+            if backup_item.is_dir():
+                self.logger.info("Restoring directory: %s -> %s", backup_item, destination_item)
+                shutil.copytree(backup_item, destination_item)
+
+            else:
+                self.logger.info("Restoring file: %s -> %s", backup_item, destination_item)
+                shutil.copy2(backup_item, destination_item)
+
+        self.logger.warning("Rollback completed successfully.")
+
     def run_prepare_only(self, extracted_path: Path) -> dict:
         """
         Εκτελεί μόνο validation και backup χωρίς αντικατάσταση αρχείων.
@@ -255,11 +303,14 @@ class MoonHardUpdateRunner:
         return result
     def run_apply(self, extracted_path: Path) -> dict:
         """
-        Εκτελεί πραγματικό update του installed client.
+        Εκτελεί πραγματικό update του installed client με rollback σε περίπτωση αποτυχίας.
         """
 
         self.logger.info("Starting updater apply mode.")
         self.logger.info("Extracted path: %s", extracted_path)
+
+        backup_path: Path | None = None
+        rollback_performed = False
 
         self.validate_extracted_package(extracted_path)
         self.validate_installation_folder()
@@ -272,14 +323,23 @@ class MoonHardUpdateRunner:
             self.replace_installed_files(extracted_path)
             self.start_service()
 
-        except Exception:
-            self.logger.exception("Apply update failed. Attempting to restart service.")
-            try:
-                self.start_service()
-            except Exception:
-                self.logger.exception("Failed to restart service after apply failure.")
+        except Exception as exc:
+            self.logger.exception("Apply update failed. Starting rollback.")
 
-            raise
+            try:
+                if backup_path:
+                    self.rollback_from_backup(backup_path)
+                    rollback_performed = True
+
+                self.start_service()
+
+            except Exception:
+                self.logger.exception("Rollback failed or service failed to start after rollback.")
+
+            raise RuntimeError(
+                f"Apply update failed. Rollback performed: {rollback_performed}. "
+                f"Original error: {exc}"
+            ) from exc
 
         result = {
             "success": True,
@@ -287,6 +347,7 @@ class MoonHardUpdateRunner:
             "extracted_path": str(extracted_path),
             "install_dir": str(self.config.install_dir),
             "backup_path": str(backup_path),
+            "rollback_performed": rollback_performed,
             "message": "Update applied successfully."
         }
 
