@@ -136,6 +136,35 @@ class ClientsView(ctk.CTkFrame):
 
         return True
 
+    def force_refresh(self) -> None:
+        """
+        Κάνει χειροκίνητο refresh της λίστας clients.
+        """
+
+        self._apply_filters()
+
+    def _create_clients_snapshot(self, clients: list[dict]) -> tuple:
+        """
+        Δημιουργεί σταθερό snapshot ώστε να αποφεύγονται άσκοπα redraws.
+        Δεν περιλαμβάνει το last_seen, γιατί αλλάζει συχνά από heartbeat.
+        """
+
+        snapshot_items: list[tuple] = []
+
+        for client in clients:
+            snapshot_items.append(
+                (
+                    str(client.get("client_code", "")),
+                    str(client.get("display_name", "")),
+                    str(client.get("pc_name", "")),
+                    str(client.get("username", "")),
+                    str(client.get("status", "")),
+                    str(client.get("app_version", "")),
+                )
+            )
+
+        return tuple(sorted(snapshot_items))
+
     def _apply_filters(self) -> None:
         """
         Εφαρμόζει search και status filter στους clients.
@@ -293,31 +322,3 @@ class ClientsView(ctk.CTkFrame):
         if self.on_manage_callback:
             self.on_manage_callback(client)
             
-    def force_refresh(self) -> None:
-        """
-        Κάνει χειροκίνητο refresh της λίστας clients.
-        """
-
-        self._apply_filters()
-
-    def _create_clients_snapshot(self, clients: list[dict]) -> tuple:
-        """
-        Δημιουργεί σταθερό snapshot ώστε να αποφεύγονται άσκοπα redraws.
-        """
-
-        snapshot_items: list[tuple] = []
-
-        for client in clients:
-            snapshot_items.append(
-                (
-                    str(client.get("client_code", "")),
-                    str(client.get("display_name", "")),
-                    str(client.get("pc_name", "")),
-                    str(client.get("username", "")),
-                    str(client.get("status", "")),
-                    str(client.get("app_version", "")),
-                    str(client.get("last_seen", "")),
-                )
-            )
-
-        return tuple(sorted(snapshot_items))
