@@ -398,8 +398,6 @@ class UpdatesTab(ctk.CTkFrame):
 
         self.latest_extract_payload = payload
         self.apply_button.configure(state="normal")
-        self.latest_extract_payload = payload
-        self.apply_button.configure(state="normal")
 
         self.status_label.configure(
             text="Package extracted and validated.",
