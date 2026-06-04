@@ -505,17 +505,37 @@ class WebSocketRoutes:
             logger.info("Client WebSocket disconnected: %s", client_code)
 
             if client_code:
-                connection_manager.disconnect_client(client_code)
-                self.client_repository.mark_client_offline(client_code)
-                await self.broadcast_clients_list()
-                
+                disconnected_active_client = connection_manager.disconnect_client(
+                    client_code,
+                    websocket
+                )
+
+                if disconnected_active_client:
+                    self.client_repository.mark_client_offline(client_code)
+                    await self.broadcast_clients_list()
+                else:
+                    logger.warning(
+                        "Skipped offline mark for stale WebSocket disconnect. client_code=%s",
+                        client_code
+                    )
+
         except Exception:
             logger.exception("Unexpected client WebSocket error.")
 
             if client_code:
-                connection_manager.disconnect_client(client_code)
-                self.client_repository.mark_client_offline(client_code)       
-                await self.broadcast_clients_list()
+                disconnected_active_client = connection_manager.disconnect_client(
+                    client_code,
+                    websocket
+                )
+
+                if disconnected_active_client:
+                    self.client_repository.mark_client_offline(client_code)
+                    await self.broadcast_clients_list()
+                else:
+                    logger.warning(
+                        "Skipped offline mark for stale WebSocket error. client_code=%s",
+                        client_code
+                    )
 
     async def dashboard_socket(self, websocket: WebSocket) -> None:
         """
@@ -613,7 +633,7 @@ class WebSocketRoutes:
                         continue
 
                     try:
-                        connection_manager.disconnect_client(client_code)
+                        connection_manager.disconnect_client(client_code, websocket)
 
                         deleted_client = self.client_repository.delete_client(
                             client_code=client_code

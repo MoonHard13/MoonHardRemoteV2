@@ -49,9 +49,25 @@ class ConnectionManager:
 
     async def connect_client(self, client_code: str, websocket: WebSocket) -> None:
         """
-        Αποθηκεύει μια ήδη αποδεκτή WebSocket σύνδεση client.
-        Το accept γίνεται μέσα στο client_socket, πριν ληφθεί το πρώτο register μήνυμα.
+        Αποθηκεύει μια WebSocket σύνδεση client.
+        Αν υπάρχει παλιά σύνδεση για το ίδιο client_code, την αντικαθιστά με ασφάλεια.
         """
+
+        old_websocket = self.client_connections.get(client_code)
+
+        if old_websocket and old_websocket is not websocket:
+            logger.warning(
+                "Replacing existing WebSocket connection for client: %s",
+                client_code
+            )
+
+            try:
+                await old_websocket.close()
+            except Exception:
+                logger.exception(
+                    "Failed to close old WebSocket for client: %s",
+                    client_code
+                )
 
         self.client_connections[client_code] = websocket
 
@@ -61,19 +77,39 @@ class ConnectionManager:
             len(self.client_connections)
         )
 
-    def disconnect_client(self, client_code: str) -> None:
+    def disconnect_client(self, client_code: str, websocket: WebSocket | None = None) -> bool:
         """
         Αφαιρεί έναν client από τις ενεργές WebSocket συνδέσεις.
+        Αν δοθεί websocket, διαγράφει μόνο αν είναι ακόμα η ενεργή σύνδεση.
+        Επιστρέφει True μόνο όταν όντως αφαιρέθηκε η ενεργή σύνδεση.
         """
+
+        active_websocket = self.client_connections.get(client_code)
+
+        if websocket is not None and active_websocket is not websocket:
+            logger.warning(
+                "Ignoring stale disconnect for client: %s",
+                client_code
+            )
+            return False
 
         if client_code in self.client_connections:
             del self.client_connections[client_code]
 
+            logger.info(
+                "Client disconnected: %s. Active clients: %s",
+                client_code,
+                len(self.client_connections)
+            )
+
+            return True
+
         logger.info(
-            "Client disconnected: %s. Active clients: %s",
-            client_code,
-            len(self.client_connections)
+            "Client disconnect ignored because no active connection exists: %s",
+            client_code
         )
+
+        return False
 
     async def send_to_dashboard(self, websocket: WebSocket, message: dict[str, Any]) -> None:
         """
