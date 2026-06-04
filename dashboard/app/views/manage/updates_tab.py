@@ -35,6 +35,9 @@ class UpdatesTab(ctk.CTkFrame):
         self.latest_update_payload: dict = {}
         self.latest_download_payload: dict = {}
         self.latest_extract_payload: dict = {}
+        self.pending_apply_version: str = ""
+        self.pending_apply_started: bool = False
+        self.pending_apply_timeout_job = None
         
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -256,6 +259,52 @@ class UpdatesTab(ctk.CTkFrame):
         self.result_textbox.delete("1.0", "end")
         self.result_textbox.insert("1.0", text)
         self.result_textbox.configure(state="disabled")
+
+    def _cancel_pending_apply_timeout(self) -> None:
+        """
+        Ακυρώνει το timeout παρακολούθησης apply update.
+        """
+
+        if self.pending_apply_timeout_job:
+            try:
+                self.after_cancel(self.pending_apply_timeout_job)
+            except Exception:
+                pass
+
+            self.pending_apply_timeout_job = None
+
+    def _schedule_pending_apply_timeout(self) -> None:
+        """
+        Ορίζει timeout ώστε το Updates tab να μη μένει για πάντα stuck.
+        """
+
+        self._cancel_pending_apply_timeout()
+
+        self.pending_apply_timeout_job = self.after(
+            180000,
+            self._handle_pending_apply_timeout
+        )
+
+    def _handle_pending_apply_timeout(self) -> None:
+        """
+        Εμφανίζει μήνυμα όταν δεν επιβεβαιωθεί reconnect μετά το apply.
+        """
+
+        if not self.pending_apply_started:
+            return
+
+        self.status_label.configure(
+            text="Update apply started, but reconnect was not confirmed yet.",
+            text_color=COLORS.warning
+        )
+
+        self._set_result_text(
+            "=== Apply Update Status ===\n\n"
+            "The updater was started, but the dashboard did not confirm reconnect yet.\n\n"
+            "This does not always mean failure.\n"
+            "The client service may still be restarting or the server may not have refreshed yet.\n\n"
+            "Press Refresh on the main dashboard or close/reopen this Manage window.\n"
+        )
         
     def request_update_download(self) -> None:
         """
@@ -483,6 +532,9 @@ class UpdatesTab(ctk.CTkFrame):
             text="Silent updater started. Waiting for client reconnect...",
             text_color=COLORS.warning
         )
+        self.pending_apply_started = True
+        self.pending_apply_version = str(payload.get("latest_version", "") or "")
+        self._schedule_pending_apply_timeout()
 
         result_text = (
             "=== Apply Update Started ===\n\n"
@@ -495,3 +547,54 @@ class UpdatesTab(ctk.CTkFrame):
         )
 
         self._set_result_text(result_text)
+        
+    def update_client_state(self, client: dict) -> None:
+        """
+        Ενημερώνει το Updates tab όταν το ανοιχτό Manage window πάρει φρέσκα στοιχεία client.
+        Χρησιμοποιείται για να καταλάβουμε ότι το update ολοκληρώθηκε μετά από reconnect.
+        """
+
+        if not client:
+            return
+
+        app_version = str(client.get("app_version", "") or "")
+        ws_connected = bool(client.get("ws_connected", False))
+        status = str(client.get("status", "") or "").lower()
+
+        if not self.pending_apply_started:
+            return
+
+        if not ws_connected or status != "online":
+            self.status_label.configure(
+                text="Client service is restarting...",
+                text_color=COLORS.warning
+            )
+            return
+
+        if self.pending_apply_version and app_version == self.pending_apply_version:
+            self.pending_apply_started = False
+            self._cancel_pending_apply_timeout()
+
+            self.status_label.configure(
+                text=f"Update completed successfully. Current version: {app_version}",
+                text_color=COLORS.success
+            )
+
+            self._set_result_text(
+                "=== Apply Update Completed ===\n\n"
+                f"Target version:   {self.pending_apply_version}\n"
+                f"Current version:  {app_version}\n"
+                "Client status:    Online / Connected\n\n"
+                "The client service restarted successfully and reconnected to the dashboard.\n"
+            )
+
+            self.apply_button.configure(state="disabled")
+            self.download_button.configure(state="disabled")
+            self.extract_button.configure(state="disabled")
+            return
+
+        if self.pending_apply_version and app_version != self.pending_apply_version:
+            self.status_label.configure(
+                text=f"Client reconnected, but version is still {app_version}.",
+                text_color=COLORS.warning
+            )

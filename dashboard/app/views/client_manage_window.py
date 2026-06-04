@@ -174,6 +174,44 @@ class ClientManageWindow(ctk.CTkToplevel):
         )
         info.grid(row=1, column=0, padx=18, pady=(0, 14), sticky="w")
 
+    def update_client_data(self, client: dict) -> None:
+        """
+        Ενημερώνει άμεσα τα στοιχεία του ανοιχτού Manage window.
+        """
+
+        if not client:
+            return
+
+        self.client = client
+
+        display_name = self.client.get("display_name") or self.client.get("pc_name") or "-"
+        pc_name = self.client.get("pc_name", "-")
+        username = self.client.get("username", "-")
+        status = self.client.get("status", "-")
+        app_version = self.client.get("app_version", "-")
+        ws_connected = self.client.get("ws_connected", False)
+
+        self.title(f"Manage Client - {display_name}")
+
+        if hasattr(self, "header_title_label"):
+            self.header_title_label.configure(text=display_name)
+
+        if hasattr(self, "header_info_label"):
+            connection_text = "CONNECTED" if ws_connected else "NOT CONNECTED"
+
+            self.header_info_label.configure(
+                text=(
+                    f"PC: {pc_name} | "
+                    f"User: {username} | "
+                    f"Status: {status} / {connection_text} | "
+                    f"Version: {app_version} | "
+                    f"Code: {self.client_code}"
+                )
+            )
+
+        if hasattr(self, "updates_tab_view"):
+            self.updates_tab_view.update_client_state(self.client)
+
     def _build_overview_tab(self) -> None:
         """
         Δημιουργεί το Overview tab μέσω ξεχωριστού OverviewTab component.
