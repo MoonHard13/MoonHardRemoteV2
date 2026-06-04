@@ -27,13 +27,10 @@ class WebSocketRoutes:
         self.config = AppConfig()
         self.pending_requests: dict[str, WebSocket] = {}
 
-    async def broadcast_clients_list(self) -> None:
+    def _enrich_clients_with_connection_state(self, clients: list[dict]) -> list[dict]:
         """
-        Στέλνει την τρέχουσα λίστα clients σε όλα τα ενεργά dashboards.
-        Περιλαμβάνει και πραγματική WebSocket κατάσταση σύνδεσης.
+        Προσθέτει πραγματική WebSocket κατάσταση σύνδεσης στη λίστα clients.
         """
-
-        clients = self.client_repository.get_all_clients()
 
         for client in clients:
             client_code = str(client.get("client_code", ""))
@@ -44,6 +41,34 @@ class WebSocketRoutes:
 
             if not ws_connected:
                 client["status"] = "offline"
+
+        return clients
+
+    async def send_clients_list_to_dashboard(self, websocket: WebSocket) -> None:
+        """
+        Στέλνει φρέσκια λίστα clients σε συγκεκριμένο dashboard.
+        """
+
+        clients = self.client_repository.get_all_clients()
+        clients = self._enrich_clients_with_connection_state(clients)
+
+        await connection_manager.send_to_dashboard(
+            websocket,
+            {
+                "type": "clients_list",
+                "count": len(clients),
+                "clients": clients
+            }
+        )
+
+    async def broadcast_clients_list(self) -> None:
+        """
+        Στέλνει την τρέχουσα λίστα clients σε όλα τα ενεργά dashboards.
+        Περιλαμβάνει και πραγματική WebSocket κατάσταση σύνδεσης.
+        """
+
+        clients = self.client_repository.get_all_clients()
+        clients = self._enrich_clients_with_connection_state(clients)
 
         await connection_manager.broadcast_to_dashboards(
             {
@@ -528,16 +553,7 @@ class WebSocketRoutes:
                 }
             )
 
-            clients = self.client_repository.get_all_clients()
-
-            await connection_manager.send_to_dashboard(
-                websocket,
-                {
-                    "type": "clients_list",
-                    "count": len(clients),
-                    "clients": clients
-                }
-            )
+            await self.send_clients_list_to_dashboard(websocket)
 
             while True:
                 data = await websocket.receive_json()
