@@ -148,6 +148,7 @@ class MoonHardDashboardApp(ctk.CTk):
             clients = payload.get("clients", [])
 
             updated = self.clients_view.update_clients(clients)
+            self._update_open_manage_windows(clients)
 
             if updated:
                 logger.info("Dashboard clients list updated. Count: %s", len(clients))
@@ -351,6 +352,26 @@ class MoonHardDashboardApp(ctk.CTk):
 
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_client_update_apply_result(payload)
+
+    def _update_open_manage_windows(self, clients: list[dict]) -> None:
+        """
+        Ενημερώνει όλα τα ανοιχτά Manage windows με φρέσκα στοιχεία client.
+        """
+
+        clients_by_code = {
+            str(client.get("client_code", "")): client
+            for client in clients
+        }
+
+        for client_code, manage_window in list(self.manage_windows.items()):
+            if not manage_window or not manage_window.winfo_exists():
+                self.manage_windows.pop(client_code, None)
+                continue
+
+            fresh_client = clients_by_code.get(client_code)
+
+            if fresh_client:
+                manage_window.update_client_data(fresh_client)
 
     def _set_connection_status_threadsafe(self, status: str) -> None:
         """
