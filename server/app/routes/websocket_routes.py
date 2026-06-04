@@ -578,6 +578,10 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") == "refresh_clients":
+                    await self.send_clients_list_to_dashboard(websocket)
+                    continue
+
                 if data.get("type") == "delete_client":
                     client_code = data.get("client_code", "")
 

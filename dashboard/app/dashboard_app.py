@@ -105,7 +105,8 @@ class MoonHardDashboardApp(ctk.CTk):
         self.clients_view = ClientsView(
             self,
             on_manage_callback=self._open_manage_window,
-            on_delete_callback=self._delete_client
+            on_delete_callback=self._delete_client,
+            on_refresh_callback=self._refresh_clients
         )
         self.clients_view.grid(
             row=1,
@@ -578,5 +579,17 @@ class MoonHardDashboardApp(ctk.CTk):
                 {
                     "type": "delete_client",
                     "client_code": client_code
+                }
+            )
+            
+    def _refresh_clients(self) -> None:
+        """
+        Ζητάει φρέσκια λίστα clients από τον server.
+        """
+
+        if self.websocket_client:
+            self.websocket_client.send_message(
+                {
+                    "type": "refresh_clients"
                 }
             )

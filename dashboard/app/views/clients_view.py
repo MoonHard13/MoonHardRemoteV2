@@ -15,7 +15,13 @@ class ClientsView(ctk.CTkFrame):
     Προβολή λίστας clients στο dashboard.
     """
 
-    def __init__(self, parent, on_manage_callback=None, on_delete_callback=None) -> None:
+    def __init__(
+        self,
+        parent,
+        on_manage_callback=None,
+        on_delete_callback=None,
+        on_refresh_callback=None
+    ) -> None:
         """
         Δημιουργεί το UI της λίστας clients.
         """
@@ -29,7 +35,8 @@ class ClientsView(ctk.CTkFrame):
         self.last_clients_snapshot: tuple = tuple()
         self.on_manage_callback = on_manage_callback
         self.on_delete_callback = on_delete_callback 
-               
+        self.on_refresh_callback = on_refresh_callback
+                       
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -102,7 +109,7 @@ class ClientsView(ctk.CTkFrame):
             filter_frame,
             text="Refresh",
             width=90,
-            command=self.force_refresh,
+            command=self.request_refresh,
             **primary_button_style()
         )
         self.refresh_button.grid(row=0, column=3)
@@ -143,6 +150,16 @@ class ClientsView(ctk.CTkFrame):
         """
 
         self._apply_filters()
+
+    def request_refresh(self) -> None:
+        """
+        Ζητάει φρέσκια λίστα clients από τον server και κάνει τοπικό redraw.
+        """
+
+        if self.on_refresh_callback:
+            self.on_refresh_callback()
+
+        self.force_refresh()
 
     def _create_clients_snapshot(self, clients: list[dict]) -> tuple:
         """

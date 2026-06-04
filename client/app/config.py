@@ -33,8 +33,18 @@ class ClientConfig:
 
         self.identity_file = self.program_data_dir / "client_identity.json"
         self.log_dir = self.program_data_dir / "logs"
-        self.reconnect_seconds = 5
-        self.heartbeat_seconds = 30
+        self.reconnect_initial_seconds = 3
+        self.reconnect_max_seconds = 30
+        self.reconnect_reset_after_success_seconds = 60
+
+        self.heartbeat_seconds = 25
+        self.websocket_open_timeout_seconds = 20
+        self.websocket_ping_interval_seconds = 20
+        self.websocket_ping_timeout_seconds = 20
+        self.server_wake_url = os.getenv(
+            "SERVER_WAKE_URL",
+            "https://moonhardremotev2.onrender.com/api/ws-test"
+        )
         
     def _load_environment(self) -> None:
         """

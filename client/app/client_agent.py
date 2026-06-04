@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import subprocess
+import time
+import urllib.request
 
 import websockets
 
@@ -44,29 +46,74 @@ class MoonHardClientAgent:
         
     async def run_forever(self) -> None:
         """
-        Κρατάει τον client ενεργό και κάνει reconnect αν χαθεί η σύνδεση.
+        Κρατάει τον client ενεργό και κάνει έξυπνο reconnect αν χαθεί η σύνδεση.
         """
 
+        reconnect_delay = self.config.reconnect_initial_seconds
+
         while True:
+            connection_started_at = time.monotonic()
+
             try:
+                await self._wake_server()
                 await self._connect_once()
+
+                connected_seconds = time.monotonic() - connection_started_at
+
+                if connected_seconds >= self.config.reconnect_reset_after_success_seconds:
+                    reconnect_delay = self.config.reconnect_initial_seconds
 
             except ConnectionClosed as exc:
                 logger.warning(
                     "Η WebSocket σύνδεση έκλεισε (%s). Νέα προσπάθεια σε %s δευτερόλεπτα.",
                     exc,
-                    self.config.reconnect_seconds
+                    reconnect_delay
                 )
 
-                await asyncio.sleep(self.config.reconnect_seconds)
+                await asyncio.sleep(reconnect_delay)
+                reconnect_delay = min(
+                    reconnect_delay * 2,
+                    self.config.reconnect_max_seconds
+                )
 
             except Exception:
                 logger.exception(
                     "Η σύνδεση απέτυχε απρόσμενα. Νέα προσπάθεια σε %s δευτερόλεπτα.",
-                    self.config.reconnect_seconds
+                    reconnect_delay
                 )
 
-                await asyncio.sleep(self.config.reconnect_seconds)
+                await asyncio.sleep(reconnect_delay)
+                reconnect_delay = min(
+                    reconnect_delay * 2,
+                    self.config.reconnect_max_seconds
+                )
+
+    async def _wake_server(self) -> None:
+        """
+        Κάνει ένα μικρό HTTP wake request πριν το WebSocket reconnect.
+        Χρήσιμο όταν το Render έχει κοιμηθεί ή κάνει restart.
+        """
+
+        def _request() -> None:
+            request = urllib.request.Request(
+                self.config.server_wake_url,
+                headers={
+                    "User-Agent": "MoonHardRemoteClient/1.0"
+                }
+            )
+
+            with urllib.request.urlopen(
+                request,
+                timeout=8
+            ) as response:
+                response.read(128)
+
+        try:
+            await asyncio.to_thread(_request)
+            logger.info("Server wake request completed: %s", self.config.server_wake_url)
+
+        except Exception as exc:
+            logger.warning("Server wake request failed: %s", exc)
 
     async def _connect_once(self) -> None:
         """
@@ -76,7 +123,12 @@ class MoonHardClientAgent:
 
         logger.info("Σύνδεση στο WebSocket: %s", self.config.server_websocket_url)
 
-        async with websockets.connect(self.config.server_websocket_url) as websocket:
+        async with websockets.connect(
+            self.config.server_websocket_url,
+            open_timeout=self.config.websocket_open_timeout_seconds,
+            ping_interval=self.config.websocket_ping_interval_seconds,
+            ping_timeout=self.config.websocket_ping_timeout_seconds
+        ) as websocket:
             logger.info("WebSocket σύνδεση επιτυχής.")
 
             register_message = self._create_register_message()
