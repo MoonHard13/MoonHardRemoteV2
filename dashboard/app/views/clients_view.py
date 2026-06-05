@@ -20,7 +20,8 @@ class ClientsView(ctk.CTkFrame):
         parent,
         on_manage_callback=None,
         on_delete_callback=None,
-        on_refresh_callback=None
+        on_refresh_callback=None,
+        on_bulk_update_callback=None
     ) -> None:
         """
         Δημιουργεί το UI της λίστας clients.
@@ -36,6 +37,7 @@ class ClientsView(ctk.CTkFrame):
         self.on_manage_callback = on_manage_callback
         self.on_delete_callback = on_delete_callback 
         self.on_refresh_callback = on_refresh_callback
+        self.on_bulk_update_callback = on_bulk_update_callback
                        
         self._build_ui()
 
@@ -114,6 +116,15 @@ class ClientsView(ctk.CTkFrame):
         )
         self.refresh_button.grid(row=0, column=3)
 
+        self.bulk_update_button = ctk.CTkButton(
+            filter_frame,
+            text="Bulk Update",
+            width=120,
+            command=self.request_bulk_update,
+            **primary_button_style()
+        )
+        self.bulk_update_button.grid(row=0, column=4, padx=(10, 0))
+
         self.scroll_frame = ctk.CTkScrollableFrame(
             self,
             corner_radius=SPACING.small_radius,
@@ -160,6 +171,14 @@ class ClientsView(ctk.CTkFrame):
             self.on_refresh_callback()
 
         self.force_refresh()
+
+    def request_bulk_update(self) -> None:
+        """
+        Ζητάει από το dashboard να ξεκινήσει bulk update για online/connected clients.
+        """
+
+        if self.on_bulk_update_callback:
+            self.on_bulk_update_callback(self.clients)
 
     def _create_clients_snapshot(self, clients: list[dict]) -> tuple:
         """

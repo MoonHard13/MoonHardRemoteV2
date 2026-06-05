@@ -1,4 +1,5 @@
 import logging
+import uuid
 from typing import Any
 
 import customtkinter as ctk
@@ -106,7 +107,8 @@ class MoonHardDashboardApp(ctk.CTk):
             self,
             on_manage_callback=self._open_manage_window,
             on_delete_callback=self._delete_client,
-            on_refresh_callback=self._refresh_clients
+            on_refresh_callback=self._refresh_clients,
+            on_bulk_update_callback=self._bulk_update_clients
         )
         self.clients_view.grid(
             row=1,
@@ -471,6 +473,76 @@ class MoonHardDashboardApp(ctk.CTk):
 
         if self.websocket_client:
             self.websocket_client.send_message(payload)
+
+    def _bulk_update_clients(self, clients: list[dict]) -> None:
+        """
+        Ξεκινά bulk update για όλους τους online/connected clients.
+        Στέλνει πρώτα check update σε κάθε client με μικρή καθυστέρηση.
+        """
+
+        connected_clients = [
+            client
+            for client in clients
+            if bool(client.get("ws_connected", False))
+        ]
+
+        if not connected_clients:
+            logger.warning("Bulk update skipped. No connected clients found.")
+            return
+
+        confirm = ctk.CTkInputDialog(
+            text=(
+                f"Type UPDATE to start update check for {len(connected_clients)} connected clients.\n\n"
+                "This will not apply immediately. It will start the update workflow."
+            ),
+            title="Confirm Bulk Update"
+        )
+
+        answer = confirm.get_input()
+
+        if answer != "UPDATE":
+            logger.info("Bulk update cancelled by user.")
+            return
+
+        logger.info("Bulk update started for %s clients.", len(connected_clients))
+
+        for index, client in enumerate(connected_clients):
+            delay_ms = index * 1500
+
+            self.after(
+                delay_ms,
+                lambda c=client: self._bulk_send_update_check(c)
+            )
+
+    def _bulk_send_update_check(self, client: dict) -> None:
+        """
+        Στέλνει check update request σε έναν client για bulk update.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Dashboard WebSocket is not connected.")
+            return
+
+        client_code = client.get("client_code", "")
+
+        if not client_code:
+            return
+
+        request_id = str(uuid.uuid4())
+
+        self.websocket_client.send_message(
+            {
+                "type": "client_update_check",
+                "request_id": request_id,
+                "client_code": client_code
+            }
+        )
+
+        logger.info(
+            "Bulk update check sent. client_code=%s request_id=%s",
+            client_code,
+            request_id
+        )
         
     def _open_manage_window(self, client: dict) -> None:
         """
