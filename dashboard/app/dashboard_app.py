@@ -29,7 +29,9 @@ class MoonHardDashboardApp(ctk.CTk):
         self.config_data = DashboardConfig()
         self.websocket_client: DashboardWebSocketClient | None = None
         self.manage_windows: dict[str, ClientManageWindow] = {}
-        
+        self.bulk_update_active: bool = False
+        self.bulk_update_states: dict[str, dict[str, Any]] = {}
+                
         self.title(self.config_data.app_name)
         self.geometry("1100x700")
         self.minsize(900, 600)
@@ -151,6 +153,7 @@ class MoonHardDashboardApp(ctk.CTk):
 
             updated = self.clients_view.update_clients(clients)
             self._update_open_manage_windows(clients)
+            self._update_bulk_completion_from_clients_list(clients)
 
             if updated:
                 logger.info("Dashboard clients list updated. Count: %s", len(clients))
@@ -334,6 +337,8 @@ class MoonHardDashboardApp(ctk.CTk):
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_client_update_check_result(payload)
 
+            self._handle_bulk_update_check_result(payload)
+
         elif message_type == "client_update_download_result":
             client_code = payload.get("client_code", "")
             manage_window = self.manage_windows.get(client_code)
@@ -348,12 +353,16 @@ class MoonHardDashboardApp(ctk.CTk):
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_client_update_extract_result(payload)
 
+            self._handle_bulk_update_extract_result(payload)
+
         elif message_type == "client_update_apply_result":
             client_code = payload.get("client_code", "")
             manage_window = self.manage_windows.get(client_code)
 
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_client_update_apply_result(payload)
+
+            self._handle_bulk_update_apply_result(payload)
 
     def _update_open_manage_windows(self, clients: list[dict]) -> None:
         """
@@ -476,8 +485,8 @@ class MoonHardDashboardApp(ctk.CTk):
 
     def _bulk_update_clients(self, clients: list[dict]) -> None:
         """
-        Ξεκινά bulk update για όλους τους online/connected clients.
-        Στέλνει πρώτα check update σε κάθε client με μικρή καθυστέρηση.
+        Ξεκινά πλήρες bulk update για όλους τους online/connected clients.
+        Εκτελεί αυτόματα Check → Download → Extract → Apply.
         """
 
         connected_clients = [
@@ -492,10 +501,12 @@ class MoonHardDashboardApp(ctk.CTk):
 
         confirm = ctk.CTkInputDialog(
             text=(
-                f"Type UPDATE to start update check for {len(connected_clients)} connected clients.\n\n"
-                "This will not apply immediately. It will start the update workflow."
+                f"Type UPDATE to start FULL bulk update for {len(connected_clients)} connected clients.\n\n"
+                "This will automatically run:\n"
+                "Check → Download → Extract → Apply\n\n"
+                "Clients will restart one by one if update is available."
             ),
-            title="Confirm Bulk Update"
+            title="Confirm Full Bulk Update"
         )
 
         answer = confirm.get_input()
@@ -504,10 +515,29 @@ class MoonHardDashboardApp(ctk.CTk):
             logger.info("Bulk update cancelled by user.")
             return
 
-        logger.info("Bulk update started for %s clients.", len(connected_clients))
+        self.bulk_update_active = True
+        self.bulk_update_states = {}
+
+        logger.info("Full bulk update started for %s clients.", len(connected_clients))
 
         for index, client in enumerate(connected_clients):
-            delay_ms = index * 1500
+            client_code = str(client.get("client_code", ""))
+
+            if not client_code:
+                continue
+
+            self.bulk_update_states[client_code] = {
+                "client": client,
+                "stage": "queued",
+                "error": "",
+                "latest_version": "",
+                "download_url": "",
+                "sha256": "",
+                "package_path": "",
+                "extracted_path": ""
+            }
+
+            delay_ms = index * 2000
 
             self.after(
                 delay_ms,
@@ -523,12 +553,16 @@ class MoonHardDashboardApp(ctk.CTk):
             logger.warning("Dashboard WebSocket is not connected.")
             return
 
-        client_code = client.get("client_code", "")
+        client_code = str(client.get("client_code", ""))
 
         if not client_code:
             return
 
         request_id = str(uuid.uuid4())
+
+        if client_code in self.bulk_update_states:
+            self.bulk_update_states[client_code]["stage"] = "checking"
+            self.bulk_update_states[client_code]["check_request_id"] = request_id
 
         self.websocket_client.send_message(
             {
@@ -543,6 +577,309 @@ class MoonHardDashboardApp(ctk.CTk):
             client_code,
             request_id
         )
+
+    def _bulk_send_update_download(self, client_code: str) -> None:
+        """
+        Στέλνει download update request σε έναν client για bulk update.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Dashboard WebSocket is not connected.")
+            return
+
+        state = self.bulk_update_states.get(client_code)
+
+        if not state:
+            return
+
+        request_id = str(uuid.uuid4())
+
+        state["stage"] = "downloading"
+        state["download_request_id"] = request_id
+
+        self.websocket_client.send_message(
+            {
+                "type": "client_update_download",
+                "request_id": request_id,
+                "client_code": client_code,
+                "download_url": state.get("download_url", ""),
+                "sha256": state.get("sha256", ""),
+                "latest_version": state.get("latest_version", "")
+            }
+        )
+
+        logger.info(
+            "Bulk update download sent. client_code=%s request_id=%s",
+            client_code,
+            request_id
+        )
+
+    def _bulk_send_update_extract(self, client_code: str) -> None:
+        """
+        Στέλνει extract update request σε έναν client για bulk update.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Dashboard WebSocket is not connected.")
+            return
+
+        state = self.bulk_update_states.get(client_code)
+
+        if not state:
+            return
+
+        request_id = str(uuid.uuid4())
+
+        state["stage"] = "extracting"
+        state["extract_request_id"] = request_id
+
+        self.websocket_client.send_message(
+            {
+                "type": "client_update_extract",
+                "request_id": request_id,
+                "client_code": client_code,
+                "package_path": state.get("package_path", ""),
+                "latest_version": state.get("latest_version", "")
+            }
+        )
+
+        logger.info(
+            "Bulk update extract sent. client_code=%s request_id=%s",
+            client_code,
+            request_id
+        )
+
+    def _bulk_send_update_apply(self, client_code: str) -> None:
+        """
+        Στέλνει apply update request σε έναν client για bulk update.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Dashboard WebSocket is not connected.")
+            return
+
+        state = self.bulk_update_states.get(client_code)
+
+        if not state:
+            return
+
+        request_id = str(uuid.uuid4())
+
+        state["stage"] = "applying"
+        state["apply_request_id"] = request_id
+
+        self.websocket_client.send_message(
+            {
+                "type": "client_update_apply",
+                "request_id": request_id,
+                "client_code": client_code,
+                "extracted_path": state.get("extracted_path", ""),
+                "latest_version": state.get("latest_version", "")
+            }
+        )
+
+        logger.info(
+            "Bulk update apply sent. client_code=%s request_id=%s",
+            client_code,
+            request_id
+        )
+
+    def _handle_bulk_update_check_result(self, payload: dict[str, Any]) -> None:
+        """
+        Χειρίζεται check result για bulk update και προχωρά σε download αν χρειάζεται.
+        """
+
+        client_code = str(payload.get("client_code", ""))
+
+        if not self.bulk_update_active or client_code not in self.bulk_update_states:
+            return
+
+        state = self.bulk_update_states[client_code]
+
+        if not payload.get("success"):
+            state["stage"] = "failed"
+            state["error"] = str(payload.get("error", "Unknown check error."))
+            logger.error("Bulk update check failed. client_code=%s error=%s", client_code, state["error"])
+            return
+
+        if not payload.get("update_available", False):
+            state["stage"] = "up_to_date"
+            logger.info("Bulk update skipped. Client already up to date: %s", client_code)
+            return
+
+        state["latest_version"] = str(payload.get("latest_version", ""))
+        state["download_url"] = str(payload.get("download_url", ""))
+        state["sha256"] = str(payload.get("sha256", ""))
+
+        if not state["download_url"] or not state["sha256"]:
+            state["stage"] = "failed"
+            state["error"] = "Missing download_url or sha256."
+            logger.error("Bulk update check missing data. client_code=%s", client_code)
+            return
+
+        self.after(
+            1000,
+            lambda code=client_code: self._bulk_send_update_download(code)
+        )
+
+    def _handle_bulk_update_download_result(self, payload: dict[str, Any]) -> None:
+        """
+        Χειρίζεται download result για bulk update και προχωρά σε extract.
+        """
+
+        client_code = str(payload.get("client_code", ""))
+
+        if not self.bulk_update_active or client_code not in self.bulk_update_states:
+            return
+
+        state = self.bulk_update_states[client_code]
+
+        if not payload.get("success"):
+            state["stage"] = "failed"
+            state["error"] = str(payload.get("error", "Unknown download error."))
+            logger.error("Bulk update download failed. client_code=%s error=%s", client_code, state["error"])
+            return
+
+        state["package_path"] = str(payload.get("saved_path", ""))
+
+        if not state["package_path"]:
+            state["stage"] = "failed"
+            state["error"] = "Missing saved_path."
+            logger.error("Bulk update download missing saved_path. client_code=%s", client_code)
+            return
+
+        self.after(
+            1000,
+            lambda code=client_code: self._bulk_send_update_extract(code)
+        )
+
+    def _handle_bulk_update_extract_result(self, payload: dict[str, Any]) -> None:
+        """
+        Χειρίζεται extract result για bulk update και προχωρά σε apply.
+        """
+
+        client_code = str(payload.get("client_code", ""))
+
+        if not self.bulk_update_active or client_code not in self.bulk_update_states:
+            return
+
+        state = self.bulk_update_states[client_code]
+
+        if not payload.get("success"):
+            state["stage"] = "failed"
+            state["error"] = str(payload.get("error", "Unknown extract error."))
+            logger.error("Bulk update extract failed. client_code=%s error=%s", client_code, state["error"])
+            return
+
+        state["extracted_path"] = str(payload.get("extracted_path", ""))
+
+        if not state["extracted_path"]:
+            state["stage"] = "failed"
+            state["error"] = "Missing extracted_path."
+            logger.error("Bulk update extract missing extracted_path. client_code=%s", client_code)
+            return
+
+        self.after(
+            1000,
+            lambda code=client_code: self._bulk_send_update_apply(code)
+        )
+
+    def _handle_bulk_update_apply_result(self, payload: dict[str, Any]) -> None:
+        """
+        Χειρίζεται apply result για bulk update.
+        """
+
+        client_code = str(payload.get("client_code", ""))
+
+        if not self.bulk_update_active or client_code not in self.bulk_update_states:
+            return
+
+        state = self.bulk_update_states[client_code]
+
+        if not payload.get("success"):
+            state["stage"] = "failed"
+            state["error"] = str(payload.get("error", "Unknown apply error."))
+            logger.error("Bulk update apply failed. client_code=%s error=%s", client_code, state["error"])
+            return
+
+        state["stage"] = "apply_started"
+
+        logger.info(
+            "Bulk update apply started. Waiting for reconnect. client_code=%s latest_version=%s",
+            client_code,
+            state.get("latest_version", "")
+        )
+
+    def _update_bulk_completion_from_clients_list(self, clients: list[dict]) -> None:
+        """
+        Ελέγχει από τη φρέσκια λίστα clients ποιοι bulk update clients ολοκληρώθηκαν.
+        """
+
+        if not self.bulk_update_active:
+            return
+
+        clients_by_code = {
+            str(client.get("client_code", "")): client
+            for client in clients
+        }
+
+        for client_code, state in self.bulk_update_states.items():
+            if state.get("stage") not in ("apply_started", "applying"):
+                continue
+
+            client = clients_by_code.get(client_code)
+
+            if not client:
+                continue
+
+            ws_connected = bool(client.get("ws_connected", False))
+            app_version = str(client.get("app_version", ""))
+            latest_version = str(state.get("latest_version", ""))
+
+            if ws_connected and latest_version and app_version == latest_version:
+                state["stage"] = "completed"
+
+                logger.info(
+                    "Bulk update completed. client_code=%s version=%s",
+                    client_code,
+                    app_version
+                )
+
+        self._log_bulk_update_summary()
+
+    def _log_bulk_update_summary(self) -> None:
+        """
+        Γράφει συνοπτική κατάσταση bulk update στα logs.
+        """
+
+        if not self.bulk_update_states:
+            return
+
+        summary: dict[str, int] = {}
+
+        for state in self.bulk_update_states.values():
+            stage = str(state.get("stage", "unknown"))
+            summary[stage] = summary.get(stage, 0) + 1
+
+        logger.info("Bulk update summary: %s", summary)
+
+        active_stages = {
+            "queued",
+            "checking",
+            "downloading",
+            "extracting",
+            "applying",
+            "apply_started"
+        }
+
+        still_running = any(
+            str(state.get("stage", "")) in active_stages
+            for state in self.bulk_update_states.values()
+        )
+
+        if not still_running:
+            self.bulk_update_active = False
+            logger.info("Bulk update finished.")
         
     def _open_manage_window(self, client: dict) -> None:
         """
