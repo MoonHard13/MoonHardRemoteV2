@@ -9,6 +9,7 @@ from app.ui.theme import COLORS, FONTS, SPACING, card_style
 from app.views.clients_view import ClientsView
 from app.websocket_client import DashboardWebSocketClient
 from app.views.client_manage_window import ClientManageWindow
+from app.views.bulk_update_progress_window import BulkUpdateProgressWindow
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class MoonHardDashboardApp(ctk.CTk):
         self.manage_windows: dict[str, ClientManageWindow] = {}
         self.bulk_update_active: bool = False
         self.bulk_update_states: dict[str, dict[str, Any]] = {}
+        self.bulk_update_window: BulkUpdateProgressWindow | None = None
                 
         self.title(self.config_data.app_name)
         self.geometry("1100x700")
@@ -346,6 +348,8 @@ class MoonHardDashboardApp(ctk.CTk):
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_client_update_download_result(payload)
 
+            self._handle_bulk_update_download_result(payload)
+
         elif message_type == "client_update_extract_result":
             client_code = payload.get("client_code", "")
             manage_window = self.manage_windows.get(client_code)
@@ -517,6 +521,12 @@ class MoonHardDashboardApp(ctk.CTk):
 
         self.bulk_update_active = True
         self.bulk_update_states = {}
+        
+        if self.bulk_update_window and self.bulk_update_window.winfo_exists():
+            self.bulk_update_window.destroy()
+
+        self.bulk_update_window = BulkUpdateProgressWindow(self)
+        self.bulk_update_window.initialize_clients(connected_clients)
 
         logger.info("Full bulk update started for %s clients.", len(connected_clients))
 
@@ -563,6 +573,7 @@ class MoonHardDashboardApp(ctk.CTk):
         if client_code in self.bulk_update_states:
             self.bulk_update_states[client_code]["stage"] = "checking"
             self.bulk_update_states[client_code]["check_request_id"] = request_id
+            self._refresh_bulk_update_window()
 
         self.websocket_client.send_message(
             {
@@ -596,6 +607,7 @@ class MoonHardDashboardApp(ctk.CTk):
 
         state["stage"] = "downloading"
         state["download_request_id"] = request_id
+        self._refresh_bulk_update_window()
 
         self.websocket_client.send_message(
             {
@@ -632,6 +644,7 @@ class MoonHardDashboardApp(ctk.CTk):
 
         state["stage"] = "extracting"
         state["extract_request_id"] = request_id
+        self._refresh_bulk_update_window()
 
         self.websocket_client.send_message(
             {
@@ -667,6 +680,7 @@ class MoonHardDashboardApp(ctk.CTk):
 
         state["stage"] = "applying"
         state["apply_request_id"] = request_id
+        self._refresh_bulk_update_window()
 
         self.websocket_client.send_message(
             {
@@ -699,21 +713,25 @@ class MoonHardDashboardApp(ctk.CTk):
         if not payload.get("success"):
             state["stage"] = "failed"
             state["error"] = str(payload.get("error", "Unknown check error."))
+            self._refresh_bulk_update_window()
             logger.error("Bulk update check failed. client_code=%s error=%s", client_code, state["error"])
             return
 
         if not payload.get("update_available", False):
             state["stage"] = "up_to_date"
+            self._refresh_bulk_update_window()
             logger.info("Bulk update skipped. Client already up to date: %s", client_code)
             return
 
         state["latest_version"] = str(payload.get("latest_version", ""))
         state["download_url"] = str(payload.get("download_url", ""))
         state["sha256"] = str(payload.get("sha256", ""))
+        self._refresh_bulk_update_window()
 
         if not state["download_url"] or not state["sha256"]:
             state["stage"] = "failed"
             state["error"] = "Missing download_url or sha256."
+            self._refresh_bulk_update_window()
             logger.error("Bulk update check missing data. client_code=%s", client_code)
             return
 
@@ -737,14 +755,17 @@ class MoonHardDashboardApp(ctk.CTk):
         if not payload.get("success"):
             state["stage"] = "failed"
             state["error"] = str(payload.get("error", "Unknown download error."))
+            self._refresh_bulk_update_window()
             logger.error("Bulk update download failed. client_code=%s error=%s", client_code, state["error"])
             return
 
         state["package_path"] = str(payload.get("saved_path", ""))
+        
 
         if not state["package_path"]:
             state["stage"] = "failed"
             state["error"] = "Missing saved_path."
+            self._refresh_bulk_update_window()
             logger.error("Bulk update download missing saved_path. client_code=%s", client_code)
             return
 
@@ -768,6 +789,7 @@ class MoonHardDashboardApp(ctk.CTk):
         if not payload.get("success"):
             state["stage"] = "failed"
             state["error"] = str(payload.get("error", "Unknown extract error."))
+            self._refresh_bulk_update_window()
             logger.error("Bulk update extract failed. client_code=%s error=%s", client_code, state["error"])
             return
 
@@ -776,6 +798,7 @@ class MoonHardDashboardApp(ctk.CTk):
         if not state["extracted_path"]:
             state["stage"] = "failed"
             state["error"] = "Missing extracted_path."
+            self._refresh_bulk_update_window()
             logger.error("Bulk update extract missing extracted_path. client_code=%s", client_code)
             return
 
@@ -799,10 +822,12 @@ class MoonHardDashboardApp(ctk.CTk):
         if not payload.get("success"):
             state["stage"] = "failed"
             state["error"] = str(payload.get("error", "Unknown apply error."))
+            self._refresh_bulk_update_window()
             logger.error("Bulk update apply failed. client_code=%s error=%s", client_code, state["error"])
             return
 
         state["stage"] = "apply_started"
+        self._refresh_bulk_update_window()
 
         logger.info(
             "Bulk update apply started. Waiting for reconnect. client_code=%s latest_version=%s",
@@ -838,6 +863,7 @@ class MoonHardDashboardApp(ctk.CTk):
 
             if ws_connected and latest_version and app_version == latest_version:
                 state["stage"] = "completed"
+                self._refresh_bulk_update_window()
 
                 logger.info(
                     "Bulk update completed. client_code=%s version=%s",
@@ -880,6 +906,17 @@ class MoonHardDashboardApp(ctk.CTk):
         if not still_running:
             self.bulk_update_active = False
             logger.info("Bulk update finished.")
+
+    def _refresh_bulk_update_window(self) -> None:
+        """
+        Ανανεώνει το progress window του bulk update.
+        """
+
+        if (
+            self.bulk_update_window
+            and self.bulk_update_window.winfo_exists()
+        ):
+            self.bulk_update_window.update_states(self.bulk_update_states)
         
     def _open_manage_window(self, client: dict) -> None:
         """
