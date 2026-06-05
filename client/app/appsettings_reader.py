@@ -55,16 +55,19 @@ class AppSettingsReader:
 
     def _read_file(self, file_path: Path) -> dict[str, Any]:
         """
-        Διαβάζει και αναλύει το appsettings.production.json.
+        Διαβάζει και αναλύει το appsettings.production.json με ανοχή σε σχόλια και extra πληροφορίες.
         """
 
         logger.info("Reading appsettings.production.json: %s", file_path)
 
         raw_text = file_path.read_text(encoding="utf-8-sig")
-        raw_json = json.loads(raw_text)
+        clean_text = self._clean_json_like_text(raw_text)
+        raw_json = json.loads(clean_text)
 
-        bo_connections = self._extract_list_from_appsettings(raw_json, "BOConnections")
-        provider_connections = self._extract_list_from_appsettings(raw_json, "ProviderConnections")
+        app_settings = self._find_first_dict_by_key(raw_json, "AppSettings") or {}
+
+        bo_connections = self._find_first_list_by_key(raw_json, "BOConnections")
+        provider_connections = self._find_first_list_by_key(raw_json, "ProviderConnections")
 
         selected_bo_connection_id = 1
         selected_bo_connection = self._get_bo_connection_by_id(
@@ -79,15 +82,13 @@ class AppSettingsReader:
 
         connection_parts = self._parse_connection_string(database_connection)
 
-        app_settings = raw_json.get("AppSettings", {})
-
         appsettings_summary = {
-            "AllowedHosts": raw_json.get("AllowedHosts"),
+            "AllowedHosts": self._find_first_value_by_key(raw_json, "AllowedHosts"),
             "MaxRetries": app_settings.get("MaxRetries") if isinstance(app_settings, dict) else None,
             "MaxWaitTimePerInvoice": app_settings.get("MaxWaitTimePerInvoice") if isinstance(app_settings, dict) else None,
             "initialDate": app_settings.get("initialDate") if isinstance(app_settings, dict) else None,
-            "BOConnectionIDs": [item.get("ID") for item in bo_connections],
-            "ProviderConnectionIDs": [item.get("ID") for item in provider_connections],
+            "BOConnectionIDs": [item.get("ID") for item in bo_connections if isinstance(item, dict)],
+            "ProviderConnectionIDs": [item.get("ID") for item in provider_connections if isinstance(item, dict)],
         }
 
         return {
@@ -107,6 +108,169 @@ class AppSettingsReader:
             "last_read_at": datetime.now(timezone.utc).isoformat()
         }
 
+    def _clean_json_like_text(self, text: str) -> str:
+        """
+        Καθαρίζει JSON-like αρχείο από σχόλια και trailing commas χωρίς να χαλάει strings.
+        """
+
+        without_block_comments = self._remove_block_comments(text)
+        without_line_comments = self._remove_line_comments(without_block_comments)
+        without_trailing_commas = self._remove_trailing_commas(without_line_comments)
+
+        return without_trailing_commas
+
+    def _remove_line_comments(self, text: str) -> str:
+        """
+        Αφαιρεί // σχόλια μόνο όταν βρίσκονται εκτός string.
+        Δεν πειράζει URLs όπως https:// μέσα σε string.
+        """
+
+        result: list[str] = []
+        index = 0
+        in_string = False
+        escape_next = False
+
+        while index < len(text):
+            current_char = text[index]
+            next_char = text[index + 1] if index + 1 < len(text) else ""
+
+            if escape_next:
+                result.append(current_char)
+                escape_next = False
+                index += 1
+                continue
+
+            if current_char == "\\" and in_string:
+                result.append(current_char)
+                escape_next = True
+                index += 1
+                continue
+
+            if current_char == '"':
+                in_string = not in_string
+                result.append(current_char)
+                index += 1
+                continue
+
+            if not in_string and current_char == "/" and next_char == "/":
+                while index < len(text) and text[index] not in ("\r", "\n"):
+                    index += 1
+                continue
+
+            result.append(current_char)
+            index += 1
+
+        return "".join(result)
+
+    def _remove_block_comments(self, text: str) -> str:
+        """
+        Αφαιρεί /* ... */ σχόλια μόνο όταν βρίσκονται εκτός string.
+        """
+
+        result: list[str] = []
+        index = 0
+        in_string = False
+        escape_next = False
+
+        while index < len(text):
+            current_char = text[index]
+            next_char = text[index + 1] if index + 1 < len(text) else ""
+
+            if escape_next:
+                result.append(current_char)
+                escape_next = False
+                index += 1
+                continue
+
+            if current_char == "\\" and in_string:
+                result.append(current_char)
+                escape_next = True
+                index += 1
+                continue
+
+            if current_char == '"':
+                in_string = not in_string
+                result.append(current_char)
+                index += 1
+                continue
+
+            if not in_string and current_char == "/" and next_char == "*":
+                index += 2
+
+                while index + 1 < len(text):
+                    if text[index] == "*" and text[index + 1] == "/":
+                        index += 2
+                        break
+
+                    index += 1
+
+                continue
+
+            result.append(current_char)
+            index += 1
+
+        return "".join(result)
+
+    def _remove_trailing_commas(self, text: str) -> str:
+        """
+        Αφαιρεί trailing commas πριν από } ή ].
+        """
+
+        return re.sub(r",\s*([}\]])", r"\1", text)
+
+    def _find_first_dict_by_key(self, data: Any, target_key: str) -> dict[str, Any] | None:
+        """
+        Ψάχνει αναδρομικά για dictionary με συγκεκριμένο key.
+        """
+
+        found_value = self._find_first_value_by_key(data, target_key)
+
+        if isinstance(found_value, dict):
+            return found_value
+
+        return None
+
+    def _find_first_list_by_key(self, data: Any, target_key: str) -> list[dict[str, Any]]:
+        """
+        Ψάχνει αναδρομικά για λίστα με συγκεκριμένο key.
+        """
+
+        found_value = self._find_first_value_by_key(data, target_key)
+
+        if not isinstance(found_value, list):
+            return []
+
+        return [
+            item
+            for item in found_value
+            if isinstance(item, dict)
+        ]
+
+    def _find_first_value_by_key(self, data: Any, target_key: str) -> Any:
+        """
+        Ψάχνει αναδρομικά για τιμή με συγκεκριμένο key, ανεξάρτητα από θέση στο JSON.
+        """
+
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if str(key).lower() == target_key.lower():
+                    return value
+
+            for value in data.values():
+                found_value = self._find_first_value_by_key(value, target_key)
+
+                if found_value is not None:
+                    return found_value
+
+        if isinstance(data, list):
+            for item in data:
+                found_value = self._find_first_value_by_key(item, target_key)
+
+                if found_value is not None:
+                    return found_value
+
+        return None
+        
     def _extract_list_from_appsettings(
         self,
         raw_json: dict[str, Any],
