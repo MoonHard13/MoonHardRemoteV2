@@ -1302,6 +1302,16 @@ class MoonHardDashboardApp(ctk.CTk):
         )
 
         self.manage_windows[client_code] = window
+        open_window_count = len(
+            [
+                manage_window
+                for manage_window in self.manage_windows.values()
+                if manage_window and manage_window.winfo_exists()
+            ]
+        )
+
+        offset = min(open_window_count * 30, 240)
+        window.geometry(f"1000x700+{120 + offset}+{80 + offset}")
 
         if self.websocket_client:
             self.websocket_client.send_message(

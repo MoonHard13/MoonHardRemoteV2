@@ -61,7 +61,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
         self.minsize(900, 600)
-        self.grab_set()
+        # Δεν χρησιμοποιούμε grab_set(), ώστε να μπορούμε να διαχειριζόμαστε πολλούς clients ταυτόχρονα.
+        self.transient(parent)
         self.configure(fg_color=COLORS.background)
 
         self._build_ui()
@@ -151,15 +152,15 @@ class ClientManageWindow(ctk.CTkToplevel):
         )
         header.grid_columnconfigure(0, weight=1)
 
-        title = ctk.CTkLabel(
+        self.header_title_label = ctk.CTkLabel(
             header,
             text=display_name,
             font=FONTS.title,
             text_color=COLORS.text_primary
         )
-        title.grid(row=0, column=0, padx=18, pady=(14, 4), sticky="w")
+        self.header_title_label.grid(row=0, column=0, padx=18, pady=(14, 4), sticky="w")
 
-        info = ctk.CTkLabel(
+        self.header_info_label = ctk.CTkLabel(
             header,
             text=(
                 f"PC: {pc_name} | "
@@ -172,7 +173,7 @@ class ClientManageWindow(ctk.CTkToplevel):
             text_color=COLORS.text_secondary,
             anchor="w"
         )
-        info.grid(row=1, column=0, padx=18, pady=(0, 14), sticky="w")
+        self.header_info_label.grid(row=1, column=0, padx=18, pady=(0, 14), sticky="w")
 
     def update_client_data(self, client: dict) -> None:
         """
