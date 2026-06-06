@@ -2,12 +2,16 @@ import subprocess
 import csv
 import io
 import ctypes
+import tempfile
+from pathlib import Path
 
 
 class WindowsServicesReader:
     """
     Διαβάζει Windows services από τον client υπολογιστή.
     """
+
+    MOONHARD_SERVICE_NAME = "MoonHardRemoteClient"
 
     def _is_running_as_admin(self) -> bool:
         """
@@ -92,6 +96,9 @@ class WindowsServicesReader:
                 "Please run the MoonHard client as Administrator."
             )
 
+        if service_name.lower() == self.MOONHARD_SERVICE_NAME.lower():
+            return self._schedule_self_service_restart(service_name)
+
         safe_service_name = service_name.replace("'", "''")
 
         powershell_script = (
@@ -133,6 +140,76 @@ class WindowsServicesReader:
             "service_name": service_name,
             "message": f"Service restarted successfully: {service_name}",
             "output": completed.stdout.strip()
+        }
+
+    def _schedule_self_service_restart(self, service_name: str) -> dict:
+        """
+        Προγραμματίζει ασφαλές restart του ίδιου του MoonHard service.
+        Το restart γίνεται από ξεχωριστό detached PowerShell process,
+        ώστε να μην σκοτωθεί ο client πριν ξεκινήσει ξανά το service.
+        """
+
+        safe_service_name = service_name.replace("'", "''")
+        script_path = Path(tempfile.gettempdir()) / "moonhard_self_restart.ps1"
+
+        powershell_script = f"""
+Start-Sleep -Seconds 2
+
+$serviceName = '{safe_service_name}'
+$logFile = Join-Path $env:ProgramData 'MoonHardRemoteV2\\logs\\self_restart.log'
+
+try {{
+    New-Item -ItemType Directory -Path (Split-Path $logFile) -Force | Out-Null
+
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart started for $serviceName"
+
+    $service = Get-Service -Name $serviceName -ErrorAction Stop
+
+    if ($service.Status -ne 'Stopped') {{
+        Stop-Service -Name $serviceName -Force -ErrorAction Stop
+        $service.WaitForStatus('Stopped', '00:00:30')
+    }}
+
+    Start-Sleep -Seconds 2
+
+    Start-Service -Name $serviceName -ErrorAction Stop
+
+    $service = Get-Service -Name $serviceName -ErrorAction Stop
+    $service.WaitForStatus('Running', '00:00:30')
+
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart completed for $serviceName"
+}}
+catch {{
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart failed for $serviceName: $($_.Exception.Message)"
+}}
+"""
+        script_path.write_text(powershell_script, encoding="utf-8")
+
+        subprocess.Popen(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                str(script_path)
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+        )
+
+        return {
+            "success": True,
+            "service_name": service_name,
+            "message": (
+                "MoonHard service self-restart was scheduled. "
+                "The client will disconnect briefly and reconnect automatically."
+            ),
+            "output": str(script_path)
         }
         
     def start_service(self, service_name: str) -> dict:
