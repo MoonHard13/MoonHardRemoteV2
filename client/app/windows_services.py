@@ -180,7 +180,7 @@ try {{
     Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart completed for $serviceName"
 }}
 catch {{
-    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart failed for $serviceName: $($_.Exception.Message)"
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart failed for $($serviceName): $($_.Exception.Message)"
 }}
 """
         script_path.write_text(powershell_script, encoding="utf-8")
