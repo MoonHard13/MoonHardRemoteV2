@@ -781,9 +781,10 @@ class MoonHardDashboardApp(ctk.CTk):
                 continue
 
             if retry_count >= self.bulk_update_max_retries:
-                state["stage"] = "failed"
-                state["error"] = (
-                    f"Max retry limit reached ({self.bulk_update_max_retries})."
+                self._set_bulk_update_state(
+                    client_code,
+                    "failed",
+                    error=f"Max retry limit reached ({self.bulk_update_max_retries})."
                 )
                 continue
 
@@ -860,27 +861,47 @@ class MoonHardDashboardApp(ctk.CTk):
         state = self.bulk_update_states[client_code]
 
         if not payload.get("success"):
-            state["stage"] = "failed"
-            state["error"] = str(payload.get("error", "Unknown check error."))
-            self._refresh_bulk_update_window()
-            logger.error("Bulk update check failed. client_code=%s error=%s", client_code, state["error"])
+            self._set_bulk_update_state(
+                client_code,
+                "failed",
+                error=str(payload.get("error", "Unknown check error."))
+            )
+
+            logger.error(
+                "Bulk update check failed. client_code=%s error=%s",
+                client_code,
+                state.get("error", "")
+            )
             return
 
         if not payload.get("update_available", False):
-            state["stage"] = "up_to_date"
-            self._refresh_bulk_update_window()
+            self._set_bulk_update_state(
+                client_code,
+                "up_to_date"
+            )
+
             logger.info("Bulk update skipped. Client already up to date: %s", client_code)
             return
 
-        state["latest_version"] = str(payload.get("latest_version", ""))
-        state["download_url"] = str(payload.get("download_url", ""))
-        state["sha256"] = str(payload.get("sha256", ""))
-        self._refresh_bulk_update_window()
+        self._set_bulk_update_state(
+            client_code,
+            "checking",
+            extra_values={
+                "latest_version": str(payload.get("latest_version", "")),
+                "download_url": str(payload.get("download_url", "")),
+                "sha256": str(payload.get("sha256", ""))
+            }
+        )
+
+        state = self.bulk_update_states[client_code]
 
         if not state["download_url"] or not state["sha256"]:
-            state["stage"] = "failed"
-            state["error"] = "Missing download_url or sha256."
-            self._refresh_bulk_update_window()
+            self._set_bulk_update_state(
+                client_code,
+                "failed",
+                error="Missing download_url or sha256."
+            )
+
             logger.error("Bulk update check missing data. client_code=%s", client_code)
             return
 
@@ -888,6 +909,8 @@ class MoonHardDashboardApp(ctk.CTk):
             1000,
             lambda code=client_code: self._bulk_send_update_download(code)
         )
+        
+        self._log_bulk_update_summary()
 
     def _handle_bulk_update_download_result(self, payload: dict[str, Any]) -> None:
         """
@@ -902,26 +925,45 @@ class MoonHardDashboardApp(ctk.CTk):
         state = self.bulk_update_states[client_code]
 
         if not payload.get("success"):
-            state["stage"] = "failed"
-            state["error"] = str(payload.get("error", "Unknown download error."))
-            self._refresh_bulk_update_window()
-            logger.error("Bulk update download failed. client_code=%s error=%s", client_code, state["error"])
+            self._set_bulk_update_state(
+                client_code,
+                "failed",
+                error=str(payload.get("error", "Unknown download error."))
+            )
+
+            logger.error(
+                "Bulk update download failed. client_code=%s error=%s",
+                client_code,
+                state.get("error", "")
+            )
             return
 
-        state["package_path"] = str(payload.get("saved_path", ""))
-        
+        saved_path = str(payload.get("saved_path", ""))
 
-        if not state["package_path"]:
-            state["stage"] = "failed"
-            state["error"] = "Missing saved_path."
-            self._refresh_bulk_update_window()
+        if not saved_path:
+            self._set_bulk_update_state(
+                client_code,
+                "failed",
+                error="Missing saved_path."
+            )
+
             logger.error("Bulk update download missing saved_path. client_code=%s", client_code)
             return
+
+        self._set_bulk_update_state(
+            client_code,
+            "downloading",
+            extra_values={
+                "package_path": saved_path
+            }
+        )
 
         self.after(
             1000,
             lambda code=client_code: self._bulk_send_update_extract(code)
         )
+
+        self._log_bulk_update_summary()
 
     def _handle_bulk_update_extract_result(self, payload: dict[str, Any]) -> None:
         """
@@ -936,25 +978,45 @@ class MoonHardDashboardApp(ctk.CTk):
         state = self.bulk_update_states[client_code]
 
         if not payload.get("success"):
-            state["stage"] = "failed"
-            state["error"] = str(payload.get("error", "Unknown extract error."))
-            self._refresh_bulk_update_window()
-            logger.error("Bulk update extract failed. client_code=%s error=%s", client_code, state["error"])
+            self._set_bulk_update_state(
+                client_code,
+                "failed",
+                error=str(payload.get("error", "Unknown extract error."))
+            )
+
+            logger.error(
+                "Bulk update extract failed. client_code=%s error=%s",
+                client_code,
+                state.get("error", "")
+            )
             return
 
-        state["extracted_path"] = str(payload.get("extracted_path", ""))
+        extracted_path = str(payload.get("extracted_path", ""))
 
-        if not state["extracted_path"]:
-            state["stage"] = "failed"
-            state["error"] = "Missing extracted_path."
-            self._refresh_bulk_update_window()
+        if not extracted_path:
+            self._set_bulk_update_state(
+                client_code,
+                "failed",
+                error="Missing extracted_path."
+            )
+
             logger.error("Bulk update extract missing extracted_path. client_code=%s", client_code)
             return
+
+        self._set_bulk_update_state(
+            client_code,
+            "extracting",
+            extra_values={
+                "extracted_path": extracted_path
+            }
+        )
 
         self.after(
             1000,
             lambda code=client_code: self._bulk_send_update_apply(code)
         )
+
+        self._log_bulk_update_summary()
 
     def _handle_bulk_update_apply_result(self, payload: dict[str, Any]) -> None:
         """
@@ -969,20 +1031,31 @@ class MoonHardDashboardApp(ctk.CTk):
         state = self.bulk_update_states[client_code]
 
         if not payload.get("success"):
-            state["stage"] = "failed"
-            state["error"] = str(payload.get("error", "Unknown apply error."))
-            self._refresh_bulk_update_window()
-            logger.error("Bulk update apply failed. client_code=%s error=%s", client_code, state["error"])
+            self._set_bulk_update_state(
+                client_code,
+                "failed",
+                error=str(payload.get("error", "Unknown apply error."))
+            )
+
+            logger.error(
+                "Bulk update apply failed. client_code=%s error=%s",
+                client_code,
+                state.get("error", "")
+            )
             return
 
-        state["stage"] = "apply_started"
-        self._refresh_bulk_update_window()
+        self._set_bulk_update_state(
+            client_code,
+            "apply_started"
+        )
 
         logger.info(
             "Bulk update apply started. Waiting for reconnect. client_code=%s latest_version=%s",
             client_code,
             state.get("latest_version", "")
         )
+
+        self._log_bulk_update_summary()
 
     def _update_bulk_completion_from_clients_list(self, clients: list[dict]) -> None:
         """
@@ -1011,8 +1084,10 @@ class MoonHardDashboardApp(ctk.CTk):
             latest_version = str(state.get("latest_version", ""))
 
             if ws_connected and latest_version and app_version == latest_version:
-                state["stage"] = "completed"
-                self._refresh_bulk_update_window()
+                self._set_bulk_update_state(
+                    client_code,
+                    "completed"
+                )
 
                 logger.info(
                     "Bulk update completed. client_code=%s version=%s",
