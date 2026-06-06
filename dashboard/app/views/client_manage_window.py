@@ -69,6 +69,25 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         self._build_ui()
 
+        # Φέρνουμε το παράθυρο μπροστά χωρίς να μπλοκάρουμε το dashboard.
+        self.after(100, self._bring_to_front)
+
+    def _bring_to_front(self) -> None:
+        """
+        Φέρνει το Manage window μπροστά χωρίς να το κάνει modal.
+        """
+
+        try:
+            self.lift()
+            self.focus_force()
+
+            # Μικρό topmost toggle για να έρθει σίγουρα μπροστά στα Windows.
+            self.attributes("-topmost", True)
+            self.after(300, lambda: self.attributes("-topmost", False))
+
+        except Exception:
+            pass
+
     def _build_ui(self) -> None:
         """
         Δημιουργεί το βασικό UI με tabs.
