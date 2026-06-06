@@ -16,7 +16,7 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
     Παράθυρο προόδου για το bulk update των clients.
     """
 
-    def __init__(self, parent) -> None:
+    def __init__(self, parent, on_retry_callback=None) -> None:
         """
         Δημιουργεί το παράθυρο προόδου bulk update.
         """
@@ -29,6 +29,7 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
         self.configure(fg_color=COLORS.background)
 
         self.client_rows: dict[str, dict[str, Any]] = {}
+        self.on_retry_callback = on_retry_callback
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -68,14 +69,28 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
         )
         self.summary_label.grid(row=1, column=0, padx=18, pady=(0, 14), sticky="w")
 
+        button_frame = ctk.CTkFrame(header, fg_color="transparent")
+        button_frame.grid(row=0, column=1, rowspan=2, padx=18, pady=14, sticky="e")
+
+        retry_button = ctk.CTkButton(
+            button_frame,
+            text="Retry Failed/Stuck",
+            width=150,
+            command=self._retry_clicked,
+            fg_color=COLORS.warning,
+            hover_color=COLORS.warning,
+            text_color=COLORS.text_primary
+        )
+        retry_button.grid(row=0, column=0, padx=(0, 10), sticky="e")
+
         close_button = ctk.CTkButton(
-            header,
+            button_frame,
             text="Close",
             width=90,
             command=self.destroy,
             **secondary_button_style()
         )
-        close_button.grid(row=0, column=1, rowspan=2, padx=18, pady=14, sticky="e")
+        close_button.grid(row=0, column=1, sticky="e")
 
         self.scroll_frame = ctk.CTkScrollableFrame(
             self,
@@ -221,7 +236,8 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
             "apply_started": "WAITING RECONNECT",
             "completed": "COMPLETED",
             "up_to_date": "UP TO DATE",
-            "failed": "FAILED"
+            "failed": "FAILED",
+            "stuck": "STUCK / RETRYABLE"
         }
 
         return mapping.get(stage, stage.upper())
@@ -234,7 +250,7 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
         if stage in ("completed", "up_to_date"):
             return COLORS.success
 
-        if stage == "failed":
+        if stage in ("failed", "stuck"):
             return COLORS.danger
 
         if stage in ("checking", "downloading", "extracting", "applying", "apply_started"):
@@ -244,11 +260,35 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
 
     def _build_summary_text(self, summary: dict[str, int]) -> str:
         """
-        Δημιουργεί συνοπτικό κείμενο προόδου.
+        Δημιουργεί συνοπτικό κείμενο προόδου με καθαρή τελική εικόνα.
         """
 
         if not summary:
             return "Waiting..."
+
+        completed = summary.get("completed", 0)
+        up_to_date = summary.get("up_to_date", 0)
+        failed = summary.get("failed", 0) + summary.get("stuck", 0)
+
+        active_stages = [
+            "queued",
+            "checking",
+            "downloading",
+            "extracting",
+            "applying",
+            "apply_started"
+        ]
+
+        still_waiting = sum(summary.get(stage, 0) for stage in active_stages)
+
+        parts = [
+            f"Completed: {completed}",
+            f"Up to date: {up_to_date}",
+            f"Failed/Stuck: {failed}",
+            f"Still waiting: {still_waiting}"
+        ]
+
+        stage_parts: list[str] = []
 
         ordered_stages = [
             "queued",
@@ -259,15 +299,22 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
             "apply_started",
             "completed",
             "up_to_date",
-            "failed"
+            "failed",
+            "stuck"
         ]
-
-        parts: list[str] = []
 
         for stage in ordered_stages:
             count = summary.get(stage, 0)
 
             if count:
-                parts.append(f"{self._format_stage(stage)}: {count}")
+                stage_parts.append(f"{self._format_stage(stage)}: {count}")
 
-        return "  •  ".join(parts)
+        return "  |  ".join(parts) + "\n" + "  •  ".join(stage_parts)
+    
+    def _retry_clicked(self) -> None:
+        """
+        Ζητάει retry για failed/stuck/not completed clients.
+        """
+
+        if self.on_retry_callback:
+            self.on_retry_callback()

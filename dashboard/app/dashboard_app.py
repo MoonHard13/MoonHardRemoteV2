@@ -1,4 +1,5 @@
 import logging
+import time
 import uuid
 from typing import Any
 
@@ -33,6 +34,9 @@ class MoonHardDashboardApp(ctk.CTk):
         self.bulk_update_active: bool = False
         self.bulk_update_states: dict[str, dict[str, Any]] = {}
         self.bulk_update_window: BulkUpdateProgressWindow | None = None
+        self.bulk_update_max_retries: int = 2
+        self.bulk_update_stuck_seconds: int = 180
+        self.bulk_update_watchdog_job = None
                 
         self.title(self.config_data.app_name)
         self.geometry("1100x700")
@@ -525,7 +529,10 @@ class MoonHardDashboardApp(ctk.CTk):
         if self.bulk_update_window and self.bulk_update_window.winfo_exists():
             self.bulk_update_window.destroy()
 
-        self.bulk_update_window = BulkUpdateProgressWindow(self)
+        self.bulk_update_window = BulkUpdateProgressWindow(
+            self,
+            on_retry_callback=self._retry_bulk_update_clients
+        )
         self.bulk_update_window.initialize_clients(connected_clients)
 
         logger.info("Full bulk update started for %s clients.", len(connected_clients))
@@ -544,7 +551,9 @@ class MoonHardDashboardApp(ctk.CTk):
                 "download_url": "",
                 "sha256": "",
                 "package_path": "",
-                "extracted_path": ""
+                "extracted_path": "",
+                "retry_count": 0,
+                "updated_at": time.monotonic()
             }
 
             delay_ms = index * 2000
@@ -553,6 +562,8 @@ class MoonHardDashboardApp(ctk.CTk):
                 delay_ms,
                 lambda c=client: self._bulk_send_update_check(c)
             )
+        self._schedule_bulk_update_watchdog()
+        self._refresh_bulk_update_window()
 
     def _bulk_send_update_check(self, client: dict) -> None:
         """
@@ -571,9 +582,11 @@ class MoonHardDashboardApp(ctk.CTk):
         request_id = str(uuid.uuid4())
 
         if client_code in self.bulk_update_states:
-            self.bulk_update_states[client_code]["stage"] = "checking"
-            self.bulk_update_states[client_code]["check_request_id"] = request_id
-            self._refresh_bulk_update_window()
+            self._set_bulk_update_state(
+                client_code,
+                "checking",
+                extra_values={"check_request_id": request_id}
+            )
 
         self.websocket_client.send_message(
             {
@@ -605,9 +618,11 @@ class MoonHardDashboardApp(ctk.CTk):
 
         request_id = str(uuid.uuid4())
 
-        state["stage"] = "downloading"
-        state["download_request_id"] = request_id
-        self._refresh_bulk_update_window()
+        self._set_bulk_update_state(
+            client_code,
+            "downloading",
+            extra_values={"download_request_id": request_id}
+        )
 
         self.websocket_client.send_message(
             {
@@ -642,9 +657,11 @@ class MoonHardDashboardApp(ctk.CTk):
 
         request_id = str(uuid.uuid4())
 
-        state["stage"] = "extracting"
-        state["extract_request_id"] = request_id
-        self._refresh_bulk_update_window()
+        self._set_bulk_update_state(
+            client_code,
+            "extracting",
+            extra_values={"extract_request_id": request_id}
+        )
 
         self.websocket_client.send_message(
             {
@@ -678,9 +695,11 @@ class MoonHardDashboardApp(ctk.CTk):
 
         request_id = str(uuid.uuid4())
 
-        state["stage"] = "applying"
-        state["apply_request_id"] = request_id
-        self._refresh_bulk_update_window()
+        self._set_bulk_update_state(
+            client_code,
+            "applying",
+            extra_values={"apply_request_id": request_id}
+        )
 
         self.websocket_client.send_message(
             {
@@ -697,6 +716,136 @@ class MoonHardDashboardApp(ctk.CTk):
             client_code,
             request_id
         )
+
+    def _set_bulk_update_state(
+        self,
+        client_code: str,
+        stage: str,
+        error: str = "",
+        extra_values: dict[str, Any] | None = None
+    ) -> None:
+        """
+        Ενημερώνει κεντρικά την κατάσταση ενός bulk update client.
+        """
+
+        state = self.bulk_update_states.get(client_code)
+
+        if not state:
+            return
+
+        state["stage"] = stage
+        state["error"] = error
+        state["updated_at"] = time.monotonic()
+
+        if extra_values:
+            state.update(extra_values)
+
+        self._refresh_bulk_update_window()
+
+    def _is_bulk_retryable_stage(self, stage: str) -> bool:
+        """
+        Ελέγχει αν ένα bulk update stage μπορεί να ξαναδοκιμαστεί.
+        """
+
+        return stage in {
+            "failed",
+            "stuck",
+            "queued",
+            "checking",
+            "downloading",
+            "extracting",
+            "applying",
+            "apply_started"
+        }
+
+    def _retry_bulk_update_clients(self, automatic: bool = False) -> None:
+        """
+        Κάνει retry μόνο clients που απέτυχαν, κόλλησαν ή δεν ολοκληρώθηκαν.
+        Παραλείπει completed και up_to_date.
+        """
+
+        if not self.bulk_update_states:
+            logger.info("Bulk retry skipped. No bulk update states found.")
+            return
+
+        retry_clients: list[dict] = []
+
+        for client_code, state in self.bulk_update_states.items():
+            stage = str(state.get("stage", ""))
+            retry_count = int(state.get("retry_count", 0))
+
+            if stage in ("completed", "up_to_date"):
+                continue
+
+            if not self._is_bulk_retryable_stage(stage):
+                continue
+
+            if retry_count >= self.bulk_update_max_retries:
+                state["stage"] = "failed"
+                state["error"] = (
+                    f"Max retry limit reached ({self.bulk_update_max_retries})."
+                )
+                continue
+
+            client = state.get("client")
+
+            if isinstance(client, dict):
+                retry_clients.append(client)
+
+        if not retry_clients:
+            logger.info("Bulk retry skipped. No retryable clients found.")
+            self._refresh_bulk_update_window()
+            return
+
+        if not automatic:
+            confirm = ctk.CTkInputDialog(
+                text=(
+                    f"Type RETRY to retry {len(retry_clients)} failed/stuck/not completed clients.\n\n"
+                    "Completed and up-to-date clients will be skipped."
+                ),
+                title="Confirm Bulk Retry"
+            )
+
+            answer = confirm.get_input()
+
+            if answer != "RETRY":
+                logger.info("Bulk retry cancelled by user.")
+                return
+
+        self.bulk_update_active = True
+
+        logger.info(
+            "Bulk retry started. automatic=%s count=%s",
+            automatic,
+            len(retry_clients)
+        )
+
+        for index, client in enumerate(retry_clients):
+            client_code = str(client.get("client_code", ""))
+
+            if not client_code or client_code not in self.bulk_update_states:
+                continue
+
+            state = self.bulk_update_states[client_code]
+            state["retry_count"] = int(state.get("retry_count", 0)) + 1
+            state["error"] = ""
+            state["latest_version"] = ""
+            state["download_url"] = ""
+            state["sha256"] = ""
+            state["package_path"] = ""
+            state["extracted_path"] = ""
+            state["updated_at"] = time.monotonic()
+            state["stage"] = "queued"
+
+            delay_ms = index * 2000
+
+            self.after(
+                delay_ms,
+                lambda c=client: self._bulk_send_update_check(c)
+            )
+
+        self._schedule_bulk_update_watchdog()
+        self._refresh_bulk_update_window()
 
     def _handle_bulk_update_check_result(self, payload: dict[str, Any]) -> None:
         """
@@ -887,7 +1036,9 @@ class MoonHardDashboardApp(ctk.CTk):
             stage = str(state.get("stage", "unknown"))
             summary[stage] = summary.get(stage, 0) + 1
 
-        logger.info("Bulk update summary: %s", summary)
+        completed = summary.get("completed", 0)
+        up_to_date = summary.get("up_to_date", 0)
+        failed = summary.get("failed", 0) + summary.get("stuck", 0)
 
         active_stages = {
             "queued",
@@ -898,13 +1049,44 @@ class MoonHardDashboardApp(ctk.CTk):
             "apply_started"
         }
 
-        still_running = any(
-            str(state.get("stage", "")) in active_stages
-            for state in self.bulk_update_states.values()
+        still_waiting = sum(
+            summary.get(stage, 0)
+            for stage in active_stages
         )
 
+        logger.info(
+            "Bulk update summary: completed=%s up_to_date=%s failed_or_stuck=%s still_waiting=%s raw=%s",
+            completed,
+            up_to_date,
+            failed,
+            still_waiting,
+            summary
+        )
+
+        still_running = still_waiting > 0
+
         if not still_running:
+            retryable_exists = any(
+                self._is_bulk_retryable_stage(str(state.get("stage", "")))
+                and str(state.get("stage", "")) not in ("completed", "up_to_date")
+                and int(state.get("retry_count", 0)) < self.bulk_update_max_retries
+                for state in self.bulk_update_states.values()
+            )
+
+            if retryable_exists:
+                self._auto_retry_bulk_update_if_needed()
+                return
+
             self.bulk_update_active = False
+
+            if self.bulk_update_watchdog_job:
+                try:
+                    self.after_cancel(self.bulk_update_watchdog_job)
+                except Exception:
+                    pass
+
+                self.bulk_update_watchdog_job = None
+
             logger.info("Bulk update finished.")
 
     def _refresh_bulk_update_window(self) -> None:
@@ -917,6 +1099,101 @@ class MoonHardDashboardApp(ctk.CTk):
             and self.bulk_update_window.winfo_exists()
         ):
             self.bulk_update_window.update_states(self.bulk_update_states)
+
+    def _schedule_bulk_update_watchdog(self) -> None:
+        """
+        Ξεκινά watchdog που εντοπίζει stuck bulk update clients.
+        """
+
+        if self.bulk_update_watchdog_job:
+            try:
+                self.after_cancel(self.bulk_update_watchdog_job)
+            except Exception:
+                pass
+
+            self.bulk_update_watchdog_job = None
+
+        self.bulk_update_watchdog_job = self.after(
+            30000,
+            self._bulk_update_watchdog_tick
+        )
+
+    def _bulk_update_watchdog_tick(self) -> None:
+        """
+        Ελέγχει αν κάποιο bulk update stage έχει κολλήσει.
+        """
+
+        self.bulk_update_watchdog_job = None
+
+        if not self.bulk_update_active:
+            return
+
+        now = time.monotonic()
+        changed = False
+
+        active_stages = {
+            "queued",
+            "checking",
+            "downloading",
+            "extracting",
+            "applying",
+            "apply_started"
+        }
+
+        for client_code, state in self.bulk_update_states.items():
+            stage = str(state.get("stage", ""))
+            updated_at = float(state.get("updated_at", now))
+
+            if stage not in active_stages:
+                continue
+
+            elapsed_seconds = now - updated_at
+
+            if elapsed_seconds >= self.bulk_update_stuck_seconds:
+                state["stage"] = "stuck"
+                state["error"] = (
+                    f"Stage '{stage}' timed out after {int(elapsed_seconds)} seconds."
+                )
+                state["updated_at"] = now
+                changed = True
+
+                logger.warning(
+                    "Bulk update client marked as stuck. client_code=%s stage=%s elapsed=%s",
+                    client_code,
+                    stage,
+                    int(elapsed_seconds)
+                )
+
+        if changed:
+            self._refresh_bulk_update_window()
+            self._auto_retry_bulk_update_if_needed()
+
+        self._log_bulk_update_summary()
+
+        if self.bulk_update_active:
+            self._schedule_bulk_update_watchdog()
+
+    def _auto_retry_bulk_update_if_needed(self) -> None:
+        """
+        Κάνει auto-retry σε retryable clients μέχρι το επιτρεπτό όριο.
+        """
+
+        retryable_exists = False
+
+        for state in self.bulk_update_states.values():
+            stage = str(state.get("stage", ""))
+            retry_count = int(state.get("retry_count", 0))
+
+            if (
+                self._is_bulk_retryable_stage(stage)
+                and stage not in ("completed", "up_to_date")
+                and retry_count < self.bulk_update_max_retries
+            ):
+                retryable_exists = True
+                break
+
+        if retryable_exists:
+            self._retry_bulk_update_clients(automatic=True)
         
     def _open_manage_window(self, client: dict) -> None:
         """
