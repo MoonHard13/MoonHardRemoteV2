@@ -61,8 +61,10 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
         self.minsize(900, 600)
-        # Δεν χρησιμοποιούμε grab_set(), ώστε να μπορούμε να διαχειριζόμαστε πολλούς clients ταυτόχρονα.
-        self.transient(parent)
+        # Δεν χρησιμοποιούμε grab_set() ή transient(), ώστε κάθε Manage window
+        # να είναι κανονικό ανεξάρτητο παράθυρο με minimize/maximize.
+        self.resizable(True, True)
+
         self.configure(fg_color=COLORS.background)
 
         self._build_ui()
