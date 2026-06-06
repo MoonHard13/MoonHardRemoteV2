@@ -12,6 +12,7 @@ class WindowsServicesReader:
     """
 
     MOONHARD_SERVICE_NAME = "MoonHardRemoteClient"
+    MOONHARD_SERVICE_DISPLAY_NAME = "MoonHard Remote Client"
 
     def _is_running_as_admin(self) -> bool:
         """
@@ -22,6 +23,19 @@ class WindowsServicesReader:
             return bool(ctypes.windll.shell32.IsUserAnAdmin())
         except Exception:
             return False
+
+    def _is_moonhard_service(self, service_name: str) -> bool:
+        """
+        Ελέγχει αν το επιλεγμένο service είναι το MoonHard service
+        είτε με βάση το service id είτε με βάση το display name.
+        """
+
+        normalized_name = str(service_name or "").strip().lower()
+
+        return normalized_name in {
+            self.MOONHARD_SERVICE_NAME.lower(),
+            self.MOONHARD_SERVICE_DISPLAY_NAME.lower()
+        }
 
     def get_services(self) -> dict:
         """
@@ -96,8 +110,8 @@ class WindowsServicesReader:
                 "Please run the MoonHard client as Administrator."
             )
 
-        if service_name.lower() == self.MOONHARD_SERVICE_NAME.lower():
-            return self._schedule_self_service_restart(service_name)
+        if self._is_moonhard_service(service_name):
+            return self._schedule_self_service_restart(self.MOONHARD_SERVICE_NAME)
 
         safe_service_name = service_name.replace("'", "''")
 
@@ -151,9 +165,12 @@ class WindowsServicesReader:
 
         safe_service_name = service_name.replace("'", "''")
         script_path = Path(tempfile.gettempdir()) / "moonhard_self_restart.ps1"
+        launch_log_path = Path(tempfile.gettempdir()) / "moonhard_self_restart_launch.log"
 
         powershell_script = f"""
-Start-Sleep -Seconds 2
+$ErrorActionPreference = 'Stop'
+
+Start-Sleep -Seconds 3
 
 $serviceName = '{safe_service_name}'
 $logFile = Join-Path $env:ProgramData 'MoonHardRemoteV2\\logs\\self_restart.log'
@@ -161,29 +178,47 @@ $logFile = Join-Path $env:ProgramData 'MoonHardRemoteV2\\logs\\self_restart.log'
 try {{
     New-Item -ItemType Directory -Path (Split-Path $logFile) -Force | Out-Null
 
-    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart started for $serviceName"
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart script started for $serviceName"
 
     $service = Get-Service -Name $serviceName -ErrorAction Stop
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Current status before stop: $($service.Status)"
 
     if ($service.Status -ne 'Stopped') {{
+        Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Stopping $serviceName"
         Stop-Service -Name $serviceName -Force -ErrorAction Stop
-        $service.WaitForStatus('Stopped', '00:00:30')
+        Start-Sleep -Seconds 5
     }}
 
-    Start-Sleep -Seconds 2
+    $service = Get-Service -Name $serviceName -ErrorAction Stop
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Status after stop command: $($service.Status)"
 
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Starting $serviceName"
     Start-Service -Name $serviceName -ErrorAction Stop
 
-    $service = Get-Service -Name $serviceName -ErrorAction Stop
-    $service.WaitForStatus('Running', '00:00:30')
+    Start-Sleep -Seconds 5
 
-    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart completed for $serviceName"
+    $service = Get-Service -Name $serviceName -ErrorAction Stop
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Final status: $($service.Status)"
+
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart script completed for $serviceName"
 }}
 catch {{
-    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart failed for $($serviceName): $($_.Exception.Message)"
+    try {{
+        New-Item -ItemType Directory -Path (Split-Path $logFile) -Force | Out-Null
+        Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart failed for $($serviceName): $($_.Exception.Message)"
+    }}
+    catch {{
+    }}
 }}
 """
+
         script_path.write_text(powershell_script, encoding="utf-8")
+
+        launch_log_path.write_text(
+            f"Created script: {script_path}\n"
+            f"Target service: {service_name}\n",
+            encoding="utf-8"
+        )
 
         subprocess.Popen(
             [
@@ -191,8 +226,6 @@ catch {{
                 "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
-                "-WindowStyle",
-                "Hidden",
                 "-File",
                 str(script_path)
             ],
@@ -206,10 +239,14 @@ catch {{
             "success": True,
             "service_name": service_name,
             "message": (
-                "MoonHard service self-restart was scheduled. "
-                "The client will disconnect briefly and reconnect automatically."
+                "MoonHard service self-restart script was created and launched. "
+                "The client should disconnect briefly and reconnect automatically."
             ),
-            "output": str(script_path)
+            "output": (
+                f"Script: {script_path}\n"
+                f"Launch log: {launch_log_path}\n"
+                "Expected service log: C:\\ProgramData\\MoonHardRemoteV2\\logs\\self_restart.log"
+            )
         }
         
     def start_service(self, service_name: str) -> dict:
