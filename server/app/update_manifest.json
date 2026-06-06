@@ -1,8 +1,8 @@
 {
   "product": "moonhard-remote-client",
-  "latest_version": "1.0.3",
-  "download_url": "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-1.0.3/moonhard-client-1.0.3.zip",
-  "sha256": "5382093DA5D931E977812505C89AA220B17CAD6F44E94517FF0C2BD6BADFF07F",
+  "latest_version": "1.0.4",
+  "download_url": "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.4/moonhard-client-1.0.4.zip",
+  "sha256": "D6C79962A2026F7DCC5B0526878B89D58495CE6C409DF4DD0CF9CAFA6394628A",
   "mandatory": false,
   "release_notes": "Test client update package from GitHub Releases."
 }
