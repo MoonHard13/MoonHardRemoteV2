@@ -548,8 +548,6 @@ class MoonHardDashboardApp(ctk.CTk):
             return
 
         self.bulk_update_active = True
-        self.bulk_update_active_downloads.clear()
-        self.bulk_update_download_queue.clear()
         self.bulk_update_states = {}
         self.bulk_update_active_downloads.clear()
         self.bulk_update_download_queue.clear()
