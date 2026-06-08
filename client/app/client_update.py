@@ -5,6 +5,7 @@ import shutil
 import zipfile
 import ssl
 import certifi
+import time
 
 from pathlib import Path
 
@@ -17,7 +18,11 @@ class ClientUpdateChecker:
     """
     Ελέγχει την έκδοση του client σε σχέση με το update manifest του server.
     """
-
+    
+    PACKAGE_DOWNLOAD_MAX_ATTEMPTS = 5
+    PACKAGE_DOWNLOAD_TIMEOUT_SECONDS = 180
+    PACKAGE_RETRY_HTTP_CODES = {408, 429, 500, 502, 503, 504}
+    
     def __init__(self, config: ClientConfig) -> None:
         """
         Αρχικοποιεί τον update checker.
@@ -178,26 +183,71 @@ class ClientUpdateChecker:
             }
         )
 
-        try:
-            with urllib.request.urlopen(
-                request,
-                timeout=60,
-                context=self._create_ssl_context()
-            ) as response:
-                with package_path.open("wb") as output_file:
-                    while True:
-                        chunk = response.read(1024 * 1024)
+        last_error: Exception | None = None
 
-                        if not chunk:
-                            break
+        for attempt in range(1, self.PACKAGE_DOWNLOAD_MAX_ATTEMPTS + 1):
+            try:
+                if package_path.exists():
+                    package_path.unlink()
 
-                        output_file.write(chunk)
+                with urllib.request.urlopen(
+                    request,
+                    timeout=self.PACKAGE_DOWNLOAD_TIMEOUT_SECONDS,
+                    context=self._create_ssl_context()
+                ) as response:
+                    with package_path.open("wb") as output_file:
+                        while True:
+                            chunk = response.read(1024 * 1024)
 
-        except HTTPError as exc:
-            raise RuntimeError(f"Package HTTP error: {exc.code}") from exc
+                            if not chunk:
+                                break
 
-        except URLError as exc:
-            raise RuntimeError(f"Package connection error: {exc.reason}") from exc
+                            output_file.write(chunk)
+
+                last_error = None
+                break
+
+            except HTTPError as exc:
+                last_error = exc
+
+                if exc.code not in self.PACKAGE_RETRY_HTTP_CODES:
+                    raise RuntimeError(f"Package HTTP error: {exc.code}") from exc
+
+                if attempt >= self.PACKAGE_DOWNLOAD_MAX_ATTEMPTS:
+                    raise RuntimeError(
+                        f"Package HTTP error: {exc.code} after {attempt} attempts"
+                    ) from exc
+
+                retry_delay = self._calculate_retry_delay_seconds(attempt)
+                time.sleep(retry_delay)
+
+            except URLError as exc:
+                last_error = exc
+
+                if attempt >= self.PACKAGE_DOWNLOAD_MAX_ATTEMPTS:
+                    raise RuntimeError(
+                        f"Package connection error after {attempt} attempts: {exc.reason}"
+                    ) from exc
+
+                retry_delay = self._calculate_retry_delay_seconds(attempt)
+                time.sleep(retry_delay)
+
+            except TimeoutError as exc:
+                last_error = exc
+
+                if attempt >= self.PACKAGE_DOWNLOAD_MAX_ATTEMPTS:
+                    raise RuntimeError(
+                        f"Package download timeout after {attempt} attempts"
+                    ) from exc
+
+                retry_delay = self._calculate_retry_delay_seconds(attempt)
+                time.sleep(retry_delay)
+
+        if last_error is not None:
+            raise RuntimeError(f"Package download failed: {last_error}")
+
+        if not package_path.exists():
+            raise FileNotFoundError(f"Package was not downloaded: {package_path}")
 
         actual_sha256 = self._calculate_sha256(package_path)
         sha256_verified = actual_sha256.lower() == expected_sha256.lower()
@@ -302,6 +352,20 @@ class ClientUpdateChecker:
             "required_items": required_items,
             "missing_items": missing_items
         }
+
+    def _calculate_retry_delay_seconds(self, attempt: int) -> int:
+        """
+        Υπολογίζει καθυστέρηση retry για προσωρινά download errors.
+        """
+
+        retry_delays = {
+            1: 5,
+            2: 10,
+            3: 20,
+            4: 40
+        }
+
+        return retry_delays.get(attempt, 60)
 
     def _calculate_sha256(self, file_path: Path) -> str:
         """
