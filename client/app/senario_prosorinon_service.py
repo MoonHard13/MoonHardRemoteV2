@@ -1729,7 +1729,7 @@ class SenarioProsorinonService:
         driver = OdbcDriverHelper.get_best_driver()
 
         connection_parts = [
-            f"DRIVER={{driver}}",
+            f"DRIVER={{{driver}}}",
             f"SERVER={server}",
             f"DATABASE={database}",
             "Encrypt=no",
