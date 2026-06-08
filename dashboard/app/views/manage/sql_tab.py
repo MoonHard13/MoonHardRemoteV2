@@ -257,15 +257,50 @@ class SqlTab(ctk.CTkFrame):
             return
 
         try:
-            content = Path(file_path).read_text(encoding="utf-8-sig")
+            content, used_encoding = self._read_sql_file_with_fallback(Path(file_path))
 
             self.sql_editor.delete("1.0", "end")
             self.sql_editor.insert("1.0", content)
-            self._set_sql_result_text(f"Loaded SQL file:\n{file_path}\n")
+            self._set_sql_result_text(
+                f"Loaded SQL file:\n{file_path}\nEncoding: {used_encoding}\n"
+            )
 
         except Exception as exc:
             self._set_sql_result_text(f"Failed to load SQL file:\n{exc}\n")
 
+    def _read_sql_file_with_fallback(self, file_path: Path) -> tuple[str, str]:
+        """
+        Διαβάζει SQL αρχεία με fallback encodings.
+        Υποστηρίζει UTF-8, UTF-16 και ελληνικά Windows encoded αρχεία.
+        """
+
+        encodings = [
+            "utf-8-sig",
+            "utf-8",
+            "utf-16",
+            "utf-16-le",
+            "cp1253",
+            "iso-8859-7",
+            "cp1252"
+        ]
+
+        last_error: Exception | None = None
+
+        for encoding in encodings:
+            try:
+                return file_path.read_text(encoding=encoding), encoding
+            except UnicodeDecodeError as exc:
+                last_error = exc
+
+        content = file_path.read_text(encoding="cp1253", errors="replace")
+
+        if last_error:
+            return (
+                content,
+                f"cp1253 with replacement characters after decode fallback: {last_error}"
+            )
+
+        return content, "cp1253 with replacement characters"
 
     def execute_sql(self) -> None:
         """
