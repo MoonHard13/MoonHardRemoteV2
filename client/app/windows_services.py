@@ -159,26 +159,28 @@ class WindowsServicesReader:
     def _schedule_self_service_restart(self, service_name: str) -> dict:
         """
         Προγραμματίζει ασφαλές restart του ίδιου του MoonHard service.
-        Το restart γίνεται από ξεχωριστό detached PowerShell process,
-        ώστε να μην σκοτωθεί ο client πριν ξεκινήσει ξανά το service.
+        Το restart εκτελείται από Windows Scheduled Task ως SYSTEM,
+        ώστε να μη σκοτωθεί μαζί με το client process.
         """
 
         safe_service_name = service_name.replace("'", "''")
         script_path = Path(tempfile.gettempdir()) / "moonhard_self_restart.ps1"
         launch_log_path = Path(tempfile.gettempdir()) / "moonhard_self_restart_launch.log"
+        task_name = "MoonHardRemoteClientSelfRestart"
 
         powershell_script = f"""
 $ErrorActionPreference = 'Stop'
 
-Start-Sleep -Seconds 3
-
 $serviceName = '{safe_service_name}'
-$logFile = Join-Path $env:ProgramData 'MoonHardRemoteV2\\logs\\self_restart.log'
+$programDataPath = [Environment]::GetFolderPath('CommonApplicationData')
+$logFile = Join-Path $programDataPath 'MoonHardRemoteV2\\logs\\self_restart.log'
 
 try {{
     New-Item -ItemType Directory -Path (Split-Path $logFile) -Force | Out-Null
 
-    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart script started for $serviceName"
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Scheduled self restart script started for $serviceName"
+
+    Start-Sleep -Seconds 5
 
     $service = Get-Service -Name $serviceName -ErrorAction Stop
     Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Current status before stop: $($service.Status)"
@@ -186,7 +188,7 @@ try {{
     if ($service.Status -ne 'Stopped') {{
         Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Stopping $serviceName"
         Stop-Service -Name $serviceName -Force -ErrorAction Stop
-        Start-Sleep -Seconds 5
+        Start-Sleep -Seconds 8
     }}
 
     $service = Get-Service -Name $serviceName -ErrorAction Stop
@@ -195,17 +197,17 @@ try {{
     Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Starting $serviceName"
     Start-Service -Name $serviceName -ErrorAction Stop
 
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 8
 
     $service = Get-Service -Name $serviceName -ErrorAction Stop
     Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Final status: $($service.Status)"
 
-    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart script completed for $serviceName"
+    Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Scheduled self restart completed for $serviceName"
 }}
 catch {{
     try {{
         New-Item -ItemType Directory -Path (Split-Path $logFile) -Force | Out-Null
-        Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Self restart failed for $($serviceName): $($_.Exception.Message)"
+        Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Scheduled self restart failed for $($serviceName): $($_.Exception.Message)"
     }}
     catch {{
     }}
@@ -216,35 +218,81 @@ catch {{
 
         launch_log_path.write_text(
             f"Created script: {script_path}\n"
-            f"Target service: {service_name}\n",
+            f"Target service: {service_name}\n"
+            f"Task name: {task_name}\n",
             encoding="utf-8"
         )
 
-        subprocess.Popen(
-            [
-                "powershell",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(script_path)
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+        task_time = "23:59"
+        task_command = (
+            f'powershell.exe -NoProfile -ExecutionPolicy Bypass '
+            f'-File "{script_path}"'
         )
+
+        create_task = subprocess.run(
+            [
+                "schtasks",
+                "/Create",
+                "/TN",
+                task_name,
+                "/TR",
+                task_command,
+                "/SC",
+                "ONCE",
+                "/ST",
+                task_time,
+                "/RU",
+                "SYSTEM",
+                "/RL",
+                "HIGHEST",
+                "/F"
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30
+        )
+
+        if create_task.returncode != 0:
+            raise RuntimeError(
+                create_task.stderr.strip()
+                or create_task.stdout.strip()
+                or "Failed to create self-restart scheduled task."
+            )
+
+        run_task = subprocess.run(
+            [
+                "schtasks",
+                "/Run",
+                "/TN",
+                task_name
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30
+        )
+
+        if run_task.returncode != 0:
+            raise RuntimeError(
+                run_task.stderr.strip()
+                or run_task.stdout.strip()
+                or "Failed to run self-restart scheduled task."
+            )
 
         return {
             "success": True,
             "service_name": service_name,
             "message": (
-                "MoonHard service self-restart script was created and launched. "
+                "MoonHard service self-restart scheduled task was created and started. "
                 "The client should disconnect briefly and reconnect automatically."
             ),
             "output": (
                 f"Script: {script_path}\n"
                 f"Launch log: {launch_log_path}\n"
+                f"Task name: {task_name}\n"
                 "Expected service log: C:\\ProgramData\\MoonHardRemoteV2\\logs\\self_restart.log"
             )
         }
