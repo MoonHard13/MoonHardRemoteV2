@@ -1,8 +1,8 @@
 {
   "product": "moonhard-remote-client",
-  "latest_version": "1.0.6",
-  "download_url": "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.6/moonhard-client-1.0.6.zip",
-  "sha256": "A009B2A13436DEDF848B3A4DA7953DA5EEF1FFA84416427DF73355815634704C",
+  "latest_version": "1.0.7",
+  "download_url": "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.7/moonhard-client-1.0.7.zip",
+  "sha256": "8CC5B35923D0115C801744A570A78FD3F2342A7B0F1A3A811B58F6EEFC3E456F",
   "mandatory": false,
   "release_notes": "Improves MoonHardRemoteClient self-restart detection and adds launch/service restart logging."
 }
