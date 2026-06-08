@@ -297,6 +297,13 @@ class MoonHardDashboardApp(ctk.CTk):
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_provider_get_note_types_result(payload)
 
+        elif message_type == "senario_prosorinon_result":
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_senario_prosorinon_result(payload)
+
         elif message_type == "services_get_result":
             client_code = payload.get("client_code", "")
             manage_window = self.manage_windows.get(client_code)
@@ -493,6 +500,20 @@ class MoonHardDashboardApp(ctk.CTk):
 
         if self.websocket_client:
             self.websocket_client.send_message(payload)
+
+    def _send_senario_request(self, payload: dict) -> None:
+        """
+        Στέλνει Senario Prosorinon request στον server.
+        """
+
+        if self.websocket_client:
+            self.websocket_client.send_message(payload)
+
+        logger.info(
+            "Senario Prosorinon request sent. client_code=%s bo_connection_id=%s",
+            payload.get("client_code"),
+            payload.get("bo_connection_id")
+        )
 
     def _bulk_update_clients(self, clients: list[dict]) -> None:
         """
@@ -1385,7 +1406,8 @@ class MoonHardDashboardApp(ctk.CTk):
             on_service_action_callback=self._send_service_action,
             on_processes_request_callback=self._send_processes_request,
             on_process_action_callback=self._send_process_action,
-            on_update_request_callback=self._send_update_request
+            on_update_request_callback=self._send_update_request,
+            on_senario_request_callback=self._send_senario_request
         )
 
         self.manage_windows[client_code] = window

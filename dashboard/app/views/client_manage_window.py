@@ -11,6 +11,7 @@ from app.views.manage.sql_tab import SqlTab
 from app.views.manage.services_tab import ServicesTab
 from app.views.manage.processes_tab import ProcessesTab
 from app.views.manage.updates_tab import UpdatesTab
+from app.views.manage.senario_prosorinon_tab import SenarioProsorinonTab
 
 
 class ClientManageWindow(ctk.CTkToplevel):
@@ -32,7 +33,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         on_service_action_callback: Callable[[dict], None] | None = None,
         on_processes_request_callback: Callable[[dict], None] | None = None,
         on_process_action_callback: Callable[[dict], None] | None = None,
-        on_update_request_callback: Callable[[dict], None] | None = None
+        on_update_request_callback: Callable[[dict], None] | None = None,
+        on_senario_request_callback: Callable[[dict], None] | None = None
         
     ) -> None:
         """
@@ -57,6 +59,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.on_processes_request_callback = on_processes_request_callback
         self.on_process_action_callback = on_process_action_callback
         self.on_update_request_callback = on_update_request_callback
+        self.on_senario_request_callback = on_senario_request_callback
 
         self.title(f"Manage Client - {client.get('display_name') or client.get('pc_name')}")
         self.geometry("1000x700")
@@ -142,6 +145,9 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.updates_tab = self.tabs.add("Updates")
         self.updates_tab.grid_columnconfigure(0, weight=1)
         self.updates_tab.grid_rowconfigure(0, weight=1)
+        self.senario_prosorinon_tab = self.tabs.add("Senario Prosorinon")
+        self.senario_prosorinon_tab.grid_columnconfigure(0, weight=1)
+        self.senario_prosorinon_tab.grid_rowconfigure(0, weight=1)
 
         self._build_overview_tab()
         self._build_terminal_tab()
@@ -151,6 +157,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self._build_services_tab()
         self._build_processes_tab()
         self._build_updates_tab()
+        self._build_senario_prosorinon_tab()
         
     def _build_header(self) -> None:
         """
@@ -296,6 +303,20 @@ class ClientManageWindow(ctk.CTkToplevel):
             on_update_request_callback=self.on_update_request_callback
         )
         self.updates_tab_view.grid(row=0, column=0, sticky="nsew")
+
+    def _build_senario_prosorinon_tab(self) -> None:
+        """
+        Δημιουργεί το Senario Prosorinon tab.
+        """
+
+        self.senario_prosorinon_tab_view = SenarioProsorinonTab(
+            self.senario_prosorinon_tab,
+            client_code=self.client_code,
+            get_bo_values_callback=self._build_bo_connection_values,
+            get_selected_bo_id_callback=lambda: self.selected_bo_connection_id,
+            on_senario_request_callback=self.on_senario_request_callback
+        )
+        self.senario_prosorinon_tab_view.grid(row=0, column=0, sticky="nsew")
 
     def handle_terminal_result(self, payload: dict) -> None:
         """
@@ -484,6 +505,9 @@ class ClientManageWindow(ctk.CTkToplevel):
                 bo_values=bo_values,
                 selected_value=self.appsettings_tab_view.get_selected_bo_value()
             )
+
+        if hasattr(self, "senario_prosorinon_tab_view"):
+            self.senario_prosorinon_tab_view.refresh_bo_values()
 
         self.appsettings_tab_view.set_status(
             f"Loaded from: {file_path} | Last read: {last_read_at}"
@@ -828,6 +852,17 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "updates_tab_view"):
             self.updates_tab_view.handle_update_extract_result(payload)
+
+    def handle_senario_prosorinon_result(self, payload: dict) -> None:
+        """
+        Προωθεί Senario Prosorinon result στο αντίστοιχο tab.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        if hasattr(self, "senario_prosorinon_tab_view"):
+            self.senario_prosorinon_tab_view.handle_result(payload)
             
     def handle_client_update_apply_result(self, payload: dict) -> None:
         """
