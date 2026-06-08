@@ -230,6 +230,7 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
         mapping = {
             "queued": "QUEUED",
             "checking": "CHECKING",
+            "waiting_download_slot": "WAITING DOWNLOAD SLOT",
             "downloading": "DOWNLOADING",
             "extracting": "EXTRACTING",
             "applying": "APPLYING",
@@ -253,7 +254,14 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
         if stage in ("failed", "stuck"):
             return COLORS.danger
 
-        if stage in ("checking", "downloading", "extracting", "applying", "apply_started"):
+        if stage in (
+            "checking",
+            "waiting_download_slot",
+            "downloading",
+            "extracting",
+            "applying",
+            "apply_started"
+        ):
             return COLORS.warning
 
         return COLORS.text_muted
@@ -273,6 +281,7 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
         active_stages = [
             "queued",
             "checking",
+            "waiting_download_slot",
             "downloading",
             "extracting",
             "applying",
@@ -293,6 +302,7 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
         ordered_stages = [
             "queued",
             "checking",
+            "waiting_download_slot",
             "downloading",
             "extracting",
             "applying",

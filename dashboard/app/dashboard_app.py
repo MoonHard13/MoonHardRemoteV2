@@ -37,6 +37,9 @@ class MoonHardDashboardApp(ctk.CTk):
         self.bulk_update_max_retries: int = 2
         self.bulk_update_stuck_seconds: int = 180
         self.bulk_update_watchdog_job = None
+        self.bulk_update_max_parallel_downloads: int = 5
+        self.bulk_update_active_downloads: set[str] = set()
+        self.bulk_update_download_queue: list[str] = []
                 
         self.title(self.config_data.app_name)
         self.geometry("1100x700")
@@ -524,7 +527,11 @@ class MoonHardDashboardApp(ctk.CTk):
             return
 
         self.bulk_update_active = True
+        self.bulk_update_active_downloads.clear()
+        self.bulk_update_download_queue.clear()
         self.bulk_update_states = {}
+        self.bulk_update_active_downloads.clear()
+        self.bulk_update_download_queue.clear()
         
         if self.bulk_update_window and self.bulk_update_window.winfo_exists():
             self.bulk_update_window.destroy()
@@ -641,6 +648,82 @@ class MoonHardDashboardApp(ctk.CTk):
             request_id
         )
 
+    def _queue_bulk_update_download(self, client_code: str) -> None:
+        """
+        Βάζει client στην ουρά download ώστε να μην κατεβάζουν όλοι ταυτόχρονα.
+        """
+
+        if client_code not in self.bulk_update_states:
+            return
+
+        if client_code in self.bulk_update_active_downloads:
+            return
+
+        if client_code not in self.bulk_update_download_queue:
+            self.bulk_update_download_queue.append(client_code)
+
+        self._set_bulk_update_state(
+            client_code,
+            "waiting_download_slot"
+        )
+
+        logger.info(
+            "Bulk update download queued. client_code=%s queue_size=%s active_downloads=%s",
+            client_code,
+            len(self.bulk_update_download_queue),
+            len(self.bulk_update_active_downloads)
+        )
+
+        self._process_bulk_update_download_queue()
+
+    def _process_bulk_update_download_queue(self) -> None:
+        """
+        Ξεκινά downloads από την ουρά μέχρι το επιτρεπτό όριο παράλληλων downloads.
+        """
+
+        while (
+            self.bulk_update_download_queue
+            and len(self.bulk_update_active_downloads) < self.bulk_update_max_parallel_downloads
+        ):
+            client_code = self.bulk_update_download_queue.pop(0)
+
+            state = self.bulk_update_states.get(client_code)
+
+            if not state:
+                continue
+
+            stage = str(state.get("stage", ""))
+
+            if stage in ("completed", "up_to_date", "failed"):
+                continue
+
+            self.bulk_update_active_downloads.add(client_code)
+
+            logger.info(
+                "Bulk update download slot acquired. client_code=%s active_downloads=%s",
+                client_code,
+                len(self.bulk_update_active_downloads)
+            )
+
+            self._bulk_send_update_download(client_code)
+
+    def _release_bulk_update_download_slot(self, client_code: str) -> None:
+        """
+        Ελευθερώνει download slot και ξεκινά τον επόμενο client από την ουρά.
+        """
+
+        if client_code in self.bulk_update_active_downloads:
+            self.bulk_update_active_downloads.remove(client_code)
+
+        logger.info(
+            "Bulk update download slot released. client_code=%s active_downloads=%s queue_size=%s",
+            client_code,
+            len(self.bulk_update_active_downloads),
+            len(self.bulk_update_download_queue)
+        )
+
+        self._process_bulk_update_download_queue()
+
     def _bulk_send_update_extract(self, client_code: str) -> None:
         """
         Στέλνει extract update request σε έναν client για bulk update.
@@ -752,6 +835,7 @@ class MoonHardDashboardApp(ctk.CTk):
             "stuck",
             "queued",
             "checking",
+            "waiting_download_slot",
             "downloading",
             "extracting",
             "applying",
@@ -907,7 +991,7 @@ class MoonHardDashboardApp(ctk.CTk):
 
         self.after(
             1000,
-            lambda code=client_code: self._bulk_send_update_download(code)
+            lambda code=client_code: self._queue_bulk_update_download(code)
         )
         
         self._log_bulk_update_summary()
@@ -921,6 +1005,8 @@ class MoonHardDashboardApp(ctk.CTk):
 
         if not self.bulk_update_active or client_code not in self.bulk_update_states:
             return
+
+        self._release_bulk_update_download_slot(client_code)
 
         state = self.bulk_update_states[client_code]
 
@@ -1118,6 +1204,7 @@ class MoonHardDashboardApp(ctk.CTk):
         active_stages = {
             "queued",
             "checking",
+            "waiting_download_slot",
             "downloading",
             "extracting",
             "applying",
