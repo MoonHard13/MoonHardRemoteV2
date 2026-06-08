@@ -496,6 +496,24 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") in ("senario_prosorinon_result",):
+                    request_id = data.get("request_id", "")
+
+                    dashboard_websocket = self.pending_requests.pop(
+                        request_id,
+                        None
+                    )
+
+                    if dashboard_websocket:
+                        await connection_manager.send_to_dashboard(
+                            dashboard_websocket,
+                            data
+                        )
+                    else:
+                        await connection_manager.broadcast_to_dashboards(data)
+
+                    continue
+
                 await websocket.send_json({
                     "type": "echo",
                     "received": data
@@ -1025,6 +1043,66 @@ class WebSocketRoutes:
                                 "client_code": client_code,
                                 "success": False,
                                 "message": "Client is not connected."
+                            }
+                        )
+
+                    continue
+
+                if data.get("type") == "senario_prosorinon_run":
+                    request_id = data.get("request_id", "")
+                    client_code = data.get("client_code", "")
+                    bo_connection_id = data.get("bo_connection_id", 1)
+                    timeout = data.get("timeout", 60)
+
+                    if not request_id or not client_code:
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "senario_prosorinon_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "bo_connection_id": bo_connection_id,
+                                "success": False,
+                                "database_name": "",
+                                "total": 0,
+                                "success_count": 0,
+                                "problem_count": 0,
+                                "results": [],
+                                "error": "Missing request_id or client_code."
+                            }
+                        )
+                        continue
+
+                    self.pending_requests[request_id] = websocket
+
+                    sent = await connection_manager.send_to_client(
+                        client_code,
+                        {
+                            "type": "senario_prosorinon_run",
+                            "request_id": request_id,
+                            "client_code": client_code,
+                            "bo_connection_id": bo_connection_id,
+                            "timeout": timeout
+                        }
+                    )
+
+                    if not sent:
+                        self.pending_requests.pop(request_id, None)
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "senario_prosorinon_result",
+                                "request_id": request_id,
+                                "client_code": client_code,
+                                "bo_connection_id": bo_connection_id,
+                                "success": False,
+                                "database_name": "",
+                                "total": 0,
+                                "success_count": 0,
+                                "problem_count": 0,
+                                "results": [],
+                                "error": "Client is not connected."
                             }
                         )
 

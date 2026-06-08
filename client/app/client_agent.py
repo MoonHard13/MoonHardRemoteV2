@@ -17,6 +17,7 @@ from app.provider.provider_service import ProviderService
 from app.windows_services import WindowsServicesReader
 from app.process_reader import ProcessReader
 from app.client_update import ClientUpdateChecker
+from app.senario_prosorinon_service import SenarioProsorinonService
 from pathlib import Path
 
 
@@ -43,6 +44,7 @@ class MoonHardClientAgent:
         self.windows_services_reader = WindowsServicesReader()
         self.process_reader = ProcessReader()
         self.client_update_checker = ClientUpdateChecker(self.config)
+        self.senario_prosorinon_service = SenarioProsorinonService()
         
     async def run_forever(self) -> None:
         """
@@ -187,6 +189,9 @@ class MoonHardClientAgent:
 
             elif message_type == "sql_cancel":
                 await self._handle_sql_cancel(websocket, payload)
+
+            elif message_type == "senario_prosorinon_run":
+                await self._handle_senario_prosorinon_run(websocket, payload)
                 
             elif message_type == "provider_search_invoices":
                 await self._handle_provider_search_invoices(websocket, payload)
@@ -758,6 +763,65 @@ class MoonHardClientAgent:
             "client_code": self.identity["client_code"],
             **cancel_result
         }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+    async def _handle_senario_prosorinon_run(self, websocket, payload: dict) -> None:
+        """
+        Εκτελεί τους ελέγχους Σεναρίου Προσωρινών Αποδείξεων στον client.
+        """
+
+        request_id = payload.get("request_id", "")
+        bo_connection_id = int(payload.get("bo_connection_id", 1))
+        timeout = int(payload.get("timeout", 60))
+
+        try:
+            appsettings_data = self.appsettings_reader.read_appsettings_production()
+            bo_connections = appsettings_data.get("bo_connections") or []
+
+            selected_connection = self._get_bo_connection_by_id(
+                bo_connections=bo_connections,
+                bo_connection_id=bo_connection_id
+            )
+
+            if not selected_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} was not found.")
+
+            database_connection = selected_connection.get("DatabaseConnection")
+
+            if not database_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} has no DatabaseConnection.")
+
+            senario_result = await asyncio.to_thread(
+                self.senario_prosorinon_service.run_checks,
+                database_connection,
+                timeout
+            )
+
+            result_message = {
+                "type": "senario_prosorinon_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                **senario_result
+            }
+
+        except Exception as exc:
+            logger.exception("Senario Prosorinon request failed.")
+
+            result_message = {
+                "type": "senario_prosorinon_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                "success": False,
+                "database_name": "",
+                "total": 0,
+                "success_count": 0,
+                "problem_count": 0,
+                "results": [],
+                "error": str(exc)
+            }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))
 
