@@ -84,7 +84,9 @@ class WebSocketRoutes:
     def _should_write_heartbeat_to_db(self, client_code: str) -> bool:
         """
         Ελέγχει αν πρέπει να γράψουμε heartbeat στη Supabase.
-        Για μείωση egress/writes, δεν γράφουμε κάθε heartbeat στη βάση.
+
+        Για μείωση Supabase egress/writes, δεν γράφουμε κάθε heartbeat στη βάση.
+        Γράφουμε max μία φορά ανά client κάθε 5 λεπτά.
         """
 
         now_utc = datetime.now(timezone.utc)
@@ -199,7 +201,6 @@ class WebSocketRoutes:
                         "appsettings": saved_appsettings
                     })
 
-                    await self.broadcast_clients_list()
                     continue
 
                 if data.get("type") == "terminal_result":

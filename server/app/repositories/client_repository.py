@@ -23,10 +23,11 @@ class ClientRepository:
 
     def get_all_clients(self) -> list[dict[str, Any]]:
         """
-        Επιστρέφει όλους τους clients από τη βάση.
+        Επιστρέφει μικρή λίστα clients για το Dashboard.
+        Δεν χρησιμοποιούμε select("*") για μείωση Supabase egress.
         """
 
-        logger.info("Fetching all clients from Supabase.")
+        logger.info("Fetching dashboard clients list from Supabase.")
 
         response = (
             self.db
@@ -297,7 +298,10 @@ class ClientRepository:
         response = (
             self.db
             .table("client_appsettings")
-            .select("*")
+            .select(
+                "id, client_code, display_name, pc_name, username, app_version, "
+                "status, last_seen, connected_at, disconnected_at, created_at"
+            )
             .eq("client_code", client_code)
             .execute()
         )
