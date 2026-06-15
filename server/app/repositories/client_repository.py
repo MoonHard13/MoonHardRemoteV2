@@ -31,7 +31,10 @@ class ClientRepository:
         response = (
             self.db
             .table("clients")
-            .select("*")
+            .select(
+                "id, client_code, display_name, pc_name, username, app_version, "
+                "status, last_seen, connected_at, disconnected_at, created_at"
+            )
             .order("created_at", desc=True)
             .execute()
         )

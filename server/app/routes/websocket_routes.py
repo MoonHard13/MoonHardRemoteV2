@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Header, HTTPException, WebSocket, WebSocketDisconnect
 
@@ -26,7 +27,9 @@ class WebSocketRoutes:
         self.client_repository = ClientRepository()
         self.config = AppConfig()
         self.pending_requests: dict[str, WebSocket] = {}
-
+        self.heartbeat_db_write_interval_seconds = 300
+        self.client_last_db_heartbeat: dict[str, datetime] = {}
+                
     def _enrich_clients_with_connection_state(self, clients: list[dict]) -> list[dict]:
         """
         Προσθέτει πραγματική WebSocket κατάσταση σύνδεσης στη λίστα clients.
@@ -77,6 +80,34 @@ class WebSocketRoutes:
                 "clients": clients
             }
         )
+
+    def _should_write_heartbeat_to_db(self, client_code: str) -> bool:
+        """
+        Ελέγχει αν πρέπει να γράψουμε heartbeat στη Supabase.
+        Για μείωση egress/writes, δεν γράφουμε κάθε heartbeat στη βάση.
+        """
+
+        now_utc = datetime.now(timezone.utc)
+        last_write = self.client_last_db_heartbeat.get(client_code)
+
+        if last_write is None:
+            self.client_last_db_heartbeat[client_code] = now_utc
+            return True
+
+        elapsed_seconds = (now_utc - last_write).total_seconds()
+
+        if elapsed_seconds >= self.heartbeat_db_write_interval_seconds:
+            self.client_last_db_heartbeat[client_code] = now_utc
+            return True
+
+        return False
+
+    def _get_memory_last_seen(self) -> str:
+        """
+        Επιστρέφει τρέχον UTC timestamp για heartbeat ack χωρίς Supabase read/write.
+        """
+
+        return datetime.now(timezone.utc).isoformat()
         
     async def client_socket(self, websocket: WebSocket) -> None:
         """
@@ -138,15 +169,24 @@ class WebSocketRoutes:
                 logger.info("Client message received from %s: %s", client_code, data)
 
                 if data.get("type") == "heartbeat":
-                    updated_client = self.client_repository.update_client_heartbeat(client_code)
+                    last_seen = self._get_memory_last_seen()
+
+                    if self._should_write_heartbeat_to_db(client_code):
+                        try:
+                            updated_client = self.client_repository.update_client_heartbeat(client_code)
+                            last_seen = updated_client.get("last_seen") or last_seen
+                        except Exception:
+                            logger.exception(
+                                "Failed to update throttled heartbeat in Supabase for client: %s",
+                                client_code
+                            )
 
                     await websocket.send_json({
                         "type": "heartbeat_ack",
                         "client_code": client_code,
-                        "last_seen": updated_client.get("last_seen")
+                        "last_seen": last_seen
                     })
 
-                    await self.broadcast_clients_list()
                     continue
 
                 if data.get("type") == "appsettings_result":
@@ -530,6 +570,7 @@ class WebSocketRoutes:
 
                 if disconnected_active_client:
                     self.client_repository.mark_client_offline(client_code)
+                    self.client_last_db_heartbeat.pop(client_code, None)
                     await self.broadcast_clients_list()
                 else:
                     logger.warning(
@@ -548,6 +589,7 @@ class WebSocketRoutes:
 
                 if disconnected_active_client:
                     self.client_repository.mark_client_offline(client_code)
+                    self.client_last_db_heartbeat.pop(client_code, None)
                     await self.broadcast_clients_list()
                 else:
                     logger.warning(
