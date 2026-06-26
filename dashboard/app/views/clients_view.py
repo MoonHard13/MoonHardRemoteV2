@@ -416,26 +416,100 @@ class ClientsView(ctk.CTkFrame):
 
     def _create_group_dialog(self) -> None:
         """
-        Ζητάει όνομα νέου group.
+        Ανοίγει custom popup για δημιουργία νέου group.
         """
 
-        dialog = ctk.CTkInputDialog(
-            text="Enter new group name:",
-            title="Create Group"
+        create_window = ctk.CTkToplevel(self.manage_groups_window or self)
+        create_window.title("Create Group")
+        create_window.geometry("420x220")
+        create_window.resizable(False, False)
+        create_window.configure(fg_color=COLORS.background)
+
+        create_window.transient(self.manage_groups_window or self.winfo_toplevel())
+        create_window.lift()
+        create_window.focus_force()
+        create_window.attributes("-topmost", True)
+        create_window.after(
+            300,
+            lambda: create_window.attributes("-topmost", False)
         )
 
-        group_name = dialog.get_input()
+        create_window.grid_columnconfigure(0, weight=1)
 
-        if group_name is None:
-            return
+        title_label = ctk.CTkLabel(
+            create_window,
+            text="Create New Group",
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
+        )
+        title_label.grid(
+            row=0,
+            column=0,
+            padx=20,
+            pady=(20, 8),
+            sticky="w"
+        )
 
-        clean_group_name = group_name.strip()
+        name_entry = ctk.CTkEntry(
+            create_window,
+            placeholder_text="Group name...",
+            width=360,
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+            placeholder_text_color=COLORS.text_muted
+        )
+        name_entry.grid(
+            row=1,
+            column=0,
+            padx=20,
+            pady=(0, 18),
+            sticky="ew"
+        )
+        name_entry.focus_set()
 
-        if not clean_group_name:
-            return
+        buttons_frame = ctk.CTkFrame(create_window, fg_color="transparent")
+        buttons_frame.grid(
+            row=2,
+            column=0,
+            padx=20,
+            pady=(0, 20),
+            sticky="e"
+        )
 
-        if self.on_create_group_callback:
-            self.on_create_group_callback(clean_group_name)
+        cancel_button = ctk.CTkButton(
+            buttons_frame,
+            text="Cancel",
+            width=90,
+            command=create_window.destroy,
+            **secondary_button_style()
+        )
+        cancel_button.grid(row=0, column=0, padx=(0, 10))
+
+        def submit_create_group() -> None:
+            group_name = name_entry.get().strip()
+
+            if not group_name:
+                return
+
+            print(f"Creating group from UI: {group_name}")
+
+            if self.on_create_group_callback:
+                self.on_create_group_callback(group_name)
+
+            create_window.destroy()
+
+        save_button = ctk.CTkButton(
+            buttons_frame,
+            text="Create",
+            width=90,
+            command=submit_create_group,
+            **primary_button_style()
+        )
+        save_button.grid(row=0, column=1)
+
+        create_window.bind("<Return>", lambda _event: submit_create_group())
+        create_window.bind("<Escape>", lambda _event: create_window.destroy())
 
     def _rename_group_dialog(self, group: dict) -> None:
         """
