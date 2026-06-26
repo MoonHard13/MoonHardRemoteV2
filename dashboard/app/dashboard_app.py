@@ -417,6 +417,14 @@ class MoonHardDashboardApp(ctk.CTk):
         Κλείνει σωστά το dashboard.
         """
 
+        if self.clients_auto_refresh_job:
+            try:
+                self.after_cancel(self.clients_auto_refresh_job)
+            except Exception:
+                pass
+
+            self.clients_auto_refresh_job = None
+
         if self.websocket_client:
             self.websocket_client.stop()
 
