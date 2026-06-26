@@ -185,6 +185,131 @@ class ClientRepository:
             "group": group
         }
 
+    def create_client_group(self, group_name: str) -> dict[str, Any]:
+        """
+        Δημιουργεί νέο client group.
+        Αν υπάρχει ήδη, επιστρέφει το υπάρχον.
+        """
+
+        clean_name = group_name.strip()
+
+        if not clean_name:
+            raise ValueError("Group name cannot be empty.")
+
+        return self.get_or_create_client_group(clean_name)
+
+    def rename_client_group(self, group_id: str, new_name: str) -> dict[str, Any]:
+        """
+        Μετονομάζει ένα client group.
+        Δεν επιτρέπει rename του default Ungrouped group.
+        """
+
+        if not group_id:
+            raise ValueError("Missing group_id.")
+
+        clean_name = new_name.strip()
+
+        if not clean_name:
+            raise ValueError("Group name cannot be empty.")
+
+        existing_group_response = (
+            self.db
+            .table("client_groups")
+            .select("id, name, is_default")
+            .eq("id", group_id)
+            .limit(1)
+            .execute()
+        )
+
+        existing_groups = existing_group_response.data or []
+
+        if not existing_groups:
+            raise RuntimeError("Group not found.")
+
+        existing_group = existing_groups[0]
+
+        if existing_group.get("is_default"):
+            raise ValueError("Cannot rename the default Ungrouped group.")
+
+        logger.info(
+            "Renaming client group. group_id=%s new_name=%s",
+            group_id,
+            clean_name
+        )
+
+        response = (
+            self.db
+            .table("client_groups")
+            .update({
+                "name": clean_name
+            })
+            .eq("id", group_id)
+            .execute()
+        )
+
+        if not response.data:
+            raise RuntimeError("Client group rename returned no data.")
+
+        return response.data[0]
+
+    def delete_client_group(self, group_id: str) -> dict[str, Any]:
+        """
+        Διαγράφει ένα client group.
+        Όσοι clients ανήκουν σε αυτό μεταφέρονται πρώτα στο Ungrouped.
+        Δεν επιτρέπει delete του default Ungrouped group.
+        """
+
+        if not group_id:
+            raise ValueError("Missing group_id.")
+
+        existing_group_response = (
+            self.db
+            .table("client_groups")
+            .select("id, name, is_default")
+            .eq("id", group_id)
+            .limit(1)
+            .execute()
+        )
+
+        existing_groups = existing_group_response.data or []
+
+        if not existing_groups:
+            raise RuntimeError("Group not found.")
+
+        existing_group = existing_groups[0]
+
+        if existing_group.get("is_default"):
+            raise ValueError("Cannot delete the default Ungrouped group.")
+
+        default_group_id = self.get_default_group_id()
+
+        logger.info(
+            "Moving clients from group_id=%s to Ungrouped group_id=%s before delete.",
+            group_id,
+            default_group_id
+        )
+
+        self.db.table("clients").update({
+            "group_id": default_group_id
+        }).eq("group_id", group_id).execute()
+
+        logger.info("Deleting client group. group_id=%s", group_id)
+
+        response = (
+            self.db
+            .table("client_groups")
+            .delete()
+            .eq("id", group_id)
+            .execute()
+        )
+
+        return {
+            "deleted": True,
+            "group_id": group_id,
+            "group": existing_group,
+            "data": response.data or []
+        }
+
     def upsert_test_client(self) -> dict[str, Any]:
         """
         Δημιουργεί ή ενημερώνει έναν δοκιμαστικό client.

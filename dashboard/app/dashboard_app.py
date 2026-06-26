@@ -123,7 +123,10 @@ class MoonHardDashboardApp(ctk.CTk):
             on_delete_callback=self._delete_client,
             on_refresh_callback=self._refresh_clients,
             on_bulk_update_callback=self._bulk_update_clients,
-            on_group_callback=self._update_client_group
+            on_group_callback=self._update_client_group,
+            on_create_group_callback=self._create_client_group,
+            on_rename_group_callback=self._rename_client_group,
+            on_delete_group_callback=self._delete_client_group
         )
         self.clients_view.grid(
             row=1,
@@ -201,6 +204,50 @@ class MoonHardDashboardApp(ctk.CTk):
             logger.error(
                 "Client group update failed for %s: %s",
                 payload.get("client_code"),
+                payload.get("message")
+            )
+
+        elif message_type == "create_client_group_success":
+            logger.info(
+                "Client group created successfully: %s",
+                payload.get("group")
+            )
+            self._request_client_groups()
+            self._refresh_clients()
+
+        elif message_type == "create_client_group_error":
+            logger.error(
+                "Client group create failed: %s",
+                payload.get("message")
+            )
+
+        elif message_type == "rename_client_group_success":
+            logger.info(
+                "Client group renamed successfully: %s",
+                payload.get("group")
+            )
+            self._request_client_groups()
+            self._refresh_clients()
+
+        elif message_type == "rename_client_group_error":
+            logger.error(
+                "Client group rename failed for %s: %s",
+                payload.get("group_id"),
+                payload.get("message")
+            )
+
+        elif message_type == "delete_client_group_success":
+            logger.info(
+                "Client group deleted successfully: %s",
+                payload.get("result")
+            )
+            self._request_client_groups()
+            self._refresh_clients()
+
+        elif message_type == "delete_client_group_error":
+            logger.error(
+                "Client group delete failed for %s: %s",
+                payload.get("group_id"),
                 payload.get("message")
             )
 
@@ -527,6 +574,95 @@ class MoonHardDashboardApp(ctk.CTk):
             "Update client group request sent. client_code=%s group_name=%s",
             client_code,
             clean_group_name
+        )
+
+    def _create_client_group(self, group_name: str) -> None:
+        """
+        Στέλνει αίτημα δημιουργίας client group.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Cannot create client group. WebSocket is not connected.")
+            return
+
+        clean_group_name = group_name.strip()
+
+        if not clean_group_name:
+            logger.warning("Cannot create client group. Empty group name.")
+            return
+
+        self.websocket_client.send_message(
+            {
+                "type": "create_client_group",
+                "group_name": clean_group_name
+            }
+        )
+
+        logger.info(
+            "Create client group request sent. group_name=%s",
+            clean_group_name
+        )
+
+    def _rename_client_group(self, group: dict, new_name: str) -> None:
+        """
+        Στέλνει αίτημα μετονομασίας client group.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Cannot rename client group. WebSocket is not connected.")
+            return
+
+        group_id = str(group.get("id", "")).strip()
+        clean_new_name = new_name.strip()
+
+        if not group_id:
+            logger.warning("Cannot rename client group. Missing group_id.")
+            return
+
+        if not clean_new_name:
+            logger.warning("Cannot rename client group. Empty new_name.")
+            return
+
+        self.websocket_client.send_message(
+            {
+                "type": "rename_client_group",
+                "group_id": group_id,
+                "new_name": clean_new_name
+            }
+        )
+
+        logger.info(
+            "Rename client group request sent. group_id=%s new_name=%s",
+            group_id,
+            clean_new_name
+        )
+
+    def _delete_client_group(self, group: dict) -> None:
+        """
+        Στέλνει αίτημα διαγραφής client group.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Cannot delete client group. WebSocket is not connected.")
+            return
+
+        group_id = str(group.get("id", "")).strip()
+
+        if not group_id:
+            logger.warning("Cannot delete client group. Missing group_id.")
+            return
+
+        self.websocket_client.send_message(
+            {
+                "type": "delete_client_group",
+                "group_id": group_id
+            }
+        )
+
+        logger.info(
+            "Delete client group request sent. group_id=%s group_name=%s",
+            group_id,
+            group.get("name")
         )
         
     def _send_terminal_command(self, payload: dict[str, Any]) -> None:

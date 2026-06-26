@@ -22,7 +22,10 @@ class ClientsView(ctk.CTkFrame):
         on_delete_callback=None,
         on_refresh_callback=None,
         on_bulk_update_callback=None,
-        on_group_callback=None
+        on_group_callback=None,
+        on_create_group_callback=None,
+        on_rename_group_callback=None,
+        on_delete_group_callback=None
     ) -> None:
         """
         Δημιουργεί το UI της λίστας clients.
@@ -36,12 +39,17 @@ class ClientsView(ctk.CTkFrame):
         self.status_filter: str = "All"
         self.groups: list[dict] = []
         self.group_filter: str = "All Groups"
+        self.manage_groups_window = None
+        self.manage_groups_list_frame = None
         self.last_clients_snapshot: tuple = tuple()
         self.on_manage_callback = on_manage_callback
         self.on_delete_callback = on_delete_callback 
         self.on_refresh_callback = on_refresh_callback
         self.on_bulk_update_callback = on_bulk_update_callback
         self.on_group_callback = on_group_callback
+        self.on_create_group_callback = on_create_group_callback
+        self.on_rename_group_callback = on_rename_group_callback
+        self.on_delete_group_callback = on_delete_group_callback
                        
         self._build_ui()
 
@@ -75,16 +83,19 @@ class ClientsView(ctk.CTkFrame):
 
         filter_frame = ctk.CTkFrame(self, fg_color="transparent")
         filter_frame.grid(row=1, column=0, padx=SPACING.card_padding, pady=(0, 10), sticky="ew")
-        filter_frame.grid_columnconfigure(0, weight=1)
+        filter_frame.grid_columnconfigure(0, weight=0, minsize=420)
         filter_frame.grid_columnconfigure(1, weight=0)
         filter_frame.grid_columnconfigure(2, weight=0)
-        filter_frame.grid_columnconfigure(3, weight=0)
+        filter_frame.grid_columnconfigure(3, weight=1)
         filter_frame.grid_columnconfigure(4, weight=0)
         filter_frame.grid_columnconfigure(5, weight=0)
+        filter_frame.grid_columnconfigure(6, weight=0)
+        filter_frame.grid_columnconfigure(7, weight=0)
 
         self.search_entry = ctk.CTkEntry(
             filter_frame,
             placeholder_text="Search by name, PC, user, code...",
+            width=420,
             fg_color=COLORS.surface_light,
             border_color=COLORS.border,
             text_color=COLORS.text_primary,
@@ -123,6 +134,15 @@ class ClientsView(ctk.CTkFrame):
         self.group_option.set("All Groups")
         self.group_option.grid(row=0, column=2, padx=(0, 0), pady=(0, 8), sticky="e")
 
+        self.manage_groups_button = ctk.CTkButton(
+            filter_frame,
+            text="Manage Groups",
+            width=130,
+            command=self._open_manage_groups_window,
+            **secondary_button_style()
+        )
+        self.manage_groups_button.grid(row=0, column=4, padx=(0, 10), sticky="e")
+
         clear_button = ctk.CTkButton(
             filter_frame,
             text="Clear",
@@ -130,7 +150,7 @@ class ClientsView(ctk.CTkFrame):
             command=self._clear_filters,
             **secondary_button_style()
         )
-        clear_button.grid(row=1, column=3, padx=(0, 10), sticky="w")
+        clear_button.grid(row=0, column=5, padx=(0, 10), sticky="w")
 
         self.refresh_button = ctk.CTkButton(
             filter_frame,
@@ -139,7 +159,7 @@ class ClientsView(ctk.CTkFrame):
             command=self.request_refresh,
             **primary_button_style()
         )
-        self.refresh_button.grid(row=1, column=1, padx=(0, 10), sticky="w")
+        self.refresh_button.grid(row=0, column=6, padx=(0, 10), sticky="w")
 
         self.bulk_update_button = ctk.CTkButton(
             filter_frame,
@@ -148,7 +168,7 @@ class ClientsView(ctk.CTkFrame):
             command=self.request_bulk_update,
             **primary_button_style()
         )
-        self.bulk_update_button.grid(row=1, column=2, padx=(0, 0), sticky="w")
+        self.bulk_update_button.grid(row=0, column=7, padx=(0, 0), sticky="w")
 
         self.scroll_frame = ctk.CTkScrollableFrame(
             self,
@@ -206,6 +226,272 @@ class ClientsView(ctk.CTkFrame):
             self.group_option.set("All Groups")
 
         self._apply_filters()
+
+        if (
+            self.manage_groups_window
+            and self.manage_groups_window.winfo_exists()
+            and self.manage_groups_list_frame
+        ):
+            self._render_manage_groups_list()
+
+    def _open_manage_groups_window(self) -> None:
+        """
+        Ανοίγει παράθυρο διαχείρισης client groups.
+        """
+
+        if self.manage_groups_window and self.manage_groups_window.winfo_exists():
+            self.manage_groups_window.lift()
+            self.manage_groups_window.focus_force()
+            return
+
+        self.manage_groups_window = ctk.CTkToplevel(self)
+        self.manage_groups_window.title("Manage Client Groups")
+        self.manage_groups_window.geometry("650x500")
+        self.manage_groups_window.minsize(550, 400)
+        self.manage_groups_window.configure(fg_color=COLORS.background)
+        
+        self.manage_groups_window.grid_columnconfigure(0, weight=1)
+        self.manage_groups_window.grid_rowconfigure(1, weight=1)
+
+        self.manage_groups_window.transient(self.winfo_toplevel())
+        self.manage_groups_window.lift()
+        self.manage_groups_window.focus_force()
+        self.manage_groups_window.attributes("-topmost", True)
+        self.manage_groups_window.after(
+            300,
+            lambda: self.manage_groups_window.attributes("-topmost", False)
+        )
+
+        header_frame = ctk.CTkFrame(
+            self.manage_groups_window,
+            **card_style()
+        )
+        header_frame.grid(
+            row=0,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(SPACING.window_padding, 10),
+            sticky="ew"
+        )
+        header_frame.grid_columnconfigure(0, weight=1)
+
+        title = ctk.CTkLabel(
+            header_frame,
+            text="Manage Groups",
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
+        )
+        title.grid(row=0, column=0, padx=SPACING.card_padding, pady=SPACING.card_padding, sticky="w")
+
+        create_button = ctk.CTkButton(
+            header_frame,
+            text="Create Group",
+            width=130,
+            command=self._create_group_dialog,
+            **primary_button_style()
+        )
+        create_button.grid(row=0, column=1, padx=SPACING.card_padding, pady=SPACING.card_padding, sticky="e")
+
+        self.manage_groups_list_frame = ctk.CTkScrollableFrame(
+            self.manage_groups_window,
+            corner_radius=SPACING.small_radius,
+            fg_color=COLORS.surface
+        )
+        self.manage_groups_list_frame.grid(
+            row=1,
+            column=0,
+            padx=SPACING.window_padding,
+            pady=(0, SPACING.window_padding),
+            sticky="nsew"
+        )
+        self.manage_groups_list_frame.grid_columnconfigure(0, weight=1)
+
+        self._render_manage_groups_list()
+
+    def _render_manage_groups_list(self) -> None:
+        """
+        Κάνει render τη λίστα groups μέσα στο Manage Groups window.
+        """
+
+        if not self.manage_groups_list_frame:
+            return
+
+        for widget in self.manage_groups_list_frame.winfo_children():
+            widget.destroy()
+
+        if not self.groups:
+            empty_label = ctk.CTkLabel(
+                self.manage_groups_list_frame,
+                text="No groups found.",
+                font=FONTS.body,
+                text_color=COLORS.text_secondary
+            )
+            empty_label.grid(row=0, column=0, padx=15, pady=15, sticky="w")
+            return
+
+        for row_index, group in enumerate(self.groups):
+            self._add_group_row(row_index, group)
+
+    def _add_group_row(self, row_index: int, group: dict) -> None:
+        """
+        Προσθέτει μία γραμμή group στο Manage Groups window.
+        """
+
+        group_name = str(group.get("name", ""))
+        is_default = bool(group.get("is_default", False))
+
+        clients_count = sum(
+            1
+            for client in self.clients
+            if str(client.get("group_id", "")) == str(group.get("id", ""))
+        )
+
+        row = ctk.CTkFrame(
+            self.manage_groups_list_frame,
+            fg_color=COLORS.background,
+            corner_radius=SPACING.card_radius,
+            border_width=1,
+            border_color=COLORS.border_soft
+        )
+        row.grid(row=row_index, column=0, padx=8, pady=6, sticky="ew")
+
+        row.grid_columnconfigure(0, weight=1)
+        row.grid_columnconfigure(1, weight=0)
+        row.grid_columnconfigure(2, weight=0)
+
+        info_text = f"{group_name}\nClients: {clients_count}"
+
+        if is_default:
+            info_text += "  •  Default group"
+
+        info_label = ctk.CTkLabel(
+            row,
+            text=info_text,
+            font=FONTS.body,
+            text_color=COLORS.text_primary,
+            justify="left",
+            anchor="w"
+        )
+        info_label.grid(
+            row=0,
+            column=0,
+            padx=15,
+            pady=12,
+            sticky="ew"
+        )
+
+        rename_button = ctk.CTkButton(
+            row,
+            text="Rename",
+            width=100,
+            command=lambda g=group: self._rename_group_dialog(g),
+            state="disabled" if is_default else "normal",
+            **secondary_button_style()
+        )
+        rename_button.grid(
+            row=0,
+            column=1,
+            padx=(0, 8),
+            pady=12,
+            sticky="e"
+        )
+
+        delete_button = ctk.CTkButton(
+            row,
+            text="Delete",
+            width=90,
+            command=lambda g=group: self._delete_group_dialog(g),
+            state="disabled" if is_default else "normal",
+            fg_color=COLORS.danger,
+            hover_color=COLORS.danger_hover,
+            text_color=COLORS.text_primary
+        )
+        delete_button.grid(
+            row=0,
+            column=2,
+            padx=(0, 15),
+            pady=12,
+            sticky="e"
+        )
+
+    def _create_group_dialog(self) -> None:
+        """
+        Ζητάει όνομα νέου group.
+        """
+
+        dialog = ctk.CTkInputDialog(
+            text="Enter new group name:",
+            title="Create Group"
+        )
+
+        group_name = dialog.get_input()
+
+        if group_name is None:
+            return
+
+        clean_group_name = group_name.strip()
+
+        if not clean_group_name:
+            return
+
+        if self.on_create_group_callback:
+            self.on_create_group_callback(clean_group_name)
+
+    def _rename_group_dialog(self, group: dict) -> None:
+        """
+        Ζητάει νέο όνομα για group.
+        """
+
+        group_name = str(group.get("name", ""))
+
+        dialog = ctk.CTkInputDialog(
+            text=f"Enter new name for group:\n\n{group_name}",
+            title="Rename Group"
+        )
+
+        new_name = dialog.get_input()
+
+        if new_name is None:
+            return
+
+        clean_new_name = new_name.strip()
+
+        if not clean_new_name:
+            return
+
+        if self.on_rename_group_callback:
+            self.on_rename_group_callback(group, clean_new_name)
+
+    def _delete_group_dialog(self, group: dict) -> None:
+        """
+        Ζητάει επιβεβαίωση για διαγραφή group.
+        Οι clients θα μεταφερθούν στο Ungrouped από τον server.
+        """
+
+        group_name = str(group.get("name", ""))
+        clients_count = sum(
+            1
+            for client in self.clients
+            if str(client.get("group_id", "")) == str(group.get("id", ""))
+        )
+
+        confirm = ctk.CTkInputDialog(
+            text=(
+                f"Type DELETE to delete this group:\n\n"
+                f"{group_name}\n\n"
+                f"Clients in this group: {clients_count}\n\n"
+                f"Clients will be moved to Ungrouped."
+            ),
+            title="Delete Group"
+        )
+
+        answer = confirm.get_input()
+
+        if answer != "DELETE":
+            return
+
+        if self.on_delete_group_callback:
+            self.on_delete_group_callback(group)
 
     def force_refresh(self) -> None:
         """
@@ -448,33 +734,134 @@ class ClientsView(ctk.CTkFrame):
 
     def _open_group_callback(self, client: dict) -> None:
         """
-        Ζητάει νέο group name και ενημερώνει το dashboard callback.
-        Αν το group δεν υπάρχει, θα δημιουργηθεί από τον server.
+        Ανοίγει dropdown επιλογής group για τον client.
+        Τα groups έρχονται από το Manage Groups / server.
         """
 
         client_code = client.get("client_code", "-")
         display_name = client.get("display_name") or client.get("pc_name") or client_code
         current_group = client.get("group_name") or "Ungrouped"
 
-        dialog = ctk.CTkInputDialog(
-            text=(
-                f"Enter group name for:\n\n"
-                f"{display_name}\n{client_code}\n\n"
-                f"Current group: {current_group}\n\n"
-                f"If the group does not exist, it will be created automatically."
-            ),
-            title="Change Client Group"
+        group_names = [
+            str(group.get("name", "")).strip()
+            for group in self.groups
+            if str(group.get("name", "")).strip()
+        ]
+
+        group_names = sorted(set(group_names), key=str.lower)
+
+        if not group_names:
+            group_names = ["Ungrouped"]
+
+        if current_group not in group_names:
+            group_names.insert(0, current_group)
+
+        group_window = ctk.CTkToplevel(self)
+        group_window.title("Change Client Group")
+        group_window.geometry("420x220")
+        group_window.resizable(False, False)
+        group_window.configure(fg_color=COLORS.background)
+
+        group_window.transient(self.winfo_toplevel())
+        group_window.lift()
+        group_window.focus_force()
+        group_window.attributes("-topmost", True)
+        group_window.after(
+            300,
+            lambda: group_window.attributes("-topmost", False)
         )
 
-        group_name = dialog.get_input()
+        group_window.grid_columnconfigure(0, weight=1)
 
-        if group_name is None:
-            return
+        title_label = ctk.CTkLabel(
+            group_window,
+            text="Change Client Group",
+            font=FONTS.subtitle,
+            text_color=COLORS.text_primary
+        )
+        title_label.grid(
+            row=0,
+            column=0,
+            padx=20,
+            pady=(20, 8),
+            sticky="w"
+        )
 
-        clean_group_name = group_name.strip() or "Ungrouped"
+        client_label = ctk.CTkLabel(
+            group_window,
+            text=f"{display_name}\n{client_code}",
+            font=FONTS.body,
+            text_color=COLORS.text_secondary,
+            justify="left",
+            anchor="w"
+        )
+        client_label.grid(
+            row=1,
+            column=0,
+            padx=20,
+            pady=(0, 12),
+            sticky="ew"
+        )
 
-        if self.on_group_callback:
-            self.on_group_callback(client, clean_group_name)
+        selected_group = ctk.StringVar(value=current_group)
+
+        group_option = ctk.CTkOptionMenu(
+            group_window,
+            values=group_names,
+            variable=selected_group,
+            width=360,
+            fg_color=COLORS.surface_light,
+            button_color=COLORS.accent,
+            button_hover_color=COLORS.accent_hover,
+            text_color=COLORS.text_primary,
+            dropdown_fg_color=COLORS.surface,
+            dropdown_hover_color=COLORS.surface_hover
+        )
+        group_option.grid(
+            row=2,
+            column=0,
+            padx=20,
+            pady=(0, 18),
+            sticky="ew"
+        )
+
+        buttons_frame = ctk.CTkFrame(group_window, fg_color="transparent")
+        buttons_frame.grid(
+            row=3,
+            column=0,
+            padx=20,
+            pady=(0, 20),
+            sticky="e"
+        )
+
+        cancel_button = ctk.CTkButton(
+            buttons_frame,
+            text="Cancel",
+            width=90,
+            command=group_window.destroy,
+            **secondary_button_style()
+        )
+        cancel_button.grid(row=0, column=0, padx=(0, 10))
+
+        def apply_group_change() -> None:
+            new_group_name = selected_group.get().strip()
+
+            if not new_group_name:
+                return
+
+            if self.on_group_callback:
+                self.on_group_callback(client, new_group_name)
+
+            group_window.destroy()
+
+        save_button = ctk.CTkButton(
+            buttons_frame,
+            text="Save",
+            width=90,
+            command=apply_group_change,
+            **primary_button_style()
+        )
+        save_button.grid(row=0, column=1)
             
     def _open_delete_callback(self, client: dict) -> None:
         """

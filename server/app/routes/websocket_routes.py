@@ -784,6 +784,137 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") == "create_client_group":
+                    group_name = data.get("group_name", "")
+
+                    try:
+                        group = self.client_repository.create_client_group(
+                            group_name=group_name
+                        )
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "create_client_group_success",
+                                "message": "Client group created successfully.",
+                                "group": group
+                            }
+                        )
+
+                        groups = self.client_repository.get_client_groups()
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_groups_result",
+                                "success": True,
+                                "groups": groups
+                            }
+                        )
+
+                    except Exception as exc:
+                        logger.exception("Failed to create client group.")
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "create_client_group_error",
+                                "message": str(exc)
+                            }
+                        )
+
+                    continue
+
+                if data.get("type") == "rename_client_group":
+                    group_id = data.get("group_id", "")
+                    new_name = data.get("new_name", "")
+
+                    try:
+                        group = self.client_repository.rename_client_group(
+                            group_id=group_id,
+                            new_name=new_name
+                        )
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "rename_client_group_success",
+                                "message": "Client group renamed successfully.",
+                                "group": group
+                            }
+                        )
+
+                        groups = self.client_repository.get_client_groups()
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_groups_result",
+                                "success": True,
+                                "groups": groups
+                            }
+                        )
+
+                        await self.broadcast_clients_list()
+
+                    except Exception as exc:
+                        logger.exception("Failed to rename client group.")
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "rename_client_group_error",
+                                "group_id": group_id,
+                                "message": str(exc)
+                            }
+                        )
+
+                    continue
+
+                if data.get("type") == "delete_client_group":
+                    group_id = data.get("group_id", "")
+
+                    try:
+                        result = self.client_repository.delete_client_group(
+                            group_id=group_id
+                        )
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "delete_client_group_success",
+                                "message": "Client group deleted successfully.",
+                                "result": result
+                            }
+                        )
+
+                        groups = self.client_repository.get_client_groups()
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_groups_result",
+                                "success": True,
+                                "groups": groups
+                            }
+                        )
+
+                        await self.broadcast_clients_list()
+
+                    except Exception as exc:
+                        logger.exception("Failed to delete client group.")
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "delete_client_group_error",
+                                "group_id": group_id,
+                                "message": str(exc)
+                            }
+                        )
+
+                    continue
+
                 if data.get("type") == "refresh_clients":
                     await self.send_clients_list_to_dashboard(websocket)
                     continue
