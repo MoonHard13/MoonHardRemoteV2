@@ -288,6 +288,7 @@ class ClientRepository:
     def get_client_appsettings(self, client_code: str) -> dict[str, Any]:
         """
         Επιστρέφει τα αποθηκευμένα appsettings.production.json για συγκεκριμένο client.
+        Το AppSettings διαβάζεται μόνο on-demand από το Manage Client, όχι μέσα στο clients list.
         """
 
         if not client_code:
@@ -299,8 +300,10 @@ class ClientRepository:
             self.db
             .table("client_appsettings")
             .select(
-                "id, client_code, display_name, pc_name, username, app_version, "
-                "status, last_seen, connected_at, disconnected_at, created_at"
+                "id, client_code, file_found, file_path, raw_json, raw_text, "
+                "database_connection, database_server, database_name, database_user, "
+                "database_password, last_read_at, selected_bo_connection_id, "
+                "bo_connections, provider_connections, appsettings_summary"
             )
             .eq("client_code", client_code)
             .execute()
