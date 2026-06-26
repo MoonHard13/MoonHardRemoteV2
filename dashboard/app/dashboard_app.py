@@ -122,7 +122,8 @@ class MoonHardDashboardApp(ctk.CTk):
             on_manage_callback=self._open_manage_window,
             on_delete_callback=self._delete_client,
             on_refresh_callback=self._refresh_clients,
-            on_bulk_update_callback=self._bulk_update_clients
+            on_bulk_update_callback=self._bulk_update_clients,
+            on_group_callback=self._update_client_group
         )
         self.clients_view.grid(
             row=1,
@@ -170,11 +171,38 @@ class MoonHardDashboardApp(ctk.CTk):
             if updated:
                 logger.info("Dashboard clients list updated. Count: %s", len(clients))
 
+        elif message_type == "dashboard_connected":
+            logger.info("Dashboard connected. Requesting client groups.")
+            self._request_client_groups()
+
         elif message_type == "rename_client_success":
             logger.info("Client renamed successfully.")
 
         elif message_type == "rename_client_error":
             logger.error("Client rename failed: %s", payload.get("message"))
+
+        elif message_type == "client_groups_result":
+            if payload.get("success"):
+                groups = payload.get("groups", [])
+                self.clients_view.update_groups(groups)
+                logger.info("Client groups updated. Count: %s", len(groups))
+            else:
+                logger.error("Failed to load client groups: %s", payload.get("message"))
+
+        elif message_type == "update_client_group_success":
+            logger.info(
+                "Client group updated successfully. client_code=%s",
+                payload.get("client_code")
+            )
+            self._request_client_groups()
+            self._refresh_clients()
+
+        elif message_type == "update_client_group_error":
+            logger.error(
+                "Client group update failed for %s: %s",
+                payload.get("client_code"),
+                payload.get("message")
+            )
 
         elif message_type == "terminal_result":
             client_code = payload.get("client_code", "")
@@ -449,6 +477,56 @@ class MoonHardDashboardApp(ctk.CTk):
             "Rename client request sent. client_code=%s display_name=%s",
             client_code,
             display_name
+        )
+
+    def _request_client_groups(self) -> None:
+        """
+        Ζητάει τη λίστα των client groups από τον server.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Cannot request client groups. WebSocket is not connected.")
+            return
+
+        self.websocket_client.send_message(
+            {
+                "type": "get_client_groups"
+            }
+        )
+
+        logger.info("Client groups request sent.")
+
+    def _update_client_group(self, client: dict, group_name: str) -> None:
+        """
+        Στέλνει αίτημα αλλαγής group για συγκεκριμένο client.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Cannot update client group. WebSocket is not connected.")
+            return
+
+        client_code = str(client.get("client_code", "")).strip()
+        clean_group_name = group_name.strip()
+
+        if not client_code:
+            logger.warning("Cannot update client group. Missing client_code.")
+            return
+
+        if not clean_group_name:
+            clean_group_name = "Ungrouped"
+
+        self.websocket_client.send_message(
+            {
+                "type": "update_client_group",
+                "client_code": client_code,
+                "group_name": clean_group_name
+            }
+        )
+
+        logger.info(
+            "Update client group request sent. client_code=%s group_name=%s",
+            client_code,
+            clean_group_name
         )
         
     def _send_terminal_command(self, payload: dict[str, Any]) -> None:

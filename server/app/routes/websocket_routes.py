@@ -719,6 +719,71 @@ class WebSocketRoutes:
 
                     continue
 
+                if data.get("type") == "get_client_groups":
+                    try:
+                        groups = self.client_repository.get_client_groups()
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_groups_result",
+                                "success": True,
+                                "groups": groups
+                            }
+                        )
+
+                    except Exception as exc:
+                        logger.exception("Failed to fetch client groups.")
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_groups_result",
+                                "success": False,
+                                "message": str(exc),
+                                "groups": []
+                            }
+                        )
+
+                    continue
+
+                if data.get("type") == "update_client_group":
+                    client_code = data.get("client_code", "")
+                    group_name = data.get("group_name", "")
+
+                    try:
+                        result = self.client_repository.update_client_group(
+                            client_code=client_code,
+                            group_name=group_name
+                        )
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "update_client_group_success",
+                                "message": "Client group updated successfully.",
+                                "client_code": client_code,
+                                "group": result.get("group"),
+                                "client": result.get("client")
+                            }
+                        )
+
+                        await self.broadcast_clients_list()
+
+                    except Exception as exc:
+                        logger.exception("Failed to update client group.")
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "update_client_group_error",
+                                "client_code": client_code,
+                                "message": str(exc)
+                            }
+                        )
+
+                    continue
+
                 if data.get("type") == "refresh_clients":
                     await self.send_clients_list_to_dashboard(websocket)
                     continue

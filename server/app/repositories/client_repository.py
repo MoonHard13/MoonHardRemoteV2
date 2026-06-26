@@ -23,24 +23,167 @@ class ClientRepository:
 
     def get_all_clients(self) -> list[dict[str, Any]]:
         """
-        Επιστρέφει μικρή λίστα clients για το Dashboard.
+        Επιστρέφει μικρή λίστα clients για το Dashboard μαζί με group info.
         Δεν χρησιμοποιούμε select("*") για μείωση Supabase egress.
         """
 
-        logger.info("Fetching dashboard clients list from Supabase.")
+        logger.info("Fetching dashboard clients list from Supabase view.")
 
         response = (
             self.db
-            .table("clients")
+            .table("v_clients_dashboard")
             .select(
                 "id, client_code, display_name, pc_name, username, app_version, "
-                "status, last_seen, connected_at, disconnected_at, created_at"
+                "status, last_seen, connected_at, disconnected_at, created_at, "
+                "group_id, group_name, group_color, group_sort_order"
             )
+            .order("group_sort_order", desc=False)
+            .order("group_name", desc=False)
             .order("created_at", desc=True)
             .execute()
         )
 
         return response.data or []
+
+    def get_client_groups(self) -> list[dict[str, Any]]:
+        """
+        Επιστρέφει όλα τα διαθέσιμα client groups.
+        """
+
+        logger.info("Fetching client groups from Supabase.")
+
+        response = (
+            self.db
+            .table("client_groups")
+            .select("id, name, description, color, sort_order, is_default, created_at")
+            .order("sort_order", desc=False)
+            .order("name", desc=False)
+            .execute()
+        )
+
+        return response.data or []
+
+    def get_default_group_id(self) -> str:
+        """
+        Επιστρέφει το id του default group Ungrouped.
+        Αν δεν υπάρχει, το δημιουργεί.
+        """
+
+        response = (
+            self.db
+            .table("client_groups")
+            .select("id")
+            .eq("name", "Ungrouped")
+            .limit(1)
+            .execute()
+        )
+
+        data = response.data or []
+
+        if data:
+            return str(data[0]["id"])
+
+        created_response = (
+            self.db
+            .table("client_groups")
+            .insert({
+                "name": "Ungrouped",
+                "description": "Default group for clients without assigned group.",
+                "color": "#64748B",
+                "sort_order": 0,
+                "is_default": True
+            })
+            .execute()
+        )
+
+        if not created_response.data:
+            raise RuntimeError("Failed to create default Ungrouped group.")
+
+        return str(created_response.data[0]["id"])
+
+    def get_or_create_client_group(self, group_name: str) -> dict[str, Any]:
+        """
+        Βρίσκει group με βάση το όνομα ή το δημιουργεί αν δεν υπάρχει.
+        """
+
+        clean_name = group_name.strip()
+
+        if not clean_name:
+            clean_name = "Ungrouped"
+
+        existing_response = (
+            self.db
+            .table("client_groups")
+            .select("id, name, description, color, sort_order, is_default, created_at")
+            .eq("name", clean_name)
+            .limit(1)
+            .execute()
+        )
+
+        existing_data = existing_response.data or []
+
+        if existing_data:
+            return existing_data[0]
+
+        logger.info("Creating new client group: %s", clean_name)
+
+        created_response = (
+            self.db
+            .table("client_groups")
+            .insert({
+                "name": clean_name,
+                "description": None,
+                "color": "#64748B",
+                "sort_order": 100,
+                "is_default": False
+            })
+            .execute()
+        )
+
+        if not created_response.data:
+            raise RuntimeError("Failed to create client group.")
+
+        return created_response.data[0]
+
+    def update_client_group(self, client_code: str, group_name: str) -> dict[str, Any]:
+        """
+        Ενημερώνει το group ενός client.
+        Αν το group δεν υπάρχει, δημιουργείται αυτόματα.
+        """
+
+        if not client_code:
+            raise ValueError("Missing client_code.")
+
+        group = self.get_or_create_client_group(group_name)
+        group_id = group.get("id")
+
+        if not group_id:
+            raise RuntimeError("Client group has no id.")
+
+        logger.info(
+            "Updating client group. client_code=%s group_name=%s group_id=%s",
+            client_code,
+            group.get("name"),
+            group_id
+        )
+
+        response = (
+            self.db
+            .table("clients")
+            .update({
+                "group_id": group_id
+            })
+            .eq("client_code", client_code)
+            .execute()
+        )
+
+        if not response.data:
+            raise RuntimeError("Client group update returned no data.")
+
+        return {
+            "client": response.data[0],
+            "group": group
+        }
 
     def upsert_test_client(self) -> dict[str, Any]:
         """
@@ -133,6 +276,8 @@ class ClientRepository:
                 .execute()
             )
         else:
+            default_group_id = self.get_default_group_id()   
+                    
             response = (
                 self.db
                 .table("clients")
@@ -145,7 +290,8 @@ class ClientRepository:
                     "status": "online",
                     "last_seen": now_utc,
                     "connected_at": now_utc,
-                    "disconnected_at": None
+                    "disconnected_at": None,
+                    "group_id": default_group_id
                 })
                 .execute()
             )

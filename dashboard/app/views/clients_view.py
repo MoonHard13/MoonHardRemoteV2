@@ -21,7 +21,8 @@ class ClientsView(ctk.CTkFrame):
         on_manage_callback=None,
         on_delete_callback=None,
         on_refresh_callback=None,
-        on_bulk_update_callback=None
+        on_bulk_update_callback=None,
+        on_group_callback=None
     ) -> None:
         """
         Δημιουργεί το UI της λίστας clients.
@@ -33,11 +34,14 @@ class ClientsView(ctk.CTkFrame):
         self.clients: list[dict] = []
         self.filter_text: str = ""
         self.status_filter: str = "All"
+        self.groups: list[dict] = []
+        self.group_filter: str = "All Groups"
         self.last_clients_snapshot: tuple = tuple()
         self.on_manage_callback = on_manage_callback
         self.on_delete_callback = on_delete_callback 
         self.on_refresh_callback = on_refresh_callback
         self.on_bulk_update_callback = on_bulk_update_callback
+        self.on_group_callback = on_group_callback
                        
         self._build_ui()
 
@@ -98,6 +102,20 @@ class ClientsView(ctk.CTkFrame):
         self.status_option.set("All")
         self.status_option.grid(row=0, column=1, padx=(0, 10))
 
+        self.group_option = ctk.CTkOptionMenu(
+            filter_frame,
+            values=["All Groups"],
+            command=lambda _value: self._apply_filters(),
+            fg_color=COLORS.surface_light,
+            button_color=COLORS.accent,
+            button_hover_color=COLORS.accent_hover,
+            text_color=COLORS.text_primary,
+            dropdown_fg_color=COLORS.surface,
+            dropdown_hover_color=COLORS.surface_hover
+        )
+        self.group_option.set("All Groups")
+        self.group_option.grid(row=0, column=2, padx=(0, 10))
+
         clear_button = ctk.CTkButton(
             filter_frame,
             text="Clear",
@@ -114,7 +132,7 @@ class ClientsView(ctk.CTkFrame):
             command=self.request_refresh,
             **primary_button_style()
         )
-        self.refresh_button.grid(row=0, column=3)
+        self.refresh_button.grid(row=0, column=4)
 
         self.bulk_update_button = ctk.CTkButton(
             filter_frame,
@@ -123,7 +141,7 @@ class ClientsView(ctk.CTkFrame):
             command=self.request_bulk_update,
             **primary_button_style()
         )
-        self.bulk_update_button.grid(row=0, column=4, padx=(10, 0))
+        self.bulk_update_button.grid(row=0, column=5, padx=(10, 0))
 
         self.scroll_frame = ctk.CTkScrollableFrame(
             self,
@@ -154,6 +172,33 @@ class ClientsView(ctk.CTkFrame):
         self._apply_filters()
 
         return True
+
+    def update_groups(self, groups: list[dict]) -> None:
+        """
+        Ανανεώνει τη λίστα των διαθέσιμων groups στο dropdown.
+        """
+
+        self.groups = groups or []
+
+        group_names = [
+            str(group.get("name", "")).strip()
+            for group in self.groups
+            if str(group.get("name", "")).strip()
+        ]
+
+        unique_group_names = sorted(set(group_names), key=str.lower)
+        values = ["All Groups"] + unique_group_names
+
+        current_value = self.group_option.get()
+
+        self.group_option.configure(values=values)
+
+        if current_value in values:
+            self.group_option.set(current_value)
+        else:
+            self.group_option.set("All Groups")
+
+        self._apply_filters()
 
     def force_refresh(self) -> None:
         """
@@ -198,6 +243,8 @@ class ClientsView(ctk.CTkFrame):
                     str(client.get("status", "")),
                     str(client.get("ws_connected", "")),
                     str(client.get("app_version", "")),
+                    str(client.get("group_id", "")),
+                    str(client.get("group_name", "")),
                 )
             )
 
@@ -210,6 +257,7 @@ class ClientsView(ctk.CTkFrame):
 
         self.filter_text = self.search_entry.get().strip().lower()
         self.status_filter = self.status_option.get()
+        self.group_filter = self.group_option.get()
 
         filtered_clients: list[dict] = []
 
@@ -222,13 +270,19 @@ class ClientsView(ctk.CTkFrame):
             if self.status_filter == "Offline" and status == "online":
                 continue
 
+            group_name = str(client.get("group_name") or "Ungrouped")
+
+            if self.group_filter != "All Groups" and group_name != self.group_filter:
+                continue
+
             searchable_text = " ".join(
                 [
                     str(client.get("display_name", "")),
                     str(client.get("pc_name", "")),
                     str(client.get("username", "")),
                     str(client.get("client_code", "")),
-                    str(client.get("app_version", ""))
+                    str(client.get("app_version", "")),
+                    str(client.get("group_name", ""))
                 ]
             ).lower()
 
@@ -247,8 +301,8 @@ class ClientsView(ctk.CTkFrame):
 
         self.search_entry.delete(0, "end")
         self.status_option.set("All")
+        self.group_option.set("All Groups")
         self._apply_filters()
-
 
     def _render_clients(self, clients: list[dict]) -> None:
         """
@@ -299,6 +353,7 @@ class ClientsView(ctk.CTkFrame):
         username = client.get("username", "-")
         app_version = client.get("app_version", "-")
         last_seen = client.get("last_seen", "-")
+        group_name = client.get("group_name") or "Ungrouped"
 
         row = ctk.CTkFrame(
             self.scroll_frame,
@@ -323,7 +378,7 @@ class ClientsView(ctk.CTkFrame):
         main_text = (
             f"{display_name}\n"
             f"PC: {pc_name}  •  User: {username}  •  Version: {app_version}\n"
-            f"Code: {client_code}\n"
+            f"Group: {group_name}  •  Code: {client_code}\n"
             f"Last seen: {last_seen}"
         )
 
@@ -354,6 +409,15 @@ class ClientsView(ctk.CTkFrame):
             **primary_button_style()
         )
         manage_button.grid(row=0, column=3, padx=(0, 8), pady=12, sticky="e")
+
+        group_button = ctk.CTkButton(
+            row,
+            text="Group",
+            width=80,
+            command=lambda c=client: self._open_group_callback(c),
+            **secondary_button_style()
+        )
+        group_button.grid(row=0, column=4, padx=(0, 8), pady=12, sticky="e")
         
         delete_button = ctk.CTkButton(
             row,
@@ -365,7 +429,7 @@ class ClientsView(ctk.CTkFrame):
             hover_color=COLORS.danger_hover,
             text_color=COLORS.text_primary
         )
-        delete_button.grid(row=0, column=4, padx=(0, 15), pady=12, sticky="e")
+        delete_button.grid(row=0, column=5, padx=(0, 15), pady=12, sticky="e")
         
     def _open_manage_callback(self, client: dict) -> None:
         """
@@ -374,6 +438,36 @@ class ClientsView(ctk.CTkFrame):
 
         if self.on_manage_callback:
             self.on_manage_callback(client)
+
+    def _open_group_callback(self, client: dict) -> None:
+        """
+        Ζητάει νέο group name και ενημερώνει το dashboard callback.
+        Αν το group δεν υπάρχει, θα δημιουργηθεί από τον server.
+        """
+
+        client_code = client.get("client_code", "-")
+        display_name = client.get("display_name") or client.get("pc_name") or client_code
+        current_group = client.get("group_name") or "Ungrouped"
+
+        dialog = ctk.CTkInputDialog(
+            text=(
+                f"Enter group name for:\n\n"
+                f"{display_name}\n{client_code}\n\n"
+                f"Current group: {current_group}\n\n"
+                f"If the group does not exist, it will be created automatically."
+            ),
+            title="Change Client Group"
+        )
+
+        group_name = dialog.get_input()
+
+        if group_name is None:
+            return
+
+        clean_group_name = group_name.strip() or "Ungrouped"
+
+        if self.on_group_callback:
+            self.on_group_callback(client, clean_group_name)
             
     def _open_delete_callback(self, client: dict) -> None:
         """
