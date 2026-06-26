@@ -76,6 +76,11 @@ class ClientsView(ctk.CTkFrame):
         filter_frame = ctk.CTkFrame(self, fg_color="transparent")
         filter_frame.grid(row=1, column=0, padx=SPACING.card_padding, pady=(0, 10), sticky="ew")
         filter_frame.grid_columnconfigure(0, weight=1)
+        filter_frame.grid_columnconfigure(1, weight=0)
+        filter_frame.grid_columnconfigure(2, weight=0)
+        filter_frame.grid_columnconfigure(3, weight=0)
+        filter_frame.grid_columnconfigure(4, weight=0)
+        filter_frame.grid_columnconfigure(5, weight=0)
 
         self.search_entry = ctk.CTkEntry(
             filter_frame,
@@ -85,13 +90,14 @@ class ClientsView(ctk.CTkFrame):
             text_color=COLORS.text_primary,
             placeholder_text_color=COLORS.text_muted
         )
-        self.search_entry.grid(row=0, column=0, padx=(0, 10), sticky="ew")
+        self.search_entry.grid(row=0, column=0, padx=(0, 10), pady=(0, 8), sticky="ew")
         self.search_entry.bind("<KeyRelease>", lambda _event: self._apply_filters())
 
         self.status_option = ctk.CTkOptionMenu(
             filter_frame,
             values=["All", "Online", "Offline"],
             command=lambda _value: self._apply_filters(),
+            width=120,
             fg_color=COLORS.surface_light,
             button_color=COLORS.accent,
             button_hover_color=COLORS.accent_hover,
@@ -100,12 +106,13 @@ class ClientsView(ctk.CTkFrame):
             dropdown_hover_color=COLORS.surface_hover
         )
         self.status_option.set("All")
-        self.status_option.grid(row=0, column=1, padx=(0, 10))
+        self.status_option.grid(row=0, column=1, padx=(0, 10), pady=(0, 8), sticky="e")
 
         self.group_option = ctk.CTkOptionMenu(
             filter_frame,
             values=["All Groups"],
             command=lambda _value: self._apply_filters(),
+            width=180,
             fg_color=COLORS.surface_light,
             button_color=COLORS.accent,
             button_hover_color=COLORS.accent_hover,
@@ -114,7 +121,7 @@ class ClientsView(ctk.CTkFrame):
             dropdown_hover_color=COLORS.surface_hover
         )
         self.group_option.set("All Groups")
-        self.group_option.grid(row=0, column=2, padx=(0, 10))
+        self.group_option.grid(row=0, column=2, padx=(0, 0), pady=(0, 8), sticky="e")
 
         clear_button = ctk.CTkButton(
             filter_frame,
@@ -123,7 +130,7 @@ class ClientsView(ctk.CTkFrame):
             command=self._clear_filters,
             **secondary_button_style()
         )
-        clear_button.grid(row=0, column=2, padx=(0, 10))
+        clear_button.grid(row=1, column=3, padx=(0, 10), sticky="w")
 
         self.refresh_button = ctk.CTkButton(
             filter_frame,
@@ -132,7 +139,7 @@ class ClientsView(ctk.CTkFrame):
             command=self.request_refresh,
             **primary_button_style()
         )
-        self.refresh_button.grid(row=0, column=4)
+        self.refresh_button.grid(row=1, column=1, padx=(0, 10), sticky="w")
 
         self.bulk_update_button = ctk.CTkButton(
             filter_frame,
@@ -141,7 +148,7 @@ class ClientsView(ctk.CTkFrame):
             command=self.request_bulk_update,
             **primary_button_style()
         )
-        self.bulk_update_button.grid(row=0, column=5, padx=(10, 0))
+        self.bulk_update_button.grid(row=1, column=2, padx=(0, 0), sticky="w")
 
         self.scroll_frame = ctk.CTkScrollableFrame(
             self,
