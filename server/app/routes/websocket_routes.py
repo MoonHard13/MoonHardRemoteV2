@@ -29,6 +29,8 @@ class WebSocketRoutes:
         self.pending_requests: dict[str, WebSocket] = {}
         self.heartbeat_db_write_interval_seconds = 300
         self.client_last_db_heartbeat: dict[str, datetime] = {}
+        self.clients_list_broadcast_interval_seconds = 600
+        self.last_clients_list_broadcast_at: datetime | None = None        
                 
     def _enrich_clients_with_connection_state(self, clients: list[dict]) -> list[dict]:
         """
@@ -80,6 +82,48 @@ class WebSocketRoutes:
                 "clients": clients
             }
         )
+
+    def _should_broadcast_clients_list(self) -> bool:
+        """
+        Ελέγχει αν επιτρέπεται να στείλουμε full clients_list broadcast.
+
+        Για μείωση Supabase egress, δεν κάνουμε broadcast σε κάθε connect/disconnect.
+        Επιτρέπεται max μία φορά ανά 10 λεπτά.
+        Manual refresh και dashboard open δεν περνάνε από εδώ.
+        """
+        now_utc = datetime.now(timezone.utc)
+
+        if self.last_clients_list_broadcast_at is None:
+            self.last_clients_list_broadcast_at = now_utc
+            return True
+
+        elapsed_seconds = (
+            now_utc - self.last_clients_list_broadcast_at
+        ).total_seconds()
+
+        if elapsed_seconds >= self.clients_list_broadcast_interval_seconds:
+            self.last_clients_list_broadcast_at = now_utc
+            return True
+
+        return False
+
+    async def broadcast_clients_list_throttled(self, reason: str = "") -> None:
+        """
+        Στέλνει full clients_list broadcast μόνο αν πέρασε το cooldown.
+        """
+        if not self._should_broadcast_clients_list():
+            logger.info(
+                "Skipped clients_list broadcast due to cooldown. reason=%s",
+                reason
+            )
+            return
+
+        logger.info(
+            "Sending throttled clients_list broadcast. reason=%s",
+            reason
+        )
+
+        await self.broadcast_clients_list()
 
     def _should_write_heartbeat_to_db(self, client_code: str) -> bool:
         """
