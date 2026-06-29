@@ -4,6 +4,7 @@ import logging
 import subprocess
 import time
 import urllib.request
+import winreg
 
 import websockets
 
@@ -148,10 +149,99 @@ class MoonHardClientAgent:
                 self._send_heartbeat_forever(websocket)
             )
 
+    def _get_installed_program_versions(self) -> dict[str, str | None]:
+        """
+        Διαβάζει τις εκδόσεις εγκατεστημένων Sunsoft προγραμμάτων από Windows Registry.
+        """
+
+        wanted_programs = {
+            "amv_version": "AmvrosiaFull",
+            "bo_version": "BackOfficeFull",
+            "etp_version": "External Tax Provider",
+            "aws_version": "Amvrosia Web Service",
+        }
+
+        registry_paths = [
+            (
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+            ),
+            (
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+            ),
+            (
+                winreg.HKEY_CURRENT_USER,
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+            ),
+        ]
+
+        versions: dict[str, str | None] = {
+            "amv_version": None,
+            "bo_version": None,
+            "etp_version": None,
+            "aws_version": None,
+        }
+
+        for root_key, registry_path in registry_paths:
+            try:
+                with winreg.OpenKey(root_key, registry_path) as uninstall_key:
+                    subkey_count = winreg.QueryInfoKey(uninstall_key)[0]
+
+                    for index in range(subkey_count):
+                        try:
+                            subkey_name = winreg.EnumKey(uninstall_key, index)
+
+                            with winreg.OpenKey(uninstall_key, subkey_name) as app_key:
+                                try:
+                                    display_name, _ = winreg.QueryValueEx(
+                                        app_key,
+                                        "DisplayName"
+                                    )
+                                except FileNotFoundError:
+                                    continue
+
+                                try:
+                                    display_version, _ = winreg.QueryValueEx(
+                                        app_key,
+                                        "DisplayVersion"
+                                    )
+                                except FileNotFoundError:
+                                    display_version = None
+
+                                clean_display_name = str(display_name).strip().lower()
+
+                                for version_key, wanted_name in wanted_programs.items():
+                                    if clean_display_name == wanted_name.lower():
+                                        versions[version_key] = (
+                                            str(display_version).strip()
+                                            if display_version
+                                            else None
+                                        )
+
+                        except OSError:
+                            continue
+
+            except OSError:
+                continue
+
+        logger.info(
+            "Installed program versions detected. AMV=%s BO=%s ETP=%s AWS=%s",
+            versions.get("amv_version"),
+            versions.get("bo_version"),
+            versions.get("etp_version"),
+            versions.get("aws_version")
+        )
+
+        return versions
+
     def _create_register_message(self) -> dict:
         """
         Δημιουργεί το register μήνυμα που στέλνει ο client στον server.
+        Περιλαμβάνει και τις εκδόσεις των εγκατεστημένων Sunsoft προγραμμάτων.
         """
+
+        program_versions = self._get_installed_program_versions()
 
         return {
             "type": "register",
@@ -161,6 +251,10 @@ class MoonHardClientAgent:
             "pc_name": self.identity.get("pc_name"),
             "username": self.identity.get("username"),
             "app_version": self.config.app_version,
+            "amv_version": program_versions.get("amv_version"),
+            "bo_version": program_versions.get("bo_version"),
+            "etp_version": program_versions.get("etp_version"),
+            "aws_version": program_versions.get("aws_version"),
         }
 
     async def _listen_forever(self, websocket) -> None:
