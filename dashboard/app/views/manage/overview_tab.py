@@ -1,7 +1,6 @@
 from typing import Callable
 
 import customtkinter as ctk
-import winreg
 from app.ui.theme import (
     COLORS,
     FONTS,
