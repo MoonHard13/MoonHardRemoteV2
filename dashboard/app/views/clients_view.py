@@ -610,6 +610,10 @@ class ClientsView(ctk.CTkFrame):
                     str(client.get("status", "")),
                     str(client.get("ws_connected", "")),
                     str(client.get("app_version", "")),
+                    str(client.get("amv_version", "")),
+                    str(client.get("bo_version", "")),
+                    str(client.get("etp_version", "")),
+                    str(client.get("aws_version", "")),
                     str(client.get("group_id", "")),
                     str(client.get("group_name", "")),
                 )
@@ -649,6 +653,10 @@ class ClientsView(ctk.CTkFrame):
                     str(client.get("username", "")),
                     str(client.get("client_code", "")),
                     str(client.get("app_version", "")),
+                    str(client.get("amv_version", "")),
+                    str(client.get("bo_version", "")),
+                    str(client.get("etp_version", "")),
+                    str(client.get("aws_version", "")),
                     str(client.get("group_name", ""))
                 ]
             ).lower()
@@ -721,6 +729,10 @@ class ClientsView(ctk.CTkFrame):
         app_version = client.get("app_version", "-")
         last_seen = client.get("last_seen", "-")
         group_name = client.get("group_name") or "Ungrouped"
+        amv_version = client.get("amv_version") or "-"
+        bo_version = client.get("bo_version") or "-"
+        etp_version = client.get("etp_version") or "-"
+        aws_version = client.get("aws_version") or "-"
 
         row = ctk.CTkFrame(
             self.scroll_frame,
@@ -744,7 +756,8 @@ class ClientsView(ctk.CTkFrame):
 
         main_text = (
             f"{display_name}\n"
-            f"PC: {pc_name}  •  User: {username}  •  Version: {app_version}\n"
+            f"PC: {pc_name}  •  User: {username}  •  MoonHard: {app_version}\n"
+            f"AMV: {amv_version}  •  BO: {bo_version}  •  ETP: {etp_version}  •  AWS: {aws_version}\n"
             f"Group: {group_name}  •  Code: {client_code}\n"
             f"Last seen: {last_seen}"
         )

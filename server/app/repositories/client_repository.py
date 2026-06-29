@@ -35,7 +35,8 @@ class ClientRepository:
             .select(
                 "id, client_code, display_name, pc_name, username, app_version, "
                 "status, last_seen, connected_at, disconnected_at, created_at, "
-                "group_id, group_name, group_color, group_sort_order"
+                "group_id, group_name, group_color, group_sort_order, "
+                "amv_version, bo_version, etp_version, aws_version"
             )
             .order("group_sort_order", desc=False)
             .order("group_name", desc=False)
@@ -392,6 +393,10 @@ class ClientRepository:
                     "pc_name": client_data.get("pc_name", "UNKNOWN-PC"),
                     "username": client_data.get("username"),
                     "app_version": client_data.get("app_version"),
+                    "amv_version": client_data.get("amv_version"),
+                    "bo_version": client_data.get("bo_version"),
+                    "etp_version": client_data.get("etp_version"),
+                    "aws_version": client_data.get("aws_version"),
                     "status": "online",
                     "last_seen": now_utc,
                     "connected_at": now_utc,
@@ -412,6 +417,10 @@ class ClientRepository:
                     "pc_name": client_data.get("pc_name", "UNKNOWN-PC"),
                     "username": client_data.get("username"),
                     "app_version": client_data.get("app_version"),
+                    "amv_version": client_data.get("amv_version"),
+                    "bo_version": client_data.get("bo_version"),
+                    "etp_version": client_data.get("etp_version"),
+                    "aws_version": client_data.get("aws_version"),
                     "status": "online",
                     "last_seen": now_utc,
                     "connected_at": now_utc,

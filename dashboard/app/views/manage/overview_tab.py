@@ -1,6 +1,7 @@
 from typing import Callable
 
 import customtkinter as ctk
+import winreg
 from app.ui.theme import (
     COLORS,
     FONTS,
@@ -63,6 +64,10 @@ class OverviewTab(ctk.CTkFrame):
         pc_name = self.client.get("pc_name", "-")
         username = self.client.get("username", "-")
         app_version = self.client.get("app_version", "-")
+        amv_version = self.client.get("amv_version") or "-"
+        bo_version = self.client.get("bo_version") or "-"
+        etp_version = self.client.get("etp_version") or "-"
+        aws_version = self.client.get("aws_version") or "-"
         group_name = self.client.get("group_name") or "Ungrouped"
         last_seen = self.client.get("last_seen", "-")
 
@@ -70,8 +75,12 @@ class OverviewTab(ctk.CTkFrame):
             f"Display name: {display_name}\n"
             f"PC name: {pc_name}\n"
             f"Username: {username}\n"
-            f"Group: {group_name}\n"
             f"App version: {app_version}\n"
+            f"AMV version: {amv_version}\n"
+            f"BO version: {bo_version}\n"
+            f"ETP version: {etp_version}\n"
+            f"AWS version: {aws_version}\n"
+            f"Group: {group_name}\n"
             f"Last seen: {last_seen}"
         )
 
@@ -127,6 +136,10 @@ class OverviewTab(ctk.CTkFrame):
         pc_name = self.client.get("pc_name", "-")
         username = self.client.get("username", "-")
         app_version = self.client.get("app_version", "-")
+        amv_version = self.client.get("amv_version") or "-"
+        bo_version = self.client.get("bo_version") or "-"
+        etp_version = self.client.get("etp_version") or "-"
+        aws_version = self.client.get("aws_version") or "-"
         group_name = self.client.get("group_name") or "Ungrouped"
         last_seen = self.client.get("last_seen", "-")
 
@@ -134,8 +147,12 @@ class OverviewTab(ctk.CTkFrame):
             f"Display name: {display_name}\n"
             f"PC name: {pc_name}\n"
             f"Username: {username}\n"
-            f"Group: {group_name}\n"
             f"App version: {app_version}\n"
+            f"AMV version: {amv_version}\n"
+            f"BO version: {bo_version}\n"
+            f"ETP version: {etp_version}\n"
+            f"AWS version: {aws_version}\n"
+            f"Group: {group_name}\n"
             f"Last seen: {last_seen}"
         )
 

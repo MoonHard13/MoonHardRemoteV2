@@ -169,6 +169,10 @@ class ClientManageWindow(ctk.CTkToplevel):
         username = self.client.get("username", "-")
         status = self.client.get("status", "-")
         app_version = self.client.get("app_version", "-")
+        amv_version = self.client.get("amv_version") or "-"
+        bo_version = self.client.get("bo_version") or "-"
+        etp_version = self.client.get("etp_version") or "-"
+        aws_version = self.client.get("aws_version") or "-"
         group_name = self.client.get("group_name") or "Ungrouped"
         
         header = ctk.CTkFrame(self, **card_style())
@@ -195,7 +199,11 @@ class ClientManageWindow(ctk.CTkToplevel):
                 f"PC: {pc_name} | "
                 f"User: {username} | "
                 f"Status: {status} | "
-                f"Version: {app_version} | "
+                f"MoonHard: {app_version} | "
+                f"AMV: {amv_version} | "
+                f"BO: {bo_version} | "
+                f"ETP: {etp_version} | "
+                f"AWS: {aws_version} | "
                 f"Group: {group_name} | "
                 f"Code: {self.client_code}"
             ),
@@ -222,6 +230,10 @@ class ClientManageWindow(ctk.CTkToplevel):
         app_version = self.client.get("app_version", "-")
         ws_connected = self.client.get("ws_connected", False)
         group_name = self.client.get("group_name") or "Ungrouped"
+        amv_version = self.client.get("amv_version") or "-"
+        bo_version = self.client.get("bo_version") or "-"
+        etp_version = self.client.get("etp_version") or "-"
+        aws_version = self.client.get("aws_version") or "-"
 
         self.title(f"Manage Client - {display_name}")
 
@@ -236,7 +248,11 @@ class ClientManageWindow(ctk.CTkToplevel):
                     f"PC: {pc_name} | "
                     f"User: {username} | "
                     f"Status: {status} / {connection_text} | "
-                    f"Version: {app_version} | "
+                    f"MoonHard: {app_version} | "
+                    f"AMV: {amv_version} | "
+                    f"BO: {bo_version} | "
+                    f"ETP: {etp_version} | "
+                    f"AWS: {aws_version} | "
                     f"Group: {group_name} | "
                     f"Code: {self.client_code}"
                 )
