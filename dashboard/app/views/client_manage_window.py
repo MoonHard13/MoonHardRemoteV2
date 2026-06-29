@@ -169,6 +169,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         username = self.client.get("username", "-")
         status = self.client.get("status", "-")
         app_version = self.client.get("app_version", "-")
+        group_name = self.client.get("group_name") or "Ungrouped"
         
         header = ctk.CTkFrame(self, **card_style())
         header.grid(
@@ -195,6 +196,7 @@ class ClientManageWindow(ctk.CTkToplevel):
                 f"User: {username} | "
                 f"Status: {status} | "
                 f"Version: {app_version} | "
+                f"Group: {group_name} | "
                 f"Code: {self.client_code}"
             ),
             font=FONTS.body,
@@ -219,6 +221,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         status = self.client.get("status", "-")
         app_version = self.client.get("app_version", "-")
         ws_connected = self.client.get("ws_connected", False)
+        group_name = self.client.get("group_name") or "Ungrouped"
 
         self.title(f"Manage Client - {display_name}")
 
@@ -234,12 +237,16 @@ class ClientManageWindow(ctk.CTkToplevel):
                     f"User: {username} | "
                     f"Status: {status} / {connection_text} | "
                     f"Version: {app_version} | "
+                    f"Group: {group_name} | "
                     f"Code: {self.client_code}"
                 )
             )
 
         if hasattr(self, "updates_tab_view"):
             self.updates_tab_view.update_client_state(self.client)
+
+        if hasattr(self, "overview_tab_view"):
+            self.overview_tab_view.update_client_data(self.client)
 
     def _build_overview_tab(self) -> None:
         """

@@ -63,17 +63,19 @@ class OverviewTab(ctk.CTkFrame):
         pc_name = self.client.get("pc_name", "-")
         username = self.client.get("username", "-")
         app_version = self.client.get("app_version", "-")
+        group_name = self.client.get("group_name") or "Ungrouped"
         last_seen = self.client.get("last_seen", "-")
 
         info_text = (
             f"Display name: {display_name}\n"
             f"PC name: {pc_name}\n"
             f"Username: {username}\n"
+            f"Group: {group_name}\n"
             f"App version: {app_version}\n"
             f"Last seen: {last_seen}"
         )
 
-        info_label = ctk.CTkLabel(
+        self.info_label = ctk.CTkLabel(
             frame,
             text=info_text,
             font=FONTS.body,
@@ -81,7 +83,7 @@ class OverviewTab(ctk.CTkFrame):
             justify="left",
             anchor="w"
         )
-        info_label.grid(row=1, column=0, columnspan=2, padx=18, pady=(0, 18), sticky="w")
+        self.info_label.grid(row=1, column=0, columnspan=2, padx=18, pady=(0, 18), sticky="w")
 
         rename_title = ctk.CTkLabel(
             frame,
@@ -111,6 +113,34 @@ class OverviewTab(ctk.CTkFrame):
         )
         rename_button.grid(row=3, column=1, padx=(0, 18), pady=(0, 18), sticky="e")
 
+    def update_client_data(self, client: dict) -> None:
+        """
+        Ενημερώνει τα στοιχεία του Overview tab όταν αλλάξει ο client.
+        """
+
+        if not client:
+            return
+
+        self.client = client
+
+        display_name = self.client.get("display_name") or self.client.get("pc_name") or "-"
+        pc_name = self.client.get("pc_name", "-")
+        username = self.client.get("username", "-")
+        app_version = self.client.get("app_version", "-")
+        group_name = self.client.get("group_name") or "Ungrouped"
+        last_seen = self.client.get("last_seen", "-")
+
+        info_text = (
+            f"Display name: {display_name}\n"
+            f"PC name: {pc_name}\n"
+            f"Username: {username}\n"
+            f"Group: {group_name}\n"
+            f"App version: {app_version}\n"
+            f"Last seen: {last_seen}"
+        )
+
+        if hasattr(self, "info_label"):
+            self.info_label.configure(text=info_text)
 
     def _save_name(self) -> None:
         """
