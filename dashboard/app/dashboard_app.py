@@ -1528,7 +1528,7 @@ class MoonHardDashboardApp(ctk.CTk):
             for stage in active_stages
         )
 
-        logger.info(
+        logger.debug(
             "Bulk update summary: completed=%s up_to_date=%s failed_or_stuck=%s still_waiting=%s raw=%s",
             completed,
             up_to_date,
