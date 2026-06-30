@@ -174,6 +174,23 @@ class MoonHardDashboardApp(ctk.CTk):
             if updated:
                 logger.info("Dashboard clients list updated. Count: %s", len(clients))
 
+        elif message_type == "client_updated":
+            client = payload.get("client") or {}
+            client_code = str(payload.get("client_code") or client.get("client_code") or "")
+
+            updated = self.clients_view.update_single_client(client)
+
+            if client_code:
+                self._update_open_manage_window_for_client(client_code, client)
+                self._update_bulk_completion_from_single_client(client)
+
+            if updated:
+                logger.info(
+                    "Dashboard single client updated. client_code=%s reason=%s",
+                    client_code,
+                    payload.get("reason", "")
+                )
+
         elif message_type == "dashboard_connected":
             logger.info("Dashboard connected. Requesting client groups.")
             self._request_client_groups()
@@ -479,6 +496,21 @@ class MoonHardDashboardApp(ctk.CTk):
 
             if fresh_client:
                 manage_window.update_client_data(fresh_client)
+
+    def _update_open_manage_window_for_client(self, client_code: str, client: dict) -> None:
+        """
+        Ενημερώνει μόνο το ανοιχτό Manage window του συγκεκριμένου client.
+        """
+
+        if not client_code or not client:
+            return
+
+        manage_window = self.manage_windows.get(client_code)
+
+        if not manage_window or not manage_window.winfo_exists():
+            return
+
+        manage_window.update_client_data(client)
 
     def _set_connection_status_threadsafe(self, status: str) -> None:
         """
@@ -1425,6 +1457,43 @@ class MoonHardDashboardApp(ctk.CTk):
                 )
 
         self._log_bulk_update_summary()
+
+    def _update_bulk_completion_from_single_client(self, client: dict) -> None:
+        """
+        Ελέγχει αν ολοκληρώθηκε bulk update για έναν μόνο client.
+        Χρησιμοποιείται όταν ο server στέλνει targeted client_updated μετά από reconnect.
+        """
+
+        if not self.bulk_update_active or not client:
+            return
+
+        client_code = str(client.get("client_code", ""))
+
+        if not client_code or client_code not in self.bulk_update_states:
+            return
+
+        state = self.bulk_update_states[client_code]
+
+        if state.get("stage") not in ("apply_started", "applying"):
+            return
+
+        ws_connected = bool(client.get("ws_connected", False))
+        app_version = str(client.get("app_version", ""))
+        latest_version = str(state.get("latest_version", ""))
+
+        if ws_connected and latest_version and app_version == latest_version:
+            self._set_bulk_update_state(
+                client_code,
+                "completed"
+            )
+
+            logger.info(
+                "Bulk update completed from single client update. client_code=%s version=%s",
+                client_code,
+                app_version
+            )
+
+            self._log_bulk_update_summary()
 
     def _log_bulk_update_summary(self) -> None:
         """

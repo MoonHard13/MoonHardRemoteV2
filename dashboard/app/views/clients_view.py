@@ -200,6 +200,40 @@ class ClientsView(ctk.CTkFrame):
 
         return True
 
+    def update_single_client(self, client: dict, force: bool = True) -> bool:
+        """
+        Ανανεώνει ή προσθέτει έναν μόνο client χωρίς full clients_list refresh.
+        """
+
+        if not client:
+            return False
+
+        client_code = str(client.get("client_code", "")).strip()
+
+        if not client_code:
+            return False
+
+        updated_clients: list[dict] = []
+        found = False
+
+        for existing_client in self.clients:
+            existing_code = str(existing_client.get("client_code", "")).strip()
+
+            if existing_code == client_code:
+                updated_clients.append(client)
+                found = True
+            else:
+                updated_clients.append(existing_client)
+
+        if not found:
+            updated_clients.append(client)
+
+        self.clients = updated_clients
+        self.last_clients_snapshot = self._create_clients_snapshot(self.clients)
+        self._apply_filters()
+
+        return True
+
     def update_groups(self, groups: list[dict]) -> None:
         """
         Ανανεώνει τη λίστα των διαθέσιμων groups στο dropdown.

@@ -83,6 +83,40 @@ class WebSocketRoutes:
             }
         )
 
+    async def broadcast_single_client_update(self, client_code: str, reason: str = "") -> None:
+        """
+        Στέλνει update μόνο για έναν client σε όλα τα dashboards.
+        Χρησιμοποιείται μετά από client reconnect/update ώστε να μη στέλνουμε όλη τη λίστα.
+        """
+
+        client = self.client_repository.get_client_by_code(client_code)
+
+        if not client:
+            logger.warning(
+                "Cannot broadcast single client update. Client not found. client_code=%s reason=%s",
+                client_code,
+                reason
+            )
+            return
+
+        enriched_clients = self._enrich_clients_with_connection_state([client])
+        enriched_client = enriched_clients[0]
+
+        await connection_manager.broadcast_to_dashboards(
+            {
+                "type": "client_updated",
+                "client_code": client_code,
+                "reason": reason,
+                "client": enriched_client
+            }
+        )
+
+        logger.info(
+            "Single client update broadcast sent. client_code=%s reason=%s",
+            client_code,
+            reason
+        )
+
     def _should_broadcast_clients_list(self) -> bool:
         """
         Ελέγχει αν επιτρέπεται να στείλουμε full clients_list broadcast.
@@ -206,6 +240,11 @@ class WebSocketRoutes:
                 "message": "Client registered successfully.",
                 "client": saved_client
             })
+
+            await self.broadcast_single_client_update(
+                client_code=client_code,
+                reason="client_registered"
+            )
 
             await self.broadcast_clients_list_throttled("client_registered")
 

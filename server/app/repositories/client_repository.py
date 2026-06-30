@@ -46,6 +46,36 @@ class ClientRepository:
 
         return response.data or []
 
+    def get_client_by_code(self, client_code: str) -> dict[str, Any] | None:
+        """
+        Επιστρέφει έναν client από το dashboard view με group/program version info.
+        Χρησιμοποιείται για targeted dashboard refresh ενός μόνο client.
+        """
+
+        if not client_code:
+            return None
+
+        response = (
+            self.db
+            .table("v_clients_dashboard")
+            .select(
+                "id, client_code, display_name, pc_name, username, app_version, "
+                "status, last_seen, connected_at, disconnected_at, created_at, "
+                "group_id, group_name, group_color, group_sort_order, "
+                "amv_version, bo_version, etp_version, aws_version"
+            )
+            .eq("client_code", client_code)
+            .limit(1)
+            .execute()
+        )
+
+        data = response.data or []
+
+        if not data:
+            return None
+
+        return data[0]
+
     def get_client_groups(self) -> list[dict[str, Any]]:
         """
         Επιστρέφει όλα τα διαθέσιμα client groups.
