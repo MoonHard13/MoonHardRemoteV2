@@ -34,3 +34,5 @@ installer/secrets/
 tools/winsw/MoonHardRemoteClientService.exe
 installer/client_files/MoonHardUpdater.exe
 supabase pass.txt
+client setup steps.txt
+dashboard setup.txt
