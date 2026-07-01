@@ -246,8 +246,6 @@ class WebSocketRoutes:
                 reason="client_registered"
             )
 
-            await self.broadcast_clients_list_throttled("client_registered")
-
             while True:
                 data = await websocket.receive_json()
 
@@ -655,7 +653,11 @@ class WebSocketRoutes:
                 if disconnected_active_client:
                     self.client_repository.mark_client_offline(client_code)
                     self.client_last_db_heartbeat.pop(client_code, None)
-                    await self.broadcast_clients_list_throttled("client_disconnected")
+
+                    await self.broadcast_single_client_update(
+                        client_code=client_code,
+                        reason="client_disconnected"
+                    )
                 else:
                     logger.warning(
                         "Skipped offline mark for stale WebSocket disconnect. client_code=%s",
@@ -674,7 +676,11 @@ class WebSocketRoutes:
                 if disconnected_active_client:
                     self.client_repository.mark_client_offline(client_code)
                     self.client_last_db_heartbeat.pop(client_code, None)
-                    await self.broadcast_clients_list_throttled("client_disconnected")
+
+                    await self.broadcast_single_client_update(
+                        client_code=client_code,
+                        reason="client_disconnected"
+                    )
                 else:
                     logger.warning(
                         "Skipped offline mark for stale WebSocket error. client_code=%s",

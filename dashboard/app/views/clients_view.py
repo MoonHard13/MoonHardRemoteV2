@@ -1,3 +1,5 @@
+from typing import Any
+
 import customtkinter as ctk
 
 from app.ui.theme import (
@@ -33,7 +35,8 @@ class ClientsView(ctk.CTkFrame):
 
         super().__init__(parent, **card_style())
 
-        self.client_rows: dict[str, ctk.CTkFrame] = {}
+        self.client_rows: dict[str, dict[str, Any]] = {}
+        self.empty_label: ctk.CTkLabel | None = None
         self.clients: list[dict] = []
         self.filter_text: str = ""
         self.status_filter: str = "All"
@@ -202,7 +205,7 @@ class ClientsView(ctk.CTkFrame):
 
     def update_single_client(self, client: dict, force: bool = True) -> bool:
         """
-        Ανανεώνει ή προσθέτει έναν μόνο client χωρίς full clients_list refresh.
+        Ανανεώνει ή προσθέτει έναν μόνο client χωρίς να ξαναχτίζει όλη τη λίστα.
         """
 
         if not client:
@@ -230,9 +233,252 @@ class ClientsView(ctk.CTkFrame):
 
         self.clients = updated_clients
         self.last_clients_snapshot = self._create_clients_snapshot(self.clients)
-        self._apply_filters()
+
+        self._refresh_single_client_row(client_code, client)
 
         return True
+
+    def _client_matches_current_filters(self, client: dict) -> bool:
+        """
+        Ελέγχει αν ένας client περνάει τα τρέχοντα φίλτρα της λίστας.
+        """
+
+        filter_text = self.search_entry.get().strip().lower()
+        status_filter = self.status_option.get()
+        group_filter = self.group_option.get()
+
+        status = str(client.get("status", "offline")).lower()
+
+        if status_filter == "Online" and status != "online":
+            return False
+
+        if status_filter == "Offline" and status == "online":
+            return False
+
+        group_name = str(client.get("group_name") or "Ungrouped")
+
+        if group_filter != "All Groups" and group_name != group_filter:
+            return False
+
+        searchable_text = " ".join(
+            [
+                str(client.get("display_name", "")),
+                str(client.get("pc_name", "")),
+                str(client.get("username", "")),
+                str(client.get("client_code", "")),
+                str(client.get("app_version", "")),
+                str(client.get("amv_version", "")),
+                str(client.get("bo_version", "")),
+                str(client.get("etp_version", "")),
+                str(client.get("aws_version", "")),
+                str(client.get("group_name", ""))
+            ]
+        ).lower()
+
+        if filter_text and filter_text not in searchable_text:
+            return False
+
+        return True
+
+
+    def _get_filtered_clients(self) -> list[dict]:
+        """
+        Επιστρέφει τους clients που περνάνε τα τρέχοντα φίλτρα.
+        """
+
+        return [
+            client
+            for client in self.clients
+            if self._client_matches_current_filters(client)
+        ]
+
+
+    def _update_count_label(self, visible_count: int) -> None:
+        """
+        Ανανεώνει μόνο το counter της λίστας clients.
+        """
+
+        online_count = sum(
+            1
+            for client in self.clients
+            if str(client.get("status", "offline")).lower() == "online"
+        )
+
+        self.count_label.configure(
+            text=f"{visible_count} shown / {len(self.clients)} total · {online_count} online"
+        )
+
+
+    def _hide_empty_label(self) -> None:
+        """
+        Κρύβει το μήνυμα άδειας λίστας όταν υπάρχουν ορατοί clients.
+        """
+
+        if self.empty_label and self.empty_label.winfo_exists():
+            self.empty_label.destroy()
+
+        self.empty_label = None
+
+
+    def _show_empty_label_if_needed(self, visible_count: int) -> None:
+        """
+        Εμφανίζει μήνυμα άδειας λίστας μόνο όταν δεν υπάρχει κανένας ορατός client.
+        """
+
+        if visible_count > 0:
+            self._hide_empty_label()
+            return
+
+        if self.empty_label and self.empty_label.winfo_exists():
+            return
+
+        self.empty_label = ctk.CTkLabel(
+            self.scroll_frame,
+            text="Δεν υπάρχουν clients με αυτά τα φίλτρα.",
+            font=FONTS.body,
+            text_color=COLORS.text_secondary
+        )
+        self.empty_label.grid(row=0, column=0, padx=15, pady=15, sticky="w")
+
+
+    def _regrid_visible_client_rows(self, visible_clients: list[dict]) -> None:
+        """
+        Κάνει μόνο re-position στα υπάρχοντα rows χωρίς destroy/recreate.
+        """
+
+        for row_index, visible_client in enumerate(visible_clients):
+            client_code = str(visible_client.get("client_code", "")).strip()
+            row_data = self.client_rows.get(client_code)
+
+            if not row_data:
+                continue
+
+            row = row_data.get("frame")
+
+            if not row or not row.winfo_exists():
+                continue
+
+            row.grid(row=row_index, column=0, padx=4, pady=6, sticky="ew")
+
+
+    def _refresh_single_client_row(self, client_code: str, client: dict) -> None:
+        """
+        Ανανεώνει μόνο το row ενός client.
+        Δεν καταστρέφει όλη τη λίστα.
+        """
+
+        visible_clients = self._get_filtered_clients()
+        visible_count = len(visible_clients)
+        visible_codes = {
+            str(visible_client.get("client_code", "")).strip()
+            for visible_client in visible_clients
+        }
+
+        row_data = self.client_rows.get(client_code)
+
+        if client_code not in visible_codes:
+            if row_data:
+                row = row_data.get("frame")
+
+                if row and row.winfo_exists():
+                    row.destroy()
+
+                self.client_rows.pop(client_code, None)
+
+            self._regrid_visible_client_rows(visible_clients)
+            self._update_count_label(visible_count)
+            self._show_empty_label_if_needed(visible_count)
+            return
+
+        self._hide_empty_label()
+
+        if row_data:
+            self._update_client_row_widgets(client_code, client)
+        else:
+            self._add_client_row(visible_count - 1, client)
+
+        self._regrid_visible_client_rows(visible_clients)
+        self._update_count_label(visible_count)
+
+
+    def _build_client_main_text(self, client: dict) -> str:
+        """
+        Δημιουργεί το κείμενο πληροφοριών για ένα client row.
+        """
+
+        client_code = client.get("client_code", "-")
+        display_name = client.get("display_name") or client.get("pc_name") or "-"
+        pc_name = client.get("pc_name", "-")
+        username = client.get("username", "-")
+        app_version = client.get("app_version", "-")
+        last_seen = client.get("last_seen", "-")
+        group_name = client.get("group_name") or "Ungrouped"
+        amv_version = client.get("amv_version") or "-"
+        bo_version = client.get("bo_version") or "-"
+        etp_version = client.get("etp_version") or "-"
+        aws_version = client.get("aws_version") or "-"
+
+        return (
+            f"{display_name}\n"
+            f"PC: {pc_name}  •  User: {username}  •  MoonHard: {app_version}\n"
+            f"AMV: {amv_version}  •  BO: {bo_version}  •  ETP: {etp_version}  •  AWS: {aws_version}\n"
+            f"Group: {group_name}  •  Code: {client_code}\n"
+            f"Last seen: {last_seen}"
+        )
+
+
+    def _update_client_row_widgets(self, client_code: str, client: dict) -> None:
+        """
+        Ανανεώνει τα widgets ενός υπάρχοντος row.
+        """
+
+        row_data = self.client_rows.get(client_code)
+
+        if not row_data:
+            return
+
+        status = str(client.get("status", "offline")).lower()
+        status_color = COLORS.success if status == "online" else COLORS.danger
+        ws_connected = bool(client.get("ws_connected", False))
+        controllable_text = "CONNECTED" if ws_connected else "NOT CONNECTED"
+
+        status_label = row_data.get("status_label")
+        info_label = row_data.get("info_label")
+        status_text = row_data.get("status_text")
+        manage_button = row_data.get("manage_button")
+        group_button = row_data.get("group_button")
+        delete_button = row_data.get("delete_button")
+
+        if status_label:
+            status_label.configure(fg_color=status_color)
+
+        if info_label:
+            info_label.configure(text=self._build_client_main_text(client))
+
+        if status_text:
+            status_text.configure(
+                text=f"{status.upper()} / {controllable_text}",
+                text_color=status_color
+            )
+
+        if manage_button:
+            manage_button.configure(
+                state="normal" if ws_connected else "disabled",
+                command=lambda c=client: self._open_manage_callback(c)
+            )
+
+        if group_button:
+            group_button.configure(
+                command=lambda c=client: self._open_group_callback(c)
+            )
+
+        if delete_button:
+            delete_button.configure(
+                state="disabled" if ws_connected else "normal",
+                command=lambda c=client: self._open_delete_callback(c)
+            )
+
+        row_data["client"] = client
 
     def update_groups(self, groups: list[dict]) -> None:
         """
@@ -723,24 +969,12 @@ class ClientsView(ctk.CTkFrame):
 
         self.client_rows.clear()
 
-        online_count = sum(
-            1
-            for client in self.clients
-            if str(client.get("status", "offline")).lower() == "online"
-        )
+        self.empty_label = None
 
-        self.count_label.configure(
-            text=f"{len(clients)} shown / {len(self.clients)} total · {online_count} online"
-        )
+        self._update_count_label(len(clients))
 
         if not clients:
-            empty_label = ctk.CTkLabel(
-                self.scroll_frame,
-                text="Δεν υπάρχουν clients με αυτά τα φίλτρα.",
-                font=FONTS.body,
-                text_color=COLORS.text_secondary
-            )
-            empty_label.grid(row=0, column=0, padx=15, pady=15, sticky="w")
+            self._show_empty_label_if_needed(0)
             return
 
         for row_index, client in enumerate(clients):
@@ -788,13 +1022,7 @@ class ClientsView(ctk.CTkFrame):
         )
         status_label.grid(row=0, column=0, padx=(15, 10), pady=12, sticky="w")
 
-        main_text = (
-            f"{display_name}\n"
-            f"PC: {pc_name}  •  User: {username}  •  MoonHard: {app_version}\n"
-            f"AMV: {amv_version}  •  BO: {bo_version}  •  ETP: {etp_version}  •  AWS: {aws_version}\n"
-            f"Group: {group_name}  •  Code: {client_code}\n"
-            f"Last seen: {last_seen}"
-        )
+        main_text = self._build_client_main_text(client)
 
         info_label = ctk.CTkLabel(
             row,
@@ -844,6 +1072,17 @@ class ClientsView(ctk.CTkFrame):
             text_color=COLORS.text_primary
         )
         delete_button.grid(row=0, column=5, padx=(0, 15), pady=12, sticky="e")
+
+        self.client_rows[str(client_code).strip()] = {
+            "frame": row,
+            "client": client,
+            "status_label": status_label,
+            "info_label": info_label,
+            "status_text": status_text,
+            "manage_button": manage_button,
+            "group_button": group_button,
+            "delete_button": delete_button
+        }
         
     def _open_manage_callback(self, client: dict) -> None:
         """
