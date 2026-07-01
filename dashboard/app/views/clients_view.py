@@ -40,6 +40,8 @@ class ClientsView(ctk.CTkFrame):
         self.clients: list[dict] = []
         self.filter_text: str = ""
         self.status_filter: str = "All"
+        self.filter_after_job = None
+        self.empty_label = None
         self.groups: list[dict] = []
         self.group_filter: str = "All Groups"
         self.manage_groups_window = None
@@ -105,7 +107,7 @@ class ClientsView(ctk.CTkFrame):
             placeholder_text_color=COLORS.text_muted
         )
         self.search_entry.grid(row=0, column=0, padx=(0, 10), pady=(0, 8), sticky="ew")
-        self.search_entry.bind("<KeyRelease>", lambda _event: self._apply_filters())
+        self.search_entry.bind("<KeyRelease>", lambda _event: self._schedule_filter_apply())
 
         self.status_option = ctk.CTkOptionMenu(
             filter_frame,
@@ -901,52 +903,148 @@ class ClientsView(ctk.CTkFrame):
 
         return tuple(sorted(snapshot_items))
 
+    def _schedule_filter_apply(self) -> None:
+        """
+        Καθυστερεί ελάχιστα το search filtering ώστε να μην τρέχει full UI logic σε κάθε πλήκτρο.
+        """
+
+        if self.filter_after_job:
+            try:
+                self.after_cancel(self.filter_after_job)
+            except Exception:
+                pass
+
+            self.filter_after_job = None
+
+        self.filter_after_job = self.after(150, self._apply_filters)
+
+    def _client_matches_current_filters(self, client: dict) -> bool:
+        """
+        Ελέγχει αν ένας client πρέπει να εμφανίζεται με βάση τα τρέχοντα φίλτρα.
+        """
+
+        filter_text = self.search_entry.get().strip().lower()
+        status_filter = self.status_option.get()
+        group_filter = self.group_option.get()
+
+        status = str(client.get("status", "offline")).lower()
+
+        if status_filter == "Online" and status != "online":
+            return False
+
+        if status_filter == "Offline" and status == "online":
+            return False
+
+        group_name = str(client.get("group_name") or "Ungrouped")
+
+        if group_filter != "All Groups" and group_name != group_filter:
+            return False
+
+        searchable_text = " ".join(
+            [
+                str(client.get("display_name", "")),
+                str(client.get("pc_name", "")),
+                str(client.get("username", "")),
+                str(client.get("client_code", "")),
+                str(client.get("app_version", "")),
+                str(client.get("amv_version", "")),
+                str(client.get("bo_version", "")),
+                str(client.get("etp_version", "")),
+                str(client.get("aws_version", "")),
+                str(client.get("group_name", ""))
+            ]
+        ).lower()
+
+        if filter_text and filter_text not in searchable_text:
+            return False
+
+        return True
+
+    def _apply_visible_client_rows(self, visible_clients: list[dict]) -> None:
+        """
+        Εμφανίζει μόνο τα rows που περνάνε τα φίλτρα.
+        Δεν καταστρέφει και δεν ξαναχτίζει όλη τη λίστα.
+        """
+
+        visible_codes = {
+            str(client.get("client_code", "")).strip()
+            for client in visible_clients
+        }
+
+        if self.empty_label and self.empty_label.winfo_exists():
+            self.empty_label.destroy()
+
+        self.empty_label = None
+
+        for client_code, row_data in list(self.client_rows.items()):
+            row = row_data.get("frame")
+
+            if not row or not row.winfo_exists():
+                self.client_rows.pop(client_code, None)
+                continue
+
+            if client_code not in visible_codes:
+                row.grid_remove()
+
+        for row_index, client in enumerate(visible_clients):
+            client_code = str(client.get("client_code", "")).strip()
+
+            if not client_code:
+                continue
+
+            row_data = self.client_rows.get(client_code)
+
+            if not row_data:
+                self._add_client_row(row_index, client)
+                row_data = self.client_rows.get(client_code)
+
+            if not row_data:
+                continue
+
+            row = row_data.get("frame")
+
+            if not row or not row.winfo_exists():
+                continue
+
+            row.grid(row=row_index, column=0, padx=4, pady=6, sticky="ew")
+
+        online_count = sum(
+            1
+            for client in self.clients
+            if str(client.get("status", "offline")).lower() == "online"
+        )
+
+        self.count_label.configure(
+            text=f"{len(visible_clients)} shown / {len(self.clients)} total · {online_count} online"
+        )
+
+        if not visible_clients:
+            self.empty_label = ctk.CTkLabel(
+                self.scroll_frame,
+                text="Δεν υπάρχουν clients με αυτά τα φίλτρα.",
+                font=FONTS.body,
+                text_color=COLORS.text_secondary
+            )
+            self.empty_label.grid(row=0, column=0, padx=15, pady=15, sticky="w")
+
     def _apply_filters(self) -> None:
         """
-        Εφαρμόζει search και status filter στους clients.
+        Εφαρμόζει search/status/group φίλτρα χωρίς να ξαναχτίζει όλα τα rows.
         """
+
+        self.filter_after_job = None
 
         self.filter_text = self.search_entry.get().strip().lower()
         self.status_filter = self.status_option.get()
         self.group_filter = self.group_option.get()
 
-        filtered_clients: list[dict] = []
+        visible_clients = [
+            client
+            for client in self.clients
+            if self._client_matches_current_filters(client)
+        ]
 
-        for client in self.clients:
-            status = str(client.get("status", "offline")).lower()
-
-            if self.status_filter == "Online" and status != "online":
-                continue
-
-            if self.status_filter == "Offline" and status == "online":
-                continue
-
-            group_name = str(client.get("group_name") or "Ungrouped")
-
-            if self.group_filter != "All Groups" and group_name != self.group_filter:
-                continue
-
-            searchable_text = " ".join(
-                [
-                    str(client.get("display_name", "")),
-                    str(client.get("pc_name", "")),
-                    str(client.get("username", "")),
-                    str(client.get("client_code", "")),
-                    str(client.get("app_version", "")),
-                    str(client.get("amv_version", "")),
-                    str(client.get("bo_version", "")),
-                    str(client.get("etp_version", "")),
-                    str(client.get("aws_version", "")),
-                    str(client.get("group_name", ""))
-                ]
-            ).lower()
-
-            if self.filter_text and self.filter_text not in searchable_text:
-                continue
-
-            filtered_clients.append(client)
-
-        self._render_clients(filtered_clients)
+        self._apply_visible_client_rows(visible_clients)
 
 
     def _clear_filters(self) -> None:
