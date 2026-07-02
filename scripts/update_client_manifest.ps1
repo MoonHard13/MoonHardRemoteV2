@@ -37,10 +37,13 @@ $Manifest = [ordered]@{
 
 $Json = $Manifest | ConvertTo-Json -Depth 5
 
-Set-Content `
-    -Path $ManifestPath `
-    -Value $Json `
-    -Encoding UTF8
+$Utf8NoBomEncoding = New-Object System.Text.UTF8Encoding($false)
+
+[System.IO.File]::WriteAllText(
+    $ManifestPath,
+    $Json + [Environment]::NewLine,
+    $Utf8NoBomEncoding
+)
 
 Write-Host "Manifest updated successfully." -ForegroundColor Green
 Write-Host "Path: $ManifestPath" -ForegroundColor Gray

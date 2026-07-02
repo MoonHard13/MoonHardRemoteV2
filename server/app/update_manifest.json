@@ -1,8 +1,8 @@
-﻿{
-    "product":  "moonhard-remote-client",
-    "latest_version":  "1.0.9",
-    "download_url":  "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.9/moonhard-client-1.0.9.zip",
-    "sha256":  "B25C678A25F7B6FBF1DC7E0BA02673453DF4B71F9148AF8843BC4467CCA59297",
-    "mandatory":  false,
-    "release_notes":  "Security update: adds per-client token authentication, token reset handling, safe appsettings storage, execution limits, and protected update extraction."
+{
+  "product": "moonhard-remote-client",
+  "latest_version": "1.0.9",
+  "download_url": "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.9/moonhard-client-1.0.9.zip",
+  "sha256": "B25C678A25F7B6FBF1DC7E0BA02673453DF4B71F9148AF8843BC4467CCA59297",
+  "mandatory": false,
+  "release_notes": "Security update: adds per-client token authentication, token reset handling, safe appsettings storage, execution limits, and protected update extraction."
 }
