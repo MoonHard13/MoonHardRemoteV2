@@ -553,8 +553,13 @@ class ClientRepository:
     
     def upsert_client_appsettings(self, appsettings_data: dict[str, Any]) -> dict[str, Any]:
         """
-        Αποθηκεύει το appsettings.production.json του client στη βάση.
-        Περιλαμβάνει όλα τα raw δεδομένα χωρίς masking.
+        Αποθηκεύει μόνο safe/masked appsettings δεδομένα.
+
+        Δεν αποθηκεύει:
+        - raw_json
+        - raw_text
+        - πραγματικό database password
+        - πραγματικό database user
         """
 
         client_code = appsettings_data.get("client_code")
@@ -562,29 +567,31 @@ class ClientRepository:
         if not client_code:
             raise ValueError("Missing client_code.")
 
-        logger.info("Saving appsettings for client: %s", client_code)
+        logger.info("Saving safe appsettings for client: %s", client_code)
+
+        safe_payload = {
+            "client_code": client_code,
+            "file_found": appsettings_data.get("file_found", False),
+            "file_path": appsettings_data.get("file_path"),
+            "raw_json": None,
+            "raw_text": None,
+            "database_connection": appsettings_data.get("database_connection"),
+            "database_server": appsettings_data.get("database_server"),
+            "database_name": appsettings_data.get("database_name"),
+            "database_user": None,
+            "database_password": None,
+            "last_read_at": appsettings_data.get("last_read_at"),
+            "selected_bo_connection_id": appsettings_data.get("selected_bo_connection_id", 1),
+            "bo_connections": appsettings_data.get("bo_connections") or [],
+            "provider_connections": appsettings_data.get("provider_connections") or [],
+            "appsettings_summary": appsettings_data.get("appsettings_summary") or {}
+        }
 
         response = (
             self.db
             .table("client_appsettings")
             .upsert(
-                {
-                    "client_code": client_code,
-                    "file_found": appsettings_data.get("file_found", False),
-                    "file_path": appsettings_data.get("file_path"),
-                    "raw_json": appsettings_data.get("raw_json"),
-                    "raw_text": appsettings_data.get("raw_text"),
-                    "database_connection": appsettings_data.get("database_connection"),
-                    "database_server": appsettings_data.get("database_server"),
-                    "database_name": appsettings_data.get("database_name"),
-                    "database_user": appsettings_data.get("database_user"),
-                    "database_password": appsettings_data.get("database_password"),
-                    "last_read_at": appsettings_data.get("last_read_at"),
-                    "selected_bo_connection_id": appsettings_data.get("selected_bo_connection_id", 1),
-                    "bo_connections": appsettings_data.get("bo_connections"),
-                    "provider_connections": appsettings_data.get("provider_connections"),
-                    "appsettings_summary": appsettings_data.get("appsettings_summary")
-                },
+                safe_payload,
                 on_conflict="client_code"
             )
             .execute()
@@ -597,22 +604,21 @@ class ClientRepository:
     
     def get_client_appsettings(self, client_code: str) -> dict[str, Any]:
         """
-        Επιστρέφει τα αποθηκευμένα appsettings.production.json για συγκεκριμένο client.
-        Το AppSettings διαβάζεται μόνο on-demand από το Manage Client, όχι μέσα στο clients list.
+        Επιστρέφει μόνο safe/masked appsettings.production.json για συγκεκριμένο client.
         """
 
         if not client_code:
             raise ValueError("Missing client_code.")
 
-        logger.info("Fetching appsettings for client: %s", client_code)
+        logger.info("Fetching safe appsettings for client: %s", client_code)
 
         response = (
             self.db
             .table("client_appsettings")
             .select(
-                "id, client_code, file_found, file_path, raw_json, raw_text, "
-                "database_connection, database_server, database_name, database_user, "
-                "database_password, last_read_at, selected_bo_connection_id, "
+                "id, client_code, file_found, file_path, "
+                "database_connection, database_server, database_name, "
+                "last_read_at, selected_bo_connection_id, "
                 "bo_connections, provider_connections, appsettings_summary"
             )
             .eq("client_code", client_code)
@@ -628,7 +634,13 @@ class ClientRepository:
                 "message": "No appsettings saved for this client yet."
             }
 
-        return data[0]
+        safe_data = data[0]
+        safe_data["raw_json"] = None
+        safe_data["raw_text"] = None
+        safe_data["database_user"] = None
+        safe_data["database_password"] = None
+
+        return safe_data
     
     def delete_client(self, client_code: str) -> dict[str, Any]:
         """

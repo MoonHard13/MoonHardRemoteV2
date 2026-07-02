@@ -480,11 +480,12 @@ class MoonHardClientAgent:
         
     async def _send_appsettings(self, websocket) -> None:
         """
-        Διαβάζει αυτόματα το appsettings.production.json και το στέλνει στον server.
+        Διαβάζει appsettings.production.json και στέλνει στον server μόνο safe/masked δεδομένα.
+        Τα πραγματικά passwords/connection strings παραμένουν μόνο στον client.
         """
 
         try:
-            appsettings_data = self.appsettings_reader.read_appsettings_production()
+            appsettings_data = self.appsettings_reader.read_appsettings_for_server()
 
             message = {
                 "type": "appsettings_result",
@@ -495,12 +496,14 @@ class MoonHardClientAgent:
             await websocket.send(json.dumps(message, ensure_ascii=False))
 
             logger.info(
-                "Στάλθηκαν appsettings στον server. file_found=%s",
-                appsettings_data.get("file_found")
+                "Στάλθηκαν safe appsettings στον server. file_found=%s raw_json_sent=%s raw_text_sent=%s",
+                appsettings_data.get("file_found"),
+                appsettings_data.get("raw_json") is not None,
+                appsettings_data.get("raw_text") is not None
             )
 
         except Exception as exc:
-            logger.exception("Αποτυχία ανάγνωσης appsettings.production.json.")
+            logger.exception("Αποτυχία ανάγνωσης safe appsettings.production.json.")
 
             message = {
                 "type": "appsettings_result",
@@ -509,11 +512,16 @@ class MoonHardClientAgent:
                 "file_path": None,
                 "raw_json": None,
                 "raw_text": None,
+                "selected_bo_connection_id": 1,
+                "bo_connections": [],
+                "provider_connections": [],
+                "appsettings_summary": {},
                 "database_connection": None,
                 "database_server": None,
                 "database_name": None,
                 "database_user": None,
                 "database_password": None,
+                "has_database_password": False,
                 "last_read_at": None,
                 "error": str(exc)
             }

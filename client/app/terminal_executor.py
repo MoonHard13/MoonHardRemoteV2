@@ -26,9 +26,14 @@ class TerminalExecutor:
             "powershell": default_dir
         }
 
+        self.command_timeout_seconds = 60
+        self.max_output_chars = 60000
+        self.max_command_length = 8000
+
     async def execute_command(self, shell: str, command: str) -> dict:
         """
         Εκτελεί μία εντολή και επιστρέφει stdout/stderr/exit_code/current_directory.
+        Περιλαμβάνει basic limits για να μη κολλήσει ο client ή το WebSocket.
         """
 
         normalized_shell = self._normalize_shell(shell)
@@ -40,6 +45,15 @@ class TerminalExecutor:
                 command=command,
                 stdout="",
                 stderr="Empty command.",
+                exit_code=1
+            )
+
+        if len(clean_command) > self.max_command_length:
+            return self._build_result(
+                shell=normalized_shell,
+                command=clean_command[:500] + "...",
+                stdout="",
+                stderr=f"Command is too long. Max allowed length is {self.max_command_length} characters.",
                 exit_code=1
             )
 
@@ -151,7 +165,7 @@ class TerminalExecutor:
 
     async def _run_process(self, shell: str, command: str) -> dict:
         """
-        Εκτελεί πραγματική εντολή στο επιλεγμένο shell.
+        Εκτελεί πραγματική εντολή στο επιλεγμένο shell με timeout και output limit.
         """
 
         current_dir = self.current_directories[shell]
@@ -175,11 +189,13 @@ class TerminalExecutor:
             ]
 
         logger.info(
-            "Executing command. shell=%s cwd=%s command=%s",
+            "Executing command. shell=%s cwd=%s command_length=%s",
             shell,
             current_dir,
-            command
+            len(command)
         )
+
+        process = None
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -189,10 +205,38 @@ class TerminalExecutor:
                 stderr=asyncio.subprocess.PIPE
             )
 
-            stdout_bytes, stderr_bytes = await process.communicate()
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=self.command_timeout_seconds
+                )
 
-            stdout = self._decode_output(stdout_bytes)
-            stderr = self._decode_output(stderr_bytes)
+            except asyncio.TimeoutError:
+                if process.returncode is None:
+                    process.kill()
+
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        logger.warning("Command process did not exit after kill.")
+
+                return self._build_result(
+                    shell=shell,
+                    command=command,
+                    stdout="",
+                    stderr=f"Command timed out after {self.command_timeout_seconds} seconds.",
+                    exit_code=124
+                )
+
+            stdout = self._truncate_text(
+                self._decode_output(stdout_bytes),
+                self.max_output_chars
+            )
+            stderr = self._truncate_text(
+                self._decode_output(stderr_bytes),
+                self.max_output_chars
+            )
+
             exit_code = process.returncode if process.returncode is not None else -1
 
             return self._build_result(
@@ -238,6 +282,21 @@ class TerminalExecutor:
                 continue
 
         return output.decode(errors="replace")
+
+    def _truncate_text(self, text: str, max_chars: int) -> str:
+        """
+        Κόβει μεγάλο stdout/stderr ώστε να μην γεμίσει το WebSocket/dashboard.
+        """
+
+        if len(text) <= max_chars:
+            return text
+
+        omitted_chars = len(text) - max_chars
+
+        return (
+            text[:max_chars]
+            + f"\n\n--- OUTPUT TRUNCATED. {omitted_chars} characters omitted. ---"
+        )
 
     def _build_result(
         self,
