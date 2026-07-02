@@ -176,4 +176,8 @@ class DashboardWebSocketClient:
             logger.warning("Cannot send message. Dashboard WebSocket is not connected.")
             return
 
+<<<<<<< HEAD
         loop.call_soon_threadsafe(send_queue.put_nowait, message)
+=======
+        loop.call_soon_threadsafe(send_queue.put_nowait, message)
+>>>>>>> 77778894ab898cbaa6982bfcc559e19f4b6b601e
