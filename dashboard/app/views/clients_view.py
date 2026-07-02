@@ -209,6 +209,9 @@ class ClientsView(ctk.CTkFrame):
     def update_single_client(self, client: dict, force: bool = True) -> bool:
         """
         Ανανεώνει ή προσθέτει έναν μόνο client χωρίς να ξαναχτίζει όλη τη λίστα.
+
+        Αν ο client είναι νέος και δεν υπάρχει ήδη στη λίστα,
+        μπαίνει πρώτος ώστε να φαίνεται άμεσα στην αρχή.
         """
 
         if not client:
@@ -232,7 +235,7 @@ class ClientsView(ctk.CTkFrame):
                 updated_clients.append(existing_client)
 
         if not found:
-            updated_clients.append(client)
+            updated_clients.insert(0, client)
 
         self.clients = updated_clients
         self.last_clients_snapshot = self._create_clients_snapshot(self.clients)

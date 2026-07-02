@@ -1816,12 +1816,20 @@ class MoonHardDashboardApp(ctk.CTk):
         Ζητάει φρέσκια λίστα clients από τον server.
         """
 
-        if self.websocket_client:
-            self.websocket_client.send_message(
-                {
-                    "type": "refresh_clients"
-                }
-            )
+        if not self.websocket_client:
+            logger.warning("Cannot refresh clients. WebSocket client is not initialized.")
+            return
+
+        sent = self.websocket_client.send_message(
+            {
+                "type": "refresh_clients"
+            }
+        )
+
+        if sent:
+            logger.info("Manual clients refresh request sent.")
+        else:
+            logger.warning("Manual clients refresh request was not sent because WebSocket is offline.")
             
     def _schedule_clients_auto_refresh(self) -> None:
         """
