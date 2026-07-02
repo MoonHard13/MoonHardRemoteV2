@@ -2,12 +2,16 @@ import json
 import socket
 import getpass
 import uuid
+import secrets
 from pathlib import Path
 
 
 class ClientIdentityManager:
     """
     Διαχειρίζεται τη μοναδική ταυτότητα του client PC.
+
+    Το client_instance_token είναι μοναδικό ανά εγκατάσταση και αποθηκεύεται μόνο τοπικά.
+    Ο server αποθηκεύει μόνο hash του token.
     """
 
     def __init__(self, identity_file: Path) -> None:
@@ -25,9 +29,49 @@ class ClientIdentityManager:
         self.identity_file.parent.mkdir(parents=True, exist_ok=True)
 
         if self.identity_file.exists():
-            return self._load_identity()
+            identity = self._load_identity()
+            return self._ensure_identity_security_fields(identity)
 
         return self._create_identity()
+
+    def save_identity(self, identity: dict) -> None:
+        """
+        Αποθηκεύει την ταυτότητα στο local identity file.
+        """
+
+        self.identity_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with self.identity_file.open("w", encoding="utf-8") as file:
+            json.dump(identity, file, indent=4, ensure_ascii=False)
+
+    def ensure_client_instance_token(self, identity: dict) -> str:
+        """
+        Επιστρέφει ή δημιουργεί μοναδικό token για τον συγκεκριμένο client.
+        """
+
+        changed = False
+
+        if not identity.get("client_instance_token"):
+            identity["client_instance_token"] = self._generate_client_instance_token()
+            identity["client_token_registered"] = False
+            changed = True
+
+        if "client_token_registered" not in identity:
+            identity["client_token_registered"] = False
+            changed = True
+
+        if changed:
+            self.save_identity(identity)
+
+        return str(identity["client_instance_token"])
+
+    def mark_client_token_registered(self, identity: dict) -> None:
+        """
+        Σημειώνει ότι ο server έχει αποθηκεύσει hash για το per-client token.
+        """
+
+        identity["client_token_registered"] = True
+        self.save_identity(identity)
 
     def _load_identity(self) -> dict:
         """
@@ -49,10 +93,27 @@ class ClientIdentityManager:
             "client_code": f"CLIENT-{uuid.uuid4().hex[:12].upper()}",
             "display_name": pc_name,
             "pc_name": pc_name,
-            "username": username
+            "username": username,
+            "client_instance_token": self._generate_client_instance_token(),
+            "client_token_registered": False
         }
 
-        with self.identity_file.open("w", encoding="utf-8") as file:
-            json.dump(identity, file, indent=4, ensure_ascii=False)
+        self.save_identity(identity)
 
         return identity
+
+    def _ensure_identity_security_fields(self, identity: dict) -> dict:
+        """
+        Προσθέτει security fields σε παλιό identity file χωρίς να αλλάζει το client_code.
+        """
+
+        self.ensure_client_instance_token(identity)
+
+        return identity
+
+    def _generate_client_instance_token(self) -> str:
+        """
+        Δημιουργεί cryptographically random per-client token.
+        """
+
+        return secrets.token_urlsafe(48)

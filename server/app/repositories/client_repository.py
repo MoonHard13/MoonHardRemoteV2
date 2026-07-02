@@ -390,6 +390,92 @@ class ClientRepository:
             "data": response.data or []
         }
 
+    def get_client_security_record(self, client_code: str) -> dict[str, Any] | None:
+        """
+        Επιστρέφει τα security fields ενός client για authentication.
+        """
+
+        if not client_code:
+            return None
+
+        response = (
+            self.db
+            .table("clients")
+            .select(
+                "id, client_code, client_token_hash, client_token_revoked, client_token_version"
+            )
+            .eq("client_code", client_code)
+            .limit(1)
+            .execute()
+        )
+
+        data = response.data or []
+
+        if not data:
+            return None
+
+        return data[0]
+
+    def set_client_instance_token_hash(
+        self,
+        client_code: str,
+        client_token_hash: str
+    ) -> dict[str, Any]:
+        """
+        Αποθηκεύει hash του per-client token.
+        Δεν αποθηκεύει ποτέ το raw token.
+        """
+
+        if not client_code:
+            raise ValueError("Missing client_code.")
+
+        if not client_token_hash:
+            raise ValueError("Missing client_token_hash.")
+
+        now_utc = datetime.now(timezone.utc).isoformat()
+
+        logger.info("Registering per-client token hash for client: %s", client_code)
+
+        response = (
+            self.db
+            .table("clients")
+            .update(
+                {
+                    "client_token_hash": client_token_hash,
+                    "client_token_registered_at": now_utc,
+                    "client_token_last_seen_at": now_utc,
+                    "client_token_version": 1,
+                    "client_token_revoked": False
+                }
+            )
+            .eq("client_code", client_code)
+            .execute()
+        )
+
+        return response.data[0] if response.data else {}
+
+    def touch_client_token_last_seen(self, client_code: str) -> None:
+        """
+        Ενημερώνει πότε έγινε τελευταία επιτυχής per-client token authentication.
+        """
+
+        if not client_code:
+            return
+
+        now_utc = datetime.now(timezone.utc).isoformat()
+
+        (
+            self.db
+            .table("clients")
+            .update(
+                {
+                    "client_token_last_seen_at": now_utc
+                }
+            )
+            .eq("client_code", client_code)
+            .execute()
+        )
+
     def upsert_connected_client(self, client_data: dict[str, Any]) -> dict[str, Any]:
         """
         Δημιουργεί ή ενημερώνει έναν πραγματικό client που συνδέθηκε μέσω WebSocket.

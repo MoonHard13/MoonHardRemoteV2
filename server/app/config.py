@@ -21,6 +21,10 @@ class AppConfig:
         self.client_token = os.getenv("CLIENT_TOKEN", "")
         self.dashboard_token = os.getenv("DASHBOARD_TOKEN", "")
         self.admin_token = os.getenv("ADMIN_TOKEN", "")
+        self.client_token_hash_pepper = os.getenv(
+            "CLIENT_TOKEN_HASH_PEPPER",
+            self.admin_token or self.client_token
+        )
 
         self.supabase_url = os.getenv("SUPABASE_URL", "")
         self.supabase_service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")

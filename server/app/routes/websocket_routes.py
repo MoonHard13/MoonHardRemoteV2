@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import logging
 from datetime import datetime, timezone
 
@@ -31,6 +33,126 @@ class WebSocketRoutes:
         self.client_last_db_heartbeat: dict[str, datetime] = {}
         self.clients_list_broadcast_interval_seconds = 600
         self.last_clients_list_broadcast_at: datetime | None = None        
+
+    def _hash_client_instance_token(self, raw_token: str) -> str:
+        """
+        Δημιουργεί HMAC-SHA256 hash για per-client token.
+        Χρησιμοποιεί server-side pepper ώστε το hash στη βάση να μην είναι απλό SHA256.
+        """
+
+        pepper = self.config.client_token_hash_pepper
+
+        return hmac.new(
+            pepper.encode("utf-8"),
+            raw_token.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+
+    def _validate_client_registration_auth(self, register_message: dict) -> dict:
+        """
+        Ελέγχει authentication για client register.
+
+        Υποστηρίζει:
+        1. Νέο per-client token flow.
+        2. Legacy CLIENT_TOKEN προσωρινά, ώστε να μη σπάσουν παλιοί clients πριν κάνουν update.
+        """
+
+        client_code = str(register_message.get("client_code") or "").strip()
+        provided_token = str(register_message.get("token") or "").strip()
+        bootstrap_token = str(register_message.get("bootstrap_token") or "").strip()
+        auth_mode = str(register_message.get("auth_mode") or "legacy").strip()
+
+        if not client_code:
+            return {
+                "allowed": False,
+                "message": "Missing client_code.",
+                "should_store_client_token": False,
+                "client_token_hash": None,
+                "auth_mode": auth_mode
+            }
+
+        if not provided_token:
+            return {
+                "allowed": False,
+                "message": "Missing token.",
+                "should_store_client_token": False,
+                "client_token_hash": None,
+                "auth_mode": auth_mode
+            }
+
+        security_record = self.client_repository.get_client_security_record(client_code)
+
+        existing_hash = None
+        token_revoked = False
+
+        if security_record:
+            existing_hash = security_record.get("client_token_hash")
+            token_revoked = bool(security_record.get("client_token_revoked", False))
+
+        if token_revoked:
+            return {
+                "allowed": False,
+                "message": "Client token has been revoked.",
+                "should_store_client_token": False,
+                "client_token_hash": None,
+                "auth_mode": auth_mode
+            }
+
+        provided_token_hash = self._hash_client_instance_token(provided_token)
+
+        if existing_hash:
+            if hmac.compare_digest(str(existing_hash), provided_token_hash):
+                return {
+                    "allowed": True,
+                    "message": "Per-client token accepted.",
+                    "should_store_client_token": False,
+                    "client_token_hash": provided_token_hash,
+                    "auth_mode": "client_instance"
+                }
+
+            return {
+                "allowed": False,
+                "message": "Invalid per-client token.",
+                "should_store_client_token": False,
+                "client_token_hash": None,
+                "auth_mode": auth_mode
+            }
+
+        legacy_bootstrap_used = hmac.compare_digest(
+            provided_token,
+            self.config.client_token
+        )
+
+        if legacy_bootstrap_used and not bootstrap_token:
+            return {
+                "allowed": True,
+                "message": "Legacy bootstrap token accepted.",
+                "should_store_client_token": False,
+                "client_token_hash": None,
+                "auth_mode": "legacy"
+            }
+
+        bootstrap_valid = hmac.compare_digest(
+            bootstrap_token,
+            self.config.client_token
+        )
+
+        if bootstrap_valid:
+            return {
+                "allowed": True,
+                "message": "Bootstrap token accepted. Per-client token will be registered.",
+                "should_store_client_token": True,
+                "client_token_hash": provided_token_hash,
+                "auth_mode": "client_instance_bootstrap"
+            }
+
+        return {
+            "allowed": False,
+            "message": "Invalid bootstrap token.",
+            "should_store_client_token": False,
+            "client_token_hash": None,
+            "auth_mode": auth_mode
+        }
                 
     def _enrich_clients_with_connection_state(self, clients: list[dict]) -> list[dict]:
         """
@@ -202,17 +324,6 @@ class WebSocketRoutes:
 
             first_message = await websocket.receive_json()
 
-            if first_message.get("token") != self.config.client_token:
-                logger.warning("Client authentication failed.")
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Authentication failed."
-                })
-                await websocket.close()
-                return
-
-            logger.info("Client first message received: %s", first_message)
-
             if first_message.get("type") != "register":
                 await websocket.send_json({
                     "type": "error",
@@ -220,6 +331,31 @@ class WebSocketRoutes:
                 })
                 await websocket.close()
                 return
+
+            auth_result = self._validate_client_registration_auth(first_message)
+
+            if not auth_result["allowed"]:
+                logger.warning(
+                    "Client authentication failed. client_code=%s auth_mode=%s message=%s",
+                    first_message.get("client_code", ""),
+                    auth_result.get("auth_mode", ""),
+                    auth_result.get("message", "")
+                )
+
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Authentication failed."
+                })
+
+                await websocket.close()
+                return
+
+            logger.info(
+                "Client register accepted. client_code=%s auth_mode=%s should_store_token=%s",
+                first_message.get("client_code", ""),
+                auth_result.get("auth_mode", ""),
+                auth_result.get("should_store_client_token", False)
+            )
 
             client_code = first_message.get("client_code", "")
 
@@ -233,12 +369,26 @@ class WebSocketRoutes:
 
             saved_client = self.client_repository.upsert_connected_client(first_message)
 
+            if auth_result.get("should_store_client_token"):
+                client_token_hash = auth_result.get("client_token_hash")
+
+                if client_token_hash:
+                    self.client_repository.set_client_instance_token_hash(
+                        client_code=client_code,
+                        client_token_hash=client_token_hash
+                    )
+
+            elif auth_result.get("auth_mode") == "client_instance":
+                self.client_repository.touch_client_token_last_seen(client_code)
+
             await connection_manager.connect_client(client_code, websocket)
 
             await websocket.send_json({
                 "type": "registered",
                 "message": "Client registered successfully.",
-                "client": saved_client
+                "client": saved_client,
+                "client_token_registered": auth_result.get("auth_mode") != "legacy",
+                "client_token_was_registered": bool(auth_result.get("should_store_client_token", False))
             })
 
             await self.broadcast_single_client_update(

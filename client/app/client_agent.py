@@ -141,6 +141,15 @@ class MoonHardClientAgent:
 
             response = await websocket.recv()
             logger.info("Απάντηση server: %s", response)
+
+            response_payload = json.loads(response)
+
+            if (
+                response_payload.get("type") == "registered"
+                and response_payload.get("client_token_registered")
+            ):
+                self.identity_manager.mark_client_token_registered(self.identity)
+                logger.info("Per-client token registered/confirmed by server.")
             
             await self._send_appsettings(websocket)
             
@@ -238,14 +247,26 @@ class MoonHardClientAgent:
     def _create_register_message(self) -> dict:
         """
         Δημιουργεί το register μήνυμα που στέλνει ο client στον server.
-        Περιλαμβάνει και τις εκδόσεις των εγκατεστημένων Sunsoft προγραμμάτων.
+
+        Στέλνει per-client token ως κύριο token.
+        Το shared CLIENT_TOKEN στέλνεται μόνο ως bootstrap_token μέχρι ο server να κάνει register
+        το per-client token.
         """
 
         program_versions = self._get_installed_program_versions()
 
-        return {
+        client_instance_token = self.identity_manager.ensure_client_instance_token(
+            self.identity
+        )
+
+        client_token_registered = bool(
+            self.identity.get("client_token_registered", False)
+        )
+
+        register_message = {
             "type": "register",
-            "token": self.config.client_token,
+            "auth_mode": "client_instance",
+            "token": client_instance_token,
             "client_code": self.identity["client_code"],
             "display_name": self.identity.get("display_name"),
             "pc_name": self.identity.get("pc_name"),
@@ -256,6 +277,11 @@ class MoonHardClientAgent:
             "etp_version": program_versions.get("etp_version"),
             "aws_version": program_versions.get("aws_version"),
         }
+
+        if not client_token_registered:
+            register_message["bootstrap_token"] = self.config.client_token
+
+        return register_message
 
     async def _listen_forever(self, websocket) -> None:
         """
