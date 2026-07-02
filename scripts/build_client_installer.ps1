@@ -59,6 +59,15 @@ Write-Host "Project root: $ProjectRoot" -ForegroundColor Gray
 Write-Host "Inno compiler: $InnoCompiler" -ForegroundColor Gray
 
 Write-Host ""
+Write-Host "Step 0/6 - Installing pinned requirements..." -ForegroundColor Cyan
+
+python -m pip install --upgrade pip
+python -m pip install -r .\client\requirements.txt
+python -m pip install -r .\updater\requirements.txt
+
+Write-Host "Pinned requirements installed." -ForegroundColor Green
+
+Write-Host ""
 Write-Host "Step 1/6 - Cleaning PyInstaller output..." -ForegroundColor Cyan
 
 Remove-Item (Join-Path $ProjectRoot "build") -Recurse -Force -ErrorAction SilentlyContinue

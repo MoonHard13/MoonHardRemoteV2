@@ -1,11 +1,13 @@
-import json
-import urllib.request
-import hashlib
-import shutil
-import zipfile
-import ssl
 import certifi
+import hashlib
+import json
+import re
+import shutil
+import ssl
+import stat
 import time
+import urllib.request
+import zipfile
 
 from pathlib import Path
 
@@ -275,6 +277,7 @@ class ClientUpdateChecker:
     ) -> dict:
         """
         Κάνει extract το update ZIP και ελέγχει ότι περιέχει τα βασικά αρχεία client.
+        Περιλαμβάνει Zip Slip protection ώστε κανένα αρχείο να μη βγει εκτός extracted_dir.
         """
 
         if not package_path:
@@ -301,7 +304,10 @@ class ClientUpdateChecker:
 
         try:
             with zipfile.ZipFile(package_file, "r") as zip_file:
-                zip_file.extractall(extracted_dir)
+                self._safe_extract_zip(
+                    zip_file=zip_file,
+                    destination_dir=extracted_dir
+                )
 
         except zipfile.BadZipFile as exc:
             raise RuntimeError(f"Invalid ZIP package: {package_file}") from exc
@@ -328,6 +334,85 @@ class ClientUpdateChecker:
             "missing_items": [],
             "package_valid": True
         }
+
+    def _safe_extract_zip(
+        self,
+        zip_file: zipfile.ZipFile,
+        destination_dir: Path
+    ) -> None:
+        """
+        Κάνει ασφαλές extract ZIP αρχείου.
+
+        Προστατεύει από:
+        - paths με ..
+        - absolute paths
+        - Windows drive paths όπως C:/...
+        - symlinks μέσα στο ZIP
+        - αρχεία που προσπαθούν να γραφτούν εκτός destination_dir
+        """
+
+        destination_dir_resolved = destination_dir.resolve()
+
+        for member in zip_file.infolist():
+            safe_member_name = self._validate_zip_member_path(
+                member=member,
+                destination_dir=destination_dir_resolved
+            )
+
+            target_path = (destination_dir_resolved / safe_member_name).resolve()
+
+            if member.is_dir():
+                target_path.mkdir(parents=True, exist_ok=True)
+                continue
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with zip_file.open(member, "r") as source_file:
+                with target_path.open("wb") as target_file:
+                    shutil.copyfileobj(source_file, target_file)
+
+    def _validate_zip_member_path(
+        self,
+        member: zipfile.ZipInfo,
+        destination_dir: Path
+    ) -> Path:
+        """
+        Ελέγχει ότι ένα ZIP member είναι ασφαλές για extract.
+        Επιστρέφει normalized relative path.
+        """
+
+        member_name = str(member.filename or "").replace("\\", "/").strip()
+
+        if not member_name:
+            raise RuntimeError("ZIP contains an empty member name.")
+
+        if "\x00" in member_name:
+            raise RuntimeError(f"ZIP contains invalid null byte path: {member.filename}")
+
+        if member_name.startswith("/"):
+            raise RuntimeError(f"ZIP contains absolute path: {member.filename}")
+
+        if re.match(r"^[A-Za-z]:", member_name):
+            raise RuntimeError(f"ZIP contains Windows drive path: {member.filename}")
+
+        member_path = Path(member_name)
+
+        if any(part in ("..", "") for part in member_path.parts):
+            raise RuntimeError(f"ZIP contains unsafe relative path: {member.filename}")
+
+        member_mode = member.external_attr >> 16
+
+        if stat.S_ISLNK(member_mode):
+            raise RuntimeError(f"ZIP contains symlink, which is not allowed: {member.filename}")
+
+        target_path = (destination_dir / member_path).resolve()
+
+        try:
+            target_path.relative_to(destination_dir)
+        except ValueError as exc:
+            raise RuntimeError(f"ZIP member escapes destination folder: {member.filename}") from exc
+
+        return member_path
 
     def _validate_extracted_package(self, extracted_dir: Path) -> dict:
         """
