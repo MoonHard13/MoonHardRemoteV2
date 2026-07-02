@@ -25,6 +25,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         parent,
         client: dict,
         on_rename_callback: Callable[[str, str], None] | None = None,
+        on_reset_token_callback: Callable[[str], None] | None = None,
         on_terminal_command_callback: Callable[[dict], None] | None = None,
         on_terminal_autocomplete_callback: Callable[[dict], None] | None = None,
         on_sql_execute_callback: Callable[[dict], None] | None = None,
@@ -45,6 +46,7 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         self.client = client
         self.on_rename_callback = on_rename_callback
+        self.on_reset_token_callback = on_reset_token_callback
         self.on_terminal_command_callback = on_terminal_command_callback
         self.on_terminal_autocomplete_callback = on_terminal_autocomplete_callback
         self.on_sql_execute_callback = on_sql_execute_callback
@@ -272,7 +274,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.overview_tab_view = OverviewTab(
             self.overview_tab,
             client=self.client,
-            on_rename_callback=self.on_rename_callback
+            on_rename_callback=self.on_rename_callback,
+            on_reset_token_callback=self.on_reset_token_callback
         )
         self.overview_tab_view.grid(row=0, column=0, sticky="nsew")
 
@@ -349,6 +352,13 @@ class ClientManageWindow(ctk.CTkToplevel):
         if hasattr(self, "terminal_tab_view"):
             self.terminal_tab_view.handle_terminal_result(payload)
 
+    def handle_client_token_reset_result(self, payload: dict) -> None:
+        """
+        Προωθεί reset token result στο OverviewTab.
+        """
+
+        if hasattr(self, "overview_tab_view"):
+            self.overview_tab_view.handle_client_token_reset_result(payload)
 
     def handle_terminal_error(self, payload: dict) -> None:
         """

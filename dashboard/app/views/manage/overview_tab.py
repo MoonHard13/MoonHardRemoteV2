@@ -6,7 +6,8 @@ from app.ui.theme import (
     FONTS,
     SPACING,
     card_style,
-    primary_button_style
+    primary_button_style,
+    danger_button_style
 )
 
 
@@ -19,7 +20,8 @@ class OverviewTab(ctk.CTkFrame):
         self,
         parent,
         client: dict,
-        on_rename_callback: Callable[[str, str], None] | None = None
+        on_rename_callback: Callable[[str, str], None] | None = None,
+        on_reset_token_callback: Callable[[str], None] | None = None
     ) -> None:
         """
         Δημιουργεί το Overview tab.
@@ -29,6 +31,7 @@ class OverviewTab(ctk.CTkFrame):
 
         self.client = client
         self.on_rename_callback = on_rename_callback
+        self.on_reset_token_callback = on_reset_token_callback
         self.client_code = client.get("client_code", "")
 
         self.grid_columnconfigure(0, weight=1)
@@ -121,6 +124,46 @@ class OverviewTab(ctk.CTkFrame):
         )
         rename_button.grid(row=3, column=1, padx=(0, 18), pady=(0, 18), sticky="e")
 
+        security_title = ctk.CTkLabel(
+            frame,
+            text="Security",
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary
+        )
+        security_title.grid(row=4, column=0, columnspan=2, padx=18, pady=(8, 8), sticky="w")
+
+        security_description = ctk.CTkLabel(
+            frame,
+            text=(
+                "Reset Client Token forces this client to reconnect and register a new unique token. "
+                "Use this if a client token may be corrupted or compromised."
+            ),
+            font=FONTS.body,
+            text_color=COLORS.text_secondary,
+            justify="left",
+            anchor="w",
+            wraplength=760
+        )
+        security_description.grid(row=5, column=0, columnspan=2, padx=18, pady=(0, 8), sticky="w")
+
+        self.reset_token_button = ctk.CTkButton(
+            frame,
+            text="Reset Client Token",
+            width=180,
+            command=self._reset_client_token,
+            **danger_button_style()
+        )
+        self.reset_token_button.grid(row=6, column=0, padx=18, pady=(0, 8), sticky="w")
+
+        self.security_status_label = ctk.CTkLabel(
+            frame,
+            text="",
+            font=FONTS.small,
+            text_color=COLORS.text_muted,
+            anchor="w"
+        )
+        self.security_status_label.grid(row=7, column=0, columnspan=2, padx=18, pady=(0, 18), sticky="w")
+
     def update_client_data(self, client: dict) -> None:
         """
         Ενημερώνει τα στοιχεία του Overview tab όταν αλλάξει ο client.
@@ -170,3 +213,52 @@ class OverviewTab(ctk.CTkFrame):
 
         if self.on_rename_callback:
             self.on_rename_callback(self.client_code, new_name)
+            
+    def _reset_client_token(self) -> None:
+        """
+        Ζητάει επιβεβαίωση και στέλνει reset token request.
+        """
+
+        dialog = ctk.CTkInputDialog(
+            text=(
+                "Type RESET to reset this client's token.\n\n"
+                "The client will disconnect and reconnect with a new token."
+            ),
+            title="Confirm Client Token Reset"
+        )
+
+        answer = dialog.get_input()
+
+        if answer != "RESET":
+            self._set_security_status("Token reset cancelled.")
+            return
+
+        if not self.on_reset_token_callback:
+            self._set_security_status("Token reset callback is not configured.")
+            return
+
+        self._set_security_status("Token reset request sent...")
+        self.on_reset_token_callback(self.client_code)
+
+    def handle_client_token_reset_result(self, payload: dict) -> None:
+        """
+        Εμφανίζει αποτέλεσμα reset token.
+        """
+
+        if payload.get("type") == "client_token_reset_success":
+            self._set_security_status(
+                "Client token reset successfully. Waiting for client reconnect..."
+            )
+            return
+
+        self._set_security_status(
+            f"Token reset failed: {payload.get('message', 'Unknown error')}"
+        )
+
+    def _set_security_status(self, message: str) -> None:
+        """
+        Ενημερώνει status label στο Security section.
+        """
+
+        if hasattr(self, "security_status_label"):
+            self.security_status_label.configure(text=message)

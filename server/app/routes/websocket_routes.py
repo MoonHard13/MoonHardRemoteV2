@@ -93,6 +93,7 @@ class WebSocketRoutes:
             return {
                 "allowed": False,
                 "message": "Client token has been revoked.",
+                "error_code": "TOKEN_REVOKED",
                 "should_store_client_token": False,
                 "client_token_hash": None,
                 "auth_mode": auth_mode
@@ -113,6 +114,7 @@ class WebSocketRoutes:
             return {
                 "allowed": False,
                 "message": "Invalid per-client token.",
+                "error_code": "INVALID_CLIENT_INSTANCE_TOKEN",
                 "should_store_client_token": False,
                 "client_token_hash": None,
                 "auth_mode": auth_mode
@@ -132,6 +134,16 @@ class WebSocketRoutes:
                 "auth_mode": "legacy"
             }
 
+        if auth_mode == "client_instance" and not bootstrap_token:
+            return {
+                "allowed": False,
+                "message": "Token reset required.",
+                "error_code": "TOKEN_RESET_REQUIRED",
+                "should_store_client_token": False,
+                "client_token_hash": None,
+                "auth_mode": auth_mode
+            }
+
         bootstrap_valid = hmac.compare_digest(
             bootstrap_token,
             self.config.client_token
@@ -141,6 +153,7 @@ class WebSocketRoutes:
             return {
                 "allowed": True,
                 "message": "Bootstrap token accepted. Per-client token will be registered.",
+                "error_code": None,
                 "should_store_client_token": True,
                 "client_token_hash": provided_token_hash,
                 "auth_mode": "client_instance_bootstrap"
@@ -149,6 +162,7 @@ class WebSocketRoutes:
         return {
             "allowed": False,
             "message": "Invalid bootstrap token.",
+            "error_code": "INVALID_BOOTSTRAP_TOKEN",
             "should_store_client_token": False,
             "client_token_hash": None,
             "auth_mode": auth_mode
@@ -344,7 +358,8 @@ class WebSocketRoutes:
 
                 await websocket.send_json({
                     "type": "error",
-                    "message": "Authentication failed."
+                    "message": auth_result.get("message", "Authentication failed."),
+                    "error_code": auth_result.get("error_code")
                 })
 
                 await websocket.close()
@@ -908,6 +923,51 @@ class WebSocketRoutes:
                             websocket,
                             {
                                 "type": "rename_client_error",
+                                "message": str(exc)
+                            }
+                        )
+
+                    continue
+
+                    continue
+
+                if data.get("type") == "reset_client_token":
+                    client_code = data.get("client_code", "")
+
+                    try:
+                        reset_client = self.client_repository.reset_client_instance_token(
+                            client_code=client_code,
+                            reason="dashboard_manual_reset"
+                        )
+
+                        active_client_websocket = connection_manager.client_connections.get(client_code)
+
+                        if active_client_websocket:
+                            await active_client_websocket.close()
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_token_reset_success",
+                                "client_code": client_code,
+                                "message": "Client token reset successfully.",
+                                "client": reset_client
+                            }
+                        )
+
+                        await self.broadcast_single_client_update(
+                            client_code=client_code,
+                            reason="client_token_reset"
+                        )
+
+                    except Exception as exc:
+                        logger.exception("Failed to reset client token.")
+
+                        await connection_manager.send_to_dashboard(
+                            websocket,
+                            {
+                                "type": "client_token_reset_error",
+                                "client_code": client_code,
                                 "message": str(exc)
                             }
                         )

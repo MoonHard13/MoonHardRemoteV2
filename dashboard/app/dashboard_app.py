@@ -201,6 +201,28 @@ class MoonHardDashboardApp(ctk.CTk):
         elif message_type == "rename_client_error":
             logger.error("Client rename failed: %s", payload.get("message"))
 
+        elif message_type == "client_token_reset_success":
+            client_code = payload.get("client_code", "")
+            logger.warning("Client token reset successfully. client_code=%s", client_code)
+
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_client_token_reset_result(payload)
+
+        elif message_type == "client_token_reset_error":
+            client_code = payload.get("client_code", "")
+            logger.error(
+                "Client token reset failed. client_code=%s message=%s",
+                client_code,
+                payload.get("message")
+            )
+
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_client_token_reset_result(payload)
+
         elif message_type == "client_groups_result":
             if payload.get("success"):
                 groups = payload.get("groups", [])
@@ -557,6 +579,25 @@ class MoonHardDashboardApp(ctk.CTk):
             client_code,
             display_name
         )
+
+    def _reset_client_token(self, client_code: str) -> None:
+        """
+        Ζητάει reset του per-client token από τον server.
+        Ο client θα κάνει reconnect και θα δημιουργήσει νέο local token.
+        """
+
+        if not self.websocket_client:
+            logger.warning("Cannot reset client token. WebSocket is not connected.")
+            return
+
+        self.websocket_client.send_message(
+            {
+                "type": "reset_client_token",
+                "client_code": client_code
+            }
+        )
+
+        logger.warning("Client token reset request sent. client_code=%s", client_code)
 
     def _request_client_groups(self) -> None:
         """
@@ -1689,6 +1730,7 @@ class MoonHardDashboardApp(ctk.CTk):
             self,
             client=client,
             on_rename_callback=self._rename_client,
+            on_reset_token_callback=self._reset_client_token,
             on_terminal_command_callback=self._send_terminal_command,
             on_terminal_autocomplete_callback=self._send_terminal_autocomplete,
             on_sql_execute_callback=self._send_sql_execute,

@@ -3,6 +3,7 @@ import socket
 import getpass
 import uuid
 import secrets
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -72,6 +73,21 @@ class ClientIdentityManager:
 
         identity["client_token_registered"] = True
         self.save_identity(identity)
+
+    def rotate_client_instance_token(self, identity: dict) -> str:
+        """
+        Δημιουργεί νέο per-client token και το σημειώνει ως μη registered.
+
+        Χρησιμοποιείται όταν ο server απαντήσει TOKEN_RESET_REQUIRED.
+        """
+
+        identity["client_instance_token"] = self._generate_client_instance_token()
+        identity["client_token_registered"] = False
+        identity["client_token_rotated_at"] = datetime.now(timezone.utc).isoformat()
+
+        self.save_identity(identity)
+
+        return str(identity["client_instance_token"])
 
     def _load_identity(self) -> dict:
         """

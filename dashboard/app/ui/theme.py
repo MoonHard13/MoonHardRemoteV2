@@ -147,6 +147,17 @@ def transparent_style() -> dict:
     return {
         "fg_color": "transparent"
     }
+
+def danger_button_style() -> dict:
+    """
+    Κόκκινο button για destructive/security actions.
+    """
+
+    return {
+        "fg_color": COLORS.danger,
+        "hover_color": COLORS.danger_hover,
+        "text_color": COLORS.text_primary
+    }
     
 def apply_treeview_style(style_name: str = "MoonHard.Treeview") -> str:
     """

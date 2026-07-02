@@ -144,6 +144,22 @@ class MoonHardClientAgent:
 
             response_payload = json.loads(response)
 
+            if response_payload.get("type") == "error":
+                error_code = str(response_payload.get("error_code") or "")
+                error_message = str(response_payload.get("message") or "Authentication failed.")
+
+                if error_code == "TOKEN_RESET_REQUIRED":
+                    self.identity_manager.rotate_client_instance_token(self.identity)
+
+                    logger.warning(
+                        "Server requested per-client token reset. Local token was rotated and client will reconnect."
+                    )
+
+                    await websocket.close()
+                    return
+
+                raise RuntimeError(error_message)
+
             if (
                 response_payload.get("type") == "registered"
                 and response_payload.get("client_token_registered")

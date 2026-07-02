@@ -476,6 +476,58 @@ class ClientRepository:
             .execute()
         )
 
+    def reset_client_instance_token(
+        self,
+        client_code: str,
+        reason: str = "manual_reset"
+    ) -> dict[str, Any]:
+        """
+        Κάνει reset το per-client token hash.
+
+        Δεν δημιουργεί νέο token στον server.
+        Στο επόμενο reconnect ο client θα πάρει TOKEN_RESET_REQUIRED,
+        θα δημιουργήσει νέο local token και θα ξανακάνει bootstrap.
+        """
+
+        if not client_code:
+            raise ValueError("Missing client_code.")
+
+        security_record = self.get_client_security_record(client_code)
+
+        if not security_record:
+            raise RuntimeError("Client was not found.")
+
+        current_version = int(security_record.get("client_token_version") or 1)
+        next_version = current_version + 1
+
+        logger.warning(
+            "Resetting per-client token. client_code=%s next_version=%s reason=%s",
+            client_code,
+            next_version,
+            reason
+        )
+
+        response = (
+            self.db
+            .table("clients")
+            .update(
+                {
+                    "client_token_hash": None,
+                    "client_token_registered_at": None,
+                    "client_token_last_seen_at": None,
+                    "client_token_version": next_version,
+                    "client_token_revoked": False
+                }
+            )
+            .eq("client_code", client_code)
+            .execute()
+        )
+
+        if not response.data:
+            raise RuntimeError("Client token reset returned no data.")
+
+        return response.data[0]
+
     def upsert_connected_client(self, client_data: dict[str, Any]) -> dict[str, Any]:
         """
         Δημιουργεί ή ενημερώνει έναν πραγματικό client που συνδέθηκε μέσω WebSocket.
