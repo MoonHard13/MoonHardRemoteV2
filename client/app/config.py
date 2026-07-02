@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 
@@ -18,7 +19,7 @@ class ClientConfig:
         self.app_name = "MoonHard Remote v2 Client"
         self.app_version = "1.0.8"
         self.client_token = os.getenv("CLIENT_TOKEN", "")
-        
+
         self.server_websocket_url = os.getenv(
             "SERVER_WEBSOCKET_URL",
             "wss://moonhardremotev2.onrender.com/ws/client"
@@ -33,6 +34,7 @@ class ClientConfig:
 
         self.identity_file = self.program_data_dir / "client_identity.json"
         self.log_dir = self.program_data_dir / "logs"
+
         self.reconnect_initial_seconds = 3
         self.reconnect_max_seconds = 30
         self.reconnect_reset_after_success_seconds = 60
@@ -41,11 +43,12 @@ class ClientConfig:
         self.websocket_open_timeout_seconds = 20
         self.websocket_ping_interval_seconds = 20
         self.websocket_ping_timeout_seconds = 20
+
         self.server_wake_url = os.getenv(
             "SERVER_WAKE_URL",
-            "https://moonhardremotev2.onrender.com/api/ws-test"
+            "https://moonhardremotev2.onrender.com/api/health"
         )
-        
+
     def _load_environment(self) -> None:
         """
         Φορτώνει μεταβλητές περιβάλλοντος από ασφαλείς πιθανές τοποθεσίες.

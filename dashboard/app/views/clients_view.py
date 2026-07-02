@@ -40,15 +40,15 @@ class ClientsView(ctk.CTkFrame):
         self.clients: list[dict] = []
         self.filter_text: str = ""
         self.status_filter: str = "All"
-        self.filter_after_job = None
-        self.empty_label = None
-        self.groups: list[dict] = []
         self.group_filter: str = "All Groups"
+        self.filter_after_job = None
+        self.groups: list[dict] = []
         self.manage_groups_window = None
         self.manage_groups_list_frame = None
         self.last_clients_snapshot: tuple = tuple()
+
         self.on_manage_callback = on_manage_callback
-        self.on_delete_callback = on_delete_callback 
+        self.on_delete_callback = on_delete_callback
         self.on_refresh_callback = on_refresh_callback
         self.on_bulk_update_callback = on_bulk_update_callback
         self.on_group_callback = on_group_callback
@@ -192,6 +192,7 @@ class ClientsView(ctk.CTkFrame):
     def update_clients(self, clients: list[dict], force: bool = False) -> bool:
         """
         Ανανεώνει τη λίστα clients μόνο όταν αλλάξει ουσιαστικά η κατάσταση.
+        Για full clients_list δεν καταστρέφει όλα τα rows, απλά συγχρονίζει hide/show/update.
         """
 
         new_snapshot = self._create_clients_snapshot(clients)
@@ -236,7 +237,10 @@ class ClientsView(ctk.CTkFrame):
         self.clients = updated_clients
         self.last_clients_snapshot = self._create_clients_snapshot(self.clients)
 
-        self._refresh_single_client_row(client_code, client)
+        if client_code in self.client_rows:
+            self._update_client_row_widgets(client_code, client)
+
+        self._apply_filters()
 
         return True
 
@@ -918,68 +922,33 @@ class ClientsView(ctk.CTkFrame):
 
         self.filter_after_job = self.after(150, self._apply_filters)
 
-    def _client_matches_current_filters(self, client: dict) -> bool:
-        """
-        Ελέγχει αν ένας client πρέπει να εμφανίζεται με βάση τα τρέχοντα φίλτρα.
-        """
-
-        filter_text = self.search_entry.get().strip().lower()
-        status_filter = self.status_option.get()
-        group_filter = self.group_option.get()
-
-        status = str(client.get("status", "offline")).lower()
-
-        if status_filter == "Online" and status != "online":
-            return False
-
-        if status_filter == "Offline" and status == "online":
-            return False
-
-        group_name = str(client.get("group_name") or "Ungrouped")
-
-        if group_filter != "All Groups" and group_name != group_filter:
-            return False
-
-        searchable_text = " ".join(
-            [
-                str(client.get("display_name", "")),
-                str(client.get("pc_name", "")),
-                str(client.get("username", "")),
-                str(client.get("client_code", "")),
-                str(client.get("app_version", "")),
-                str(client.get("amv_version", "")),
-                str(client.get("bo_version", "")),
-                str(client.get("etp_version", "")),
-                str(client.get("aws_version", "")),
-                str(client.get("group_name", ""))
-            ]
-        ).lower()
-
-        if filter_text and filter_text not in searchable_text:
-            return False
-
-        return True
-
     def _apply_visible_client_rows(self, visible_clients: list[dict]) -> None:
         """
         Εμφανίζει μόνο τα rows που περνάνε τα φίλτρα.
         Δεν καταστρέφει και δεν ξαναχτίζει όλη τη λίστα.
         """
 
+        all_current_codes = {
+            str(client.get("client_code", "")).strip()
+            for client in self.clients
+        }
+
         visible_codes = {
             str(client.get("client_code", "")).strip()
             for client in visible_clients
         }
 
-        if self.empty_label and self.empty_label.winfo_exists():
-            self.empty_label.destroy()
-
-        self.empty_label = None
+        self._hide_empty_label()
 
         for client_code, row_data in list(self.client_rows.items()):
             row = row_data.get("frame")
 
             if not row or not row.winfo_exists():
+                self.client_rows.pop(client_code, None)
+                continue
+
+            if client_code not in all_current_codes:
+                row.destroy()
                 self.client_rows.pop(client_code, None)
                 continue
 
@@ -994,7 +963,9 @@ class ClientsView(ctk.CTkFrame):
 
             row_data = self.client_rows.get(client_code)
 
-            if not row_data:
+            if row_data:
+                self._update_client_row_widgets(client_code, client)
+            else:
                 self._add_client_row(row_index, client)
                 row_data = self.client_rows.get(client_code)
 
@@ -1008,24 +979,8 @@ class ClientsView(ctk.CTkFrame):
 
             row.grid(row=row_index, column=0, padx=4, pady=6, sticky="ew")
 
-        online_count = sum(
-            1
-            for client in self.clients
-            if str(client.get("status", "offline")).lower() == "online"
-        )
-
-        self.count_label.configure(
-            text=f"{len(visible_clients)} shown / {len(self.clients)} total · {online_count} online"
-        )
-
-        if not visible_clients:
-            self.empty_label = ctk.CTkLabel(
-                self.scroll_frame,
-                text="Δεν υπάρχουν clients με αυτά τα φίλτρα.",
-                font=FONTS.body,
-                text_color=COLORS.text_secondary
-            )
-            self.empty_label.grid(row=0, column=0, padx=15, pady=15, sticky="w")
+        self._update_count_label(len(visible_clients))
+        self._show_empty_label_if_needed(len(visible_clients))
 
     def _apply_filters(self) -> None:
         """
@@ -1038,14 +993,8 @@ class ClientsView(ctk.CTkFrame):
         self.status_filter = self.status_option.get()
         self.group_filter = self.group_option.get()
 
-        visible_clients = [
-            client
-            for client in self.clients
-            if self._client_matches_current_filters(client)
-        ]
-
+        visible_clients = self._get_filtered_clients()
         self._apply_visible_client_rows(visible_clients)
-
 
     def _clear_filters(self) -> None:
         """

@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 class DashboardWebSocketClient:
     """
     WebSocket client που συνδέει το dashboard με τον Render server.
+
+    Όλες οι αποστολές/λήψεις γίνονται στο ίδιο asyncio loop ώστε να αποφεύγονται
+    race conditions από πολλά διαφορετικά threads που χρησιμοποιούν το ίδιο websocket.
     """
 
     def __init__(
@@ -31,9 +34,12 @@ class DashboardWebSocketClient:
         self.dashboard_token = dashboard_token
         self.on_message_callback = on_message_callback
         self.on_status_callback = on_status_callback
+
         self.websocket = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._send_queue: asyncio.Queue[dict[str, Any] | None] | None = None
 
     def start(self) -> None:
         """
@@ -58,6 +64,19 @@ class DashboardWebSocketClient:
 
         self._stop_event.set()
 
+        loop = self._loop
+        send_queue = self._send_queue
+        websocket = self.websocket
+
+        if loop and loop.is_running():
+            if send_queue:
+                loop.call_soon_threadsafe(send_queue.put_nowait, None)
+
+            if websocket:
+                loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(websocket.close())
+                )
+
     def _run_async_loop(self) -> None:
         """
         Δημιουργεί νέο asyncio loop για το thread του WebSocket.
@@ -70,11 +89,13 @@ class DashboardWebSocketClient:
         Συνδέεται συνεχώς στο WebSocket και κάνει reconnect αν χαθεί η σύνδεση.
         """
 
+        self._loop = asyncio.get_running_loop()
+        self._send_queue = asyncio.Queue()
+
         while not self._stop_event.is_set():
             try:
                 self.on_status_callback("Σύνδεση...")
 
-                
                 async with websockets.connect(self.websocket_url) as websocket:
                     self.websocket = websocket
 
@@ -89,49 +110,70 @@ class DashboardWebSocketClient:
 
                     self.on_status_callback("Online")
 
-                    while not self._stop_event.is_set():
-                        message = await websocket.recv()
-                        payload = json.loads(message)
+                    receive_task = asyncio.create_task(self._receive_loop(websocket))
+                    send_task = asyncio.create_task(self._send_loop(websocket))
 
-                        logger.info("Dashboard received message: %s", payload)
-                        self.on_message_callback(payload)
+                    done_tasks, pending_tasks = await asyncio.wait(
+                        {receive_task, send_task},
+                        return_when=asyncio.FIRST_EXCEPTION
+                    )
+
+                    for task in pending_tasks:
+                        task.cancel()
+
+                    for task in done_tasks:
+                        task.result()
 
             except Exception:
-                logger.exception("Dashboard WebSocket connection failed.")
-                self.on_status_callback("Offline - επανασύνδεση...")
+                if not self._stop_event.is_set():
+                    logger.exception("Dashboard WebSocket connection failed.")
+                    self.on_status_callback("Offline - επανασύνδεση...")
 
+            finally:
                 self.websocket = None
 
+            if not self._stop_event.is_set():
                 await asyncio.sleep(5)
+
+    async def _receive_loop(self, websocket) -> None:
+        """
+        Διαβάζει μηνύματα από τον server.
+        """
+
+        while not self._stop_event.is_set():
+            message = await websocket.recv()
+            payload = json.loads(message)
+            message_type = payload.get("type", "unknown")
+
+            logger.info("Dashboard received message type: %s", message_type)
+            self.on_message_callback(payload)
+
+    async def _send_loop(self, websocket) -> None:
+        """
+        Στέλνει μηνύματα στον server από ένα ασφαλές asyncio queue.
+        """
+
+        if not self._send_queue:
+            return
+
+        while not self._stop_event.is_set():
+            message = await self._send_queue.get()
+
+            if message is None:
+                return
+
+            await websocket.send(json.dumps(message, ensure_ascii=False))
 
     def send_message(self, message: dict[str, Any]) -> None:
         """
-        Στέλνει μήνυμα στον server από το GUI thread.
+        Βάζει μήνυμα στην ουρά αποστολής από το GUI thread.
         """
 
-        if not self.websocket:
+        loop = self._loop
+        send_queue = self._send_queue
+
+        if not loop or not loop.is_running() or not send_queue or not self.websocket:
             logger.warning("Cannot send message. Dashboard WebSocket is not connected.")
             return
 
-        threading.Thread(
-            target=self._send_message_thread,
-            args=(message,),
-            daemon=True
-        ).start()
-
-    def _send_message_thread(self, message: dict[str, Any]) -> None:
-        """
-        Στέλνει μήνυμα σε ξεχωριστό thread ώστε να μην παγώνει το GUI.
-        """
-
-        asyncio.run(self._send_message_async(message))
-
-    async def _send_message_async(self, message: dict[str, Any]) -> None:
-        """
-        Ασύγχρονη αποστολή JSON μηνύματος στον WebSocket server.
-        """
-
-        if not self.websocket:
-            return
-
-        await self.websocket.send(json.dumps(message, ensure_ascii=False))
+        loop.call_soon_threadsafe(send_queue.put_nowait, message)
