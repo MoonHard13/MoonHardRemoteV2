@@ -3,7 +3,7 @@
 [Setup]
 AppId={{8C7C9E7D-5E4A-4B6E-8C3A-1F7E51A01001}
 AppName=MoonHard Remote Client
-AppVersion=1.0.0
+AppVersion=1.0.9
 AppPublisher=MoonHard
 DefaultDirName={autopf}\MoonHardRemoteV2\Client
 DefaultGroupName=MoonHard Remote
