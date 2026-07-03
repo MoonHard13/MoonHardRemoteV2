@@ -41,7 +41,7 @@ class SenarioProsorinonTab(ctk.CTkFrame):
         self.selected_result_index: int | None = None
         self.result_buttons: list[ctk.CTkButton] = []
 
-        self.grid_columnconfigure(0, weight=0)
+        self.grid_columnconfigure(0, weight=0, minsize=680)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
@@ -113,7 +113,7 @@ class SenarioProsorinonTab(ctk.CTkFrame):
         )
         clear_button.grid(row=0, column=4, padx=(0, 18), pady=(16, 4), sticky="e")
 
-        summary_frame = ctk.CTkFrame(self, **card_style())
+        summary_frame = ctk.CTkFrame(self, width=680, **card_style())
         summary_frame.grid(
             row=1,
             column=0,
@@ -121,6 +121,7 @@ class SenarioProsorinonTab(ctk.CTkFrame):
             pady=(0, SPACING.card_padding),
             sticky="nsew"
         )
+        summary_frame.grid_propagate(False)
         summary_frame.grid_columnconfigure(0, weight=1)
         summary_frame.grid_rowconfigure(2, weight=1)
 
@@ -320,6 +321,7 @@ class SenarioProsorinonTab(ctk.CTkFrame):
                 self.results_scroll,
                 text=f"{prefix} {title}",
                 anchor="w",
+                width=600,
                 height=38,
                 fg_color=COLORS.surface_light,
                 hover_color=COLORS.surface_hover,
