@@ -4,7 +4,7 @@ from typing import Callable
 
 import customtkinter as ctk
 from tkinter import ttk
-from app.views.manage.provider_transmitted_window import TransmittedInvoicesWindow
+from app.views.manage.provider_transmitted_window import TransmittedInvoicesView
 from app.ui.theme import (
     COLORS,
     FONTS,
@@ -51,10 +51,15 @@ class ProviderTab(ctk.CTkFrame):
         self.current_payways_title_label = None
         self.current_payways_invoice_id = ""
         self.current_payways_columns: list[str] = []
-        self.transmitted_window = None
+        self.transmitted_view = None
         
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        self.main_content = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
+        self.main_content.grid(row=0, column=0, sticky="nsew")
+        self.main_content.grid_columnconfigure(0, weight=1)
+        self.main_content.grid_rowconfigure(1, weight=1)
 
         self._build_ui()
 
@@ -63,7 +68,7 @@ class ProviderTab(ctk.CTkFrame):
         Δημιουργεί το βασικό UI του Provider/MUPT tab.
         """
 
-        top_frame = ctk.CTkFrame(self, **card_style())
+        top_frame = ctk.CTkFrame(self.main_content, **card_style())
         top_frame.grid(
             row=0,
             column=0,
@@ -250,7 +255,7 @@ class ProviderTab(ctk.CTkFrame):
         Δημιουργεί τον πίνακα παραστατικών.
         """
 
-        table_frame = ctk.CTkFrame(self, **card_style())
+        table_frame = ctk.CTkFrame(self.main_content, **card_style())
         table_frame.grid(
             row=1,
             column=0,
@@ -355,7 +360,7 @@ class ProviderTab(ctk.CTkFrame):
         Δημιουργεί τα action buttons του Provider tab.
         """
 
-        actions_frame = ctk.CTkFrame(self, **card_style())
+        actions_frame = ctk.CTkFrame(self.main_content, **card_style())
         actions_frame.grid(
             row=2,
             column=0,
@@ -419,21 +424,30 @@ class ProviderTab(ctk.CTkFrame):
         self.provider_status_label.pack(side="right", padx=12, pady=12)
 
     def _open_transmitted(self) -> None:
-        """Ανοίγει τα διαβιβασμένα για το BOConnection του Provider tab."""
-        if self.transmitted_window and self.transmitted_window.winfo_exists():
-            if self.transmitted_window.bo_connection_id == self.selected_bo_connection_id:
-                self.transmitted_window.lift()
-                self.transmitted_window.focus_force()
-                return
-            self.transmitted_window.destroy()
-        self.transmitted_window = TransmittedInvoicesWindow(
-            self, self.client_code, self.selected_bo_connection_id, self.on_provider_request_callback
-        )
+        """Εναλλάσσει την προβολή μέσα στο Provider, διατηρώντας τα προηγούμενα δεδομένα."""
+        if self.transmitted_view and self.transmitted_view.winfo_exists():
+            if self.transmitted_view.bo_connection_id != self.selected_bo_connection_id:
+                self.transmitted_view.destroy()
+                self.transmitted_view = None
+        if not self.transmitted_view or not self.transmitted_view.winfo_exists():
+            self.transmitted_view = TransmittedInvoicesView(
+                self, self.client_code, self.selected_bo_connection_id,
+                self.on_provider_request_callback, self._show_main_provider
+            )
+        self.main_content.grid_remove()
+        self.transmitted_view.grid(row=0, column=0, sticky="nsew")
+        self.transmitted_view.entries["mark"].focus_set()
+
+    def _show_main_provider(self) -> None:
+        """Επιστρέφει στις υπάρχουσες λειτουργίες Provider χωρίς να κλείνει το Manage."""
+        if self.transmitted_view and self.transmitted_view.winfo_exists():
+            self.transmitted_view.grid_remove()
+        self.main_content.grid()
 
     def handle_transmitted_result(self, payload: dict) -> None:
-        """Προωθεί την απάντηση μόνο όσο παραμένει ανοιχτό το παράθυρο."""
-        if self.transmitted_window and self.transmitted_window.winfo_exists():
-            self.transmitted_window.handle_result(payload)
+        """Προωθεί την απάντηση στην αντίστοιχη ενσωματωμένη προβολή."""
+        if self.transmitted_view and self.transmitted_view.winfo_exists():
+            self.transmitted_view.handle_result(payload)
 
     def update_bo_values(self, bo_values: list[str], selected_value: str = "ID 1") -> None:
         """

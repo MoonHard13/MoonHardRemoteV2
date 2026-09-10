@@ -35,52 +35,53 @@ class DocumentLink:
         return value
 
 
-class TransmittedInvoicesWindow(ctk.CTkToplevel):
-    """Ανεξάρτητο παράθυρο αναζήτησης με προσωρινά αποτελέσματα ανά BOConnection."""
+class TransmittedInvoicesView(ctk.CTkFrame):
+    """Ενσωματωμένη προβολή Provider με προσωρινά αποτελέσματα ανά BOConnection."""
 
     COLUMNS = (
         ("InvoiceDate", "Ημερομηνία", 100), ("DocumentType", "Τύπος παραστατικού", 200),
         ("Series", "Σειρά", 75), ("Number", "Αριθμός", 100), ("MARK", "MARK", 165),
         ("ResponseDate", "Ημ/νία απάντησης", 150), ("State", "Κατάσταση", 145),
-        ("URLState", "URL", 150),
+        ("DocumentURL", "URL παραστατικού", 360),
     )
 
-    def __init__(self, parent, client_code: str, bo_connection_id: int, send_callback) -> None:
+    def __init__(self, parent, client_code: str, bo_connection_id: int, send_callback, back_callback) -> None:
         """Δεσμεύει τη βάση κατά το άνοιγμα για να μην αναμειγνύονται αποτελέσματα."""
-        super().__init__(parent)
+        super().__init__(parent, corner_radius=0, fg_color=COLORS.background)
         self.client_code, self.bo_connection_id = client_code, bo_connection_id
         self.send_callback = send_callback
+        self.back_callback = back_callback
+        self._shortcut_bindings = []
+        self._shortcut_parent = self.winfo_toplevel()
+        self._initial_load_after_id = None
         self.rows: dict[str, dict] = {}
         self.type_values = {"Όλοι οι τύποι": ""}
         self.pending: dict[str, tuple[str, object]] = {}
         self.next_before_oid = None
-        self.page_cursors = [None]
-        self.page_index = 0
         self.active_filters = {}
         self.busy = False
-        self.title(f"Διαβιβασμένα — {client_code} — BOConnection {bo_connection_id}")
-        self.geometry("1160x680")
-        self.minsize(920, 560)
-        self.configure(fg_color=COLORS.background)
-        self.transient(parent.winfo_toplevel())
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
         self._build_ui()
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
         self._bind_shortcuts()
-        self.after(100, self._load_types)
+        self._initial_load_after_id = self.after(100, self._load_types)
 
     def _build_ui(self) -> None:
         """Χρησιμοποιεί το υπάρχον θέμα και προσθέτει μόνο τα νέα χειριστήρια."""
-        ctk.CTkLabel(self, text=f"Διαβιβασμένα παραστατικά · BOConnection {self.bo_connection_id}",
-                     font=FONTS.subtitle, text_color=COLORS.text_primary).grid(row=0, column=0, padx=18, pady=(18, 8), sticky="w")
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.grid(row=0, column=0, padx=18, pady=(12, 8), sticky="ew")
+        header.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(header, text=f"Διαβιβασμένα παραστατικά · BOConnection {self.bo_connection_id}",
+                     font=FONTS.subtitle, text_color=COLORS.text_primary).grid(row=0, column=0, sticky="w")
+        ctk.CTkButton(header, text="← Provider", width=120, command=self.back_callback,
+                      **secondary_button_style()).grid(row=0, column=1, padx=(12, 0), sticky="e")
         form = ctk.CTkFrame(self, fg_color=COLORS.surface)
         form.grid(row=1, column=0, padx=18, pady=(0, 10), sticky="ew")
         for column in (1, 3, 5):
             form.grid_columnconfigure(column, weight=1)
         self.entries = {}
-        fields = (("start_date", "Από", "ΗΗ/ΜΜ/ΕΕΕΕ", 0, 0),
-                  ("end_date", "Έως", "ΗΗ/ΜΜ/ΕΕΕΕ", 0, 2),
+        fields = (("start_date", "Από", "YYYYMMDD", 0, 0),
+                  ("end_date", "Έως", "YYYYMMDD", 0, 2),
                   ("number", "Αριθμός", "Ακριβής αριθμός", 1, 0),
                   ("mark", "MARK", "Ακριβές MARK", 1, 2))
         for key, label, placeholder, row, column in fields:
@@ -100,7 +101,7 @@ class TransmittedInvoicesWindow(ctk.CTkToplevel):
         self.search_button.pack(side="left", padx=4)
         self.clear_button = ctk.CTkButton(buttons, text="Καθαρισμός", width=105, command=self.clear, **secondary_button_style())
         self.clear_button.pack(side="left", padx=4)
-        ctk.CTkLabel(form, text="Ημερομηνίες παραστατικού, με συμπερίληψη της ημέρας Έως. Κενό πεδίο = χωρίς αντίστοιχο φίλτρο.",
+        ctk.CTkLabel(form, text="Ημερομηνίες YYYYMMDD (π.χ. 20260901), με συμπερίληψη της ημέρας Έως. Κενό πεδίο = χωρίς φίλτρο.",
             font=FONTS.small, text_color=COLORS.text_secondary).grid(row=2, column=0, columnspan=6, padx=12, pady=(0, 8), sticky="w")
         table = ctk.CTkFrame(self, fg_color=COLORS.surface)
         table.grid(row=2, column=0, padx=18, sticky="nsew")
@@ -112,11 +113,11 @@ class TransmittedInvoicesWindow(ctk.CTkToplevel):
             self.tree.heading(name, text=title)
             self.tree.column(name, width=width, minwidth=60, stretch=name == "DocumentType")
         self.tree.grid(row=0, column=0, sticky="nsew")
-        vertical = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
-        vertical.grid(row=0, column=1, sticky="ns")
+        self.vertical_scrollbar = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
+        self.vertical_scrollbar.grid(row=0, column=1, sticky="ns")
         horizontal = ttk.Scrollbar(table, orient="horizontal", command=self.tree.xview)
         horizontal.grid(row=1, column=0, sticky="ew")
-        self.tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        self.tree.configure(yscrollcommand=self._tree_scrolled, xscrollcommand=horizontal.set)
         self.tree.bind("<<TreeviewSelect>>", self._selection_changed)
         self.tree.bind("<Double-1>", self._double_click)
         self.tree.bind("<Return>", lambda event: self._shortcut(self.open_url))
@@ -129,23 +130,18 @@ class TransmittedInvoicesWindow(ctk.CTkToplevel):
         self.open_button.pack(side="left")
         self.copy_button = ctk.CTkButton(actions, text="Αντιγραφή URL", width=140, state="disabled", command=self.copy_url, **secondary_button_style())
         self.copy_button.pack(side="left", padx=8)
-        self.next_button = ctk.CTkButton(actions, text="Επόμενη →", width=120, state="disabled", command=self.next_page, **secondary_button_style())
-        self.next_button.pack(side="right")
-        self.previous_button = ctk.CTkButton(actions, text="← Προηγούμενη", width=130, state="disabled", command=self.previous_page, **secondary_button_style())
-        self.previous_button.pack(side="right", padx=8)
-        self.page_label = ctk.CTkLabel(actions, text="", font=FONTS.body)
-        self.page_label.pack(side="right", padx=8)
         self.status = ctk.CTkLabel(self, text="Συμπληρώστε τα επιθυμητά φίλτρα και πατήστε Αναζήτηση.",
                                   font=FONTS.body, anchor="w", wraplength=870, text_color=COLORS.text_secondary)
         self.status.grid(row=5, column=0, padx=18, pady=(0, 14), sticky="ew")
 
     def _bind_shortcuts(self) -> None:
-        """Οι συντομεύσεις περιορίζονται στο συγκεκριμένο παράθυρο."""
+        """Ενεργοποιεί τις συντομεύσεις μόνο όταν η ενσωματωμένη προβολή είναι ορατή."""
         for key, callback in (("<Control-f>", self.search), ("<F5>", self.search),
                               ("<Control-l>", self.clear), ("<Control-o>", self.open_url),
-                              ("<Control-Shift-C>", self.copy_url), ("<Alt-Right>", self.next_page),
-                              ("<Alt-Left>", self.previous_page), ("<Escape>", self.destroy)):
-            self.bind(key, lambda event, action=callback: self._shortcut(action))
+                              ("<Control-Shift-C>", self.copy_url), ("<Escape>", self.back_callback)):
+            binding_id = self._shortcut_parent.bind(
+                key, lambda event, action=callback: self._visible_shortcut(action), add="+")
+            self._shortcut_bindings.append((key, binding_id))
         for entry in self.entries.values():
             entry.bind("<Return>", lambda event: self._shortcut(self.search))
 
@@ -154,6 +150,12 @@ class TransmittedInvoicesWindow(ctk.CTkToplevel):
         """Αποτρέπει δεύτερο χειρισμό του ίδιου συμβάντος."""
         action()
         return "break"
+
+    def _visible_shortcut(self, action):
+        """Δεν δεσμεύει πλήκτρα άλλων tabs ή της βασικής προβολής Provider."""
+        if self.winfo_viewable():
+            return self._shortcut(action)
+        return None
 
     def _send(self, kind: str, fields: dict) -> None:
         """Συσχετίζει κάθε αίτημα με χρονικό όριο και τη συγκεκριμένη βάση."""
@@ -174,6 +176,7 @@ class TransmittedInvoicesWindow(ctk.CTkToplevel):
 
     def _load_types(self) -> None:
         """Φορτώνει τους τύπους χωρίς να εκτελεί αναζήτηση παραστατικών."""
+        self._initial_load_after_id = None
         self._send("provider_transmitted_types", {})
 
     def _timeout(self, request_id: str) -> None:
@@ -185,21 +188,21 @@ class TransmittedInvoicesWindow(ctk.CTkToplevel):
             self.status.configure(text="Δεν ελήφθη απάντηση. Ελέγξτε σύνδεση και ενημέρωση server/client.")
 
     def search(self) -> None:
-        """Αναζητά με τα τρέχοντα φίλτρα, ξεκινώντας από την πρώτη σελίδα."""
+        """Ξεκινά νέα αναζήτηση και εμφανίζει τα αποτελέσματα σε μία συνεχή λίστα."""
         if self.busy:
             return
         self.active_filters = {key: entry.get().strip() for key, entry in self.entries.items()}
         self.active_filters["document_type"] = self.type_values.get(self.type_option.get(), "")
-        self.page_cursors, self.page_index = [None], 0
-        self._fetch_page()
-
-    def _fetch_page(self) -> None:
-        """Καθαρίζει την παλιά σελίδα και ζητά έως εκατό νέες εγγραφές."""
         self._clear_rows()
+        self._fetch_batch(None)
+
+    def _fetch_batch(self, before_oid) -> None:
+        """Ζητά την επόμενη ασφαλή παρτίδα και την προσθέτει στην ίδια λίστα."""
         self._set_busy(True)
-        self.status.configure(text="Αναζήτηση διαβιβασμένων...")
+        self.status.configure(text="Αναζήτηση διαβιβασμένων..." if not self.rows
+                              else f"Φόρτωση περισσότερων... ({len(self.rows)} ήδη εμφανίζονται)")
         self._send("provider_transmitted_search", {**self.active_filters, "limit": 100,
-                   "before_oid": self.page_cursors[self.page_index]})
+                   "before_oid": before_oid})
 
     def handle_result(self, payload: dict) -> None:
         """Αγνοεί παλιές απαντήσεις και δεδομένα άλλου client ή BOConnection."""
@@ -220,26 +223,51 @@ class TransmittedInvoicesWindow(ctk.CTkToplevel):
             else:
                 self.status.configure(text=payload.get("error") or "Δεν φορτώθηκαν οι τύποι.")
             return
-        self._set_busy(False)
         if not payload.get("success"):
+            self._set_busy(False)
             self.status.configure(text=payload.get("error") or "Η αναζήτηση απέτυχε.")
             return
         for invoice in payload.get("invoices", []):
             iid = str(invoice["ResponseOID"])
+            if iid in self.rows:
+                continue
             self.rows[iid] = invoice
             cancelled = invoice.get("CancellationMARK") or invoice.get("CancellationDate")
             display = {**invoice, "State": "Με ακύρωση" if cancelled else "Διαβιβασμένο"}
             try:
                 DocumentLink.validate(invoice.get("DocumentURL", ""))
-                display["URLState"] = "Διαθέσιμο"
+                display["DocumentURL"] = invoice["DocumentURL"]
             except ValueError:
-                display["URLState"] = "Μη έγκυρο URL" if invoice.get("DocumentURL") else "Δεν υπάρχει URL"
+                display["DocumentURL"] = "Μη έγκυρο URL" if invoice.get("DocumentURL") else "Δεν υπάρχει URL"
             self.tree.insert("", "end", iid=iid, values=[display.get(c[0], "") for c in self.COLUMNS])
         self.next_before_oid = payload.get("next_before_oid") if payload.get("has_more") else None
         self._set_busy(False)
-        self.page_label.configure(text=f"Σελίδα {self.page_index + 1}")
-        self.status.configure(text=f"Βρέθηκαν {len(self.rows)} εγγραφές στη σελίδα." if self.rows else "Δεν βρέθηκαν διαβιβασμένα με αυτά τα φίλτρα.")
+        if not self.rows:
+            message = "Δεν βρέθηκαν διαβιβασμένα με αυτά τα φίλτρα."
+        elif self.next_before_oid is not None:
+            message = f"Εμφανίζονται {len(self.rows)} εγγραφές. Κυλήστε προς τα κάτω για περισσότερες."
+        else:
+            message = f"Βρέθηκαν συνολικά {len(self.rows)} εγγραφές."
+        self.status.configure(text=message)
         logger.info("Εμφάνιση διαβιβασμένων. count=%s", len(self.rows))
+
+    def _tree_scrolled(self, first, last) -> None:
+        """Συνεχίζει την ίδια λίστα όταν ο χρήστης φτάσει κοντά στο τέλος της."""
+        self.vertical_scrollbar.set(first, last)
+        try:
+            near_bottom = float(last) >= 0.98
+        except (TypeError, ValueError):
+            return
+        if near_bottom:
+            self._load_more()
+
+    def _load_more(self) -> None:
+        """Φορτώνει την επόμενη παρτίδα χωρίς αλλαγή σελίδας ή απώλεια επιλογής."""
+        if self.busy or self.next_before_oid is None:
+            return
+        cursor = self.next_before_oid
+        self.next_before_oid = None
+        self._fetch_batch(cursor)
 
     def _set_busy(self, busy: bool) -> None:
         """Αποτρέπει παράλληλες αναζητήσεις και αλλαγές φίλτρων κατά την αναμονή."""
@@ -250,8 +278,6 @@ class TransmittedInvoicesWindow(ctk.CTkToplevel):
         self.type_option.configure(state=state)
         for entry in self.entries.values():
             entry.configure(state=state)
-        self.previous_button.configure(state="normal" if not busy and self.page_index > 0 else "disabled")
-        self.next_button.configure(state="normal" if not busy and self.next_before_oid is not None else "disabled")
 
     def _clear_rows(self) -> None:
         """Αφαιρεί την προηγούμενη επιλογή, ώστε να μην ανοίξει παλιός σύνδεσμος."""
@@ -270,28 +296,12 @@ class TransmittedInvoicesWindow(ctk.CTkToplevel):
         for entry in self.entries.values():
             entry.delete(0, "end")
         self.type_option.set("Όλοι οι τύποι")
-        self.page_cursors, self.page_index, self.active_filters = [None], 0, {}
+        self.active_filters = {}
         self._clear_rows()
         self._set_busy(False)
-        self.page_label.configure(text="")
         self.status.configure(text="Τα φίλτρα καθαρίστηκαν.")
         self.entries["mark"].focus_set()
         logger.info("Καθαρισμός φίλτρων διαβιβασμένων.")
-
-    def next_page(self) -> None:
-        """Χρησιμοποιεί τα φίλτρα της ολοκληρωμένης αναζήτησης."""
-        if self.busy or self.next_before_oid is None:
-            return
-        self.page_cursors = self.page_cursors[:self.page_index + 1] + [self.next_before_oid]
-        self.page_index += 1
-        self._fetch_page()
-
-    def previous_page(self) -> None:
-        """Επαναφέρει την προηγούμενη σελίδα με το αποθηκευμένο αναγνωριστικό."""
-        if self.busy or self.page_index == 0:
-            return
-        self.page_index -= 1
-        self._fetch_page()
 
     def _selected_url(self) -> str:
         """Επιστρέφει μόνο έγκυρο URL από την τρέχουσα επιλογή."""
@@ -347,7 +357,12 @@ class TransmittedInvoicesWindow(ctk.CTkToplevel):
             self.status.configure(text=str(exc) if isinstance(exc, ValueError) else "Αποτυχία αντιγραφής URL.")
 
     def destroy(self) -> None:
-        """Ακυρώνει χρονόμετρα και αποδεσμεύει τα προσωρινά αποτελέσματα."""
+        """Ακυρώνει χρονόμετρα και αποδεσμεύει αποτελέσματα και συντομεύσεις."""
+        if self._initial_load_after_id is not None:
+            self.after_cancel(self._initial_load_after_id)
+        for key, binding_id in self._shortcut_bindings:
+            self._shortcut_parent.unbind(key, binding_id)
+        self._shortcut_bindings.clear()
         for _, timer in self.pending.values():
             self.after_cancel(timer)
         self.pending.clear()

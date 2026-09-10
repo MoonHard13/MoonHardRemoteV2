@@ -80,6 +80,15 @@ class TransmittedInvoicesService:
     """Ανάγνωση επιτυχών διαβιβάσεων με βάση το επιβεβαιωμένο σχήμα της Sunsoft."""
 
     MARK_SQL = "COALESCE(NULLIF(LTRIM(RTRIM(md.MyDATA_ResponseInvoiceMARK)), N''), suc.InvoiceMARK)"
+    INVOICE_DATE_SQL = "COALESCE(md.MyDATA_ResponseInvoiceDate, doc.SalesPWDate)"
+    NUMBER_SQL = """COALESCE(
+        NULLIF(LTRIM(RTRIM(md.MyDATA_ResponseInvoiceNumber)), N''),
+        CAST(doc.SalesPWNoteNo AS nvarchar(128))
+    )"""
+    SERIES_SQL = """COALESCE(
+        NULLIF(LTRIM(RTRIM(md.MyDATA_ResponseInvoiceSeries)), N''),
+        NULLIF(LTRIM(RTRIM(CAST(doc.SalesPWNoteRow AS nvarchar(128)))), N'')
+    )"""
     SUCCESS_SQL = """(
         (md.MyDATA_ResponseStatusCode = N'Success'
          AND NULLIF(LTRIM(RTRIM(md.MyDATA_ResponseInvoiceMARK)), N'') IS NOT NULL)
@@ -107,9 +116,9 @@ class TransmittedInvoicesService:
         where = [cls.SUCCESS_SQL]
         params: list[Any] = [filters.limit + 1]
         for value, predicate in (
-            (filters.start_date, "md.MyDATA_ResponseInvoiceDate >= ?"),
-            (filters.end_exclusive, "md.MyDATA_ResponseInvoiceDate < ?"),
-            (filters.number, "md.MyDATA_ResponseInvoiceNumber = ?"),
+            (filters.start_date, cls.INVOICE_DATE_SQL + " >= ?"),
+            (filters.end_exclusive, cls.INVOICE_DATE_SQL + " < ?"),
+            (filters.number, cls.NUMBER_SQL + " = ?"),
             (filters.mark, cls.MARK_SQL + " = ?"),
             (filters.before_oid, "md.MyDATA_ResponseOID < ?"),
         ):
@@ -129,11 +138,11 @@ class TransmittedInvoicesService:
         query = f"""
             SELECT TOP (?)
                 md.MyDATA_ResponseOID AS ResponseOID,
-                CONVERT(varchar(10), md.MyDATA_ResponseInvoiceDate, 23) AS InvoiceDate,
+                CONVERT(varchar(10), {cls.INVOICE_DATE_SQL}, 23) AS InvoiceDate,
                 CONVERT(varchar(19), md.MyDATA_ResponseDate, 120) AS ResponseDate,
-                CAST(md.MyDATA_ResponseInvoiceSeries AS nvarchar(128)) AS Series,
-                CAST(md.MyDATA_ResponseInvoiceNumber AS nvarchar(128)) AS Number,
-                COALESCE(CAST(nt.NoteTypeDescr AS nvarchar(256)), md.MyDATA_ResponseInvoiceType) AS DocumentType,
+                CAST({cls.SERIES_SQL} AS nvarchar(128)) AS Series,
+                CAST({cls.NUMBER_SQL} AS nvarchar(128)) AS Number,
+                COALESCE(CAST(doc.NoteTypeDescr AS nvarchar(256)), md.MyDATA_ResponseInvoiceType) AS DocumentType,
                 CAST(md.MyDATA_ResponseInvoiceType AS nvarchar(64)) AS MyDataType,
                 CAST({cls.MARK_SQL} AS nvarchar(128)) AS MARK,
                 md.MyDATA_ResponseProviderQRCodeLink AS DocumentURL,
@@ -141,12 +150,14 @@ class TransmittedInvoicesService:
                 CONVERT(varchar(19), md.MyDATA_ResponseCancDate, 120) AS CancellationDate
             {cls.SOURCE_SQL}
             OUTER APPLY (
-                SELECT TOP (1) t.NoteTypeDescr
+                SELECT TOP (1)
+                    pw.SalesPWDate, pw.SalesPWNoteRow, pw.SalesPWNoteNo, t.NoteTypeDescr
                 FROM dbo.VSnVSalesPayWay AS pw
-                INNER JOIN dbo.TblSnNoteType AS t ON t.NoteTypeOID = pw.SalesPWNoteCode
+                LEFT JOIN dbo.TblSnNoteType AS t ON t.NoteTypeOID = pw.SalesPWNoteCode
                 WHERE pw.SalesPWPosHdr = md.MyDATA_ResponseSalesTransPosHdr
-                ORDER BY t.NoteTypeOID
-            ) AS nt
+                ORDER BY pw.SalesPayWayOID DESC, pw.SalesPWNoteCode,
+                         pw.SalesPWNoteNo, pw.SalesPWNoteRow, pw.SalesPWDate
+            ) AS doc
             WHERE {" AND ".join(where)}
             ORDER BY md.MyDATA_ResponseOID DESC
         """

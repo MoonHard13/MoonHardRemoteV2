@@ -1,0 +1,229 @@
+--- a/dashboard/app/views/manage/provider_transmitted_window.py
++++ b/dashboard/app/views/manage/provider_transmitted_window.py
+@@ -58,8 +58,6 @@
+         self.type_values = {"Όλοι οι τύποι": ""}
+         self.pending: dict[str, tuple[str, object]] = {}
+         self.next_before_oid = None
+-        self.page_cursors = [None]
+-        self.page_index = 0
+         self.active_filters = {}
+         self.busy = False
+         self.grid_columnconfigure(0, weight=1)
+@@ -115,11 +113,11 @@
+             self.tree.heading(name, text=title)
+             self.tree.column(name, width=width, minwidth=60, stretch=name == "DocumentType")
+         self.tree.grid(row=0, column=0, sticky="nsew")
+-        vertical = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
+-        vertical.grid(row=0, column=1, sticky="ns")
++        self.vertical_scrollbar = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
++        self.vertical_scrollbar.grid(row=0, column=1, sticky="ns")
+         horizontal = ttk.Scrollbar(table, orient="horizontal", command=self.tree.xview)
+         horizontal.grid(row=1, column=0, sticky="ew")
+-        self.tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
++        self.tree.configure(yscrollcommand=self._tree_scrolled, xscrollcommand=horizontal.set)
+         self.tree.bind("<<TreeviewSelect>>", self._selection_changed)
+         self.tree.bind("<Double-1>", self._double_click)
+         self.tree.bind("<Return>", lambda event: self._shortcut(self.open_url))
+@@ -132,12 +130,6 @@
+         self.open_button.pack(side="left")
+         self.copy_button = ctk.CTkButton(actions, text="Αντιγραφή URL", width=140, state="disabled", command=self.copy_url, **secondary_button_style())
+         self.copy_button.pack(side="left", padx=8)
+-        self.next_button = ctk.CTkButton(actions, text="Επόμενη →", width=120, state="disabled", command=self.next_page, **secondary_button_style())
+-        self.next_button.pack(side="right")
+-        self.previous_button = ctk.CTkButton(actions, text="← Προηγούμενη", width=130, state="disabled", command=self.previous_page, **secondary_button_style())
+-        self.previous_button.pack(side="right", padx=8)
+-        self.page_label = ctk.CTkLabel(actions, text="", font=FONTS.body)
+-        self.page_label.pack(side="right", padx=8)
+         self.status = ctk.CTkLabel(self, text="Συμπληρώστε τα επιθυμητά φίλτρα και πατήστε Αναζήτηση.",
+                                   font=FONTS.body, anchor="w", wraplength=870, text_color=COLORS.text_secondary)
+         self.status.grid(row=5, column=0, padx=18, pady=(0, 14), sticky="ew")
+@@ -146,8 +138,7 @@
+         """Ενεργοποιεί τις συντομεύσεις μόνο όταν η ενσωματωμένη προβολή είναι ορατή."""
+         for key, callback in (("<Control-f>", self.search), ("<F5>", self.search),
+                               ("<Control-l>", self.clear), ("<Control-o>", self.open_url),
+-                              ("<Control-Shift-C>", self.copy_url), ("<Alt-Right>", self.next_page),
+-                              ("<Alt-Left>", self.previous_page), ("<Escape>", self.back_callback)):
++                              ("<Control-Shift-C>", self.copy_url), ("<Escape>", self.back_callback)):
+             binding_id = self._shortcut_parent.bind(
+                 key, lambda event, action=callback: self._visible_shortcut(action), add="+")
+             self._shortcut_bindings.append((key, binding_id))
+@@ -197,21 +188,21 @@
+             self.status.configure(text="Δεν ελήφθη απάντηση. Ελέγξτε σύνδεση και ενημέρωση server/client.")
+ 
+     def search(self) -> None:
+-        """Αναζητά με τα τρέχοντα φίλτρα, ξεκινώντας από την πρώτη σελίδα."""
++        """Ξεκινά νέα αναζήτηση και εμφανίζει τα αποτελέσματα σε μία συνεχή λίστα."""
+         if self.busy:
+             return
+         self.active_filters = {key: entry.get().strip() for key, entry in self.entries.items()}
+         self.active_filters["document_type"] = self.type_values.get(self.type_option.get(), "")
+-        self.page_cursors, self.page_index = [None], 0
+-        self._fetch_page()
+-
+-    def _fetch_page(self) -> None:
+-        """Καθαρίζει την παλιά σελίδα και ζητά έως εκατό νέες εγγραφές."""
+         self._clear_rows()
++        self._fetch_batch(None)
++
++    def _fetch_batch(self, before_oid) -> None:
++        """Ζητά την επόμενη ασφαλή παρτίδα και την προσθέτει στην ίδια λίστα."""
+         self._set_busy(True)
+-        self.status.configure(text="Αναζήτηση διαβιβασμένων...")
++        self.status.configure(text="Αναζήτηση διαβιβασμένων..." if not self.rows
++                              else f"Φόρτωση περισσότερων... ({len(self.rows)} ήδη εμφανίζονται)")
+         self._send("provider_transmitted_search", {**self.active_filters, "limit": 100,
+-                   "before_oid": self.page_cursors[self.page_index]})
++                   "before_oid": before_oid})
+ 
+     def handle_result(self, payload: dict) -> None:
+         """Αγνοεί παλιές απαντήσεις και δεδομένα άλλου client ή BOConnection."""
+@@ -232,12 +223,14 @@
+             else:
+                 self.status.configure(text=payload.get("error") or "Δεν φορτώθηκαν οι τύποι.")
+             return
+-        self._set_busy(False)
+         if not payload.get("success"):
++            self._set_busy(False)
+             self.status.configure(text=payload.get("error") or "Η αναζήτηση απέτυχε.")
+             return
+         for invoice in payload.get("invoices", []):
+             iid = str(invoice["ResponseOID"])
++            if iid in self.rows:
++                continue
+             self.rows[iid] = invoice
+             cancelled = invoice.get("CancellationMARK") or invoice.get("CancellationDate")
+             display = {**invoice, "State": "Με ακύρωση" if cancelled else "Διαβιβασμένο"}
+@@ -249,9 +242,32 @@
+             self.tree.insert("", "end", iid=iid, values=[display.get(c[0], "") for c in self.COLUMNS])
+         self.next_before_oid = payload.get("next_before_oid") if payload.get("has_more") else None
+         self._set_busy(False)
+-        self.page_label.configure(text=f"Σελίδα {self.page_index + 1}")
+-        self.status.configure(text=f"Βρέθηκαν {len(self.rows)} εγγραφές στη σελίδα." if self.rows else "Δεν βρέθηκαν διαβιβασμένα με αυτά τα φίλτρα.")
++        if not self.rows:
++            message = "Δεν βρέθηκαν διαβιβασμένα με αυτά τα φίλτρα."
++        elif self.next_before_oid is not None:
++            message = f"Εμφανίζονται {len(self.rows)} εγγραφές. Κυλήστε προς τα κάτω για περισσότερες."
++        else:
++            message = f"Βρέθηκαν συνολικά {len(self.rows)} εγγραφές."
++        self.status.configure(text=message)
+         logger.info("Εμφάνιση διαβιβασμένων. count=%s", len(self.rows))
++
++    def _tree_scrolled(self, first, last) -> None:
++        """Συνεχίζει την ίδια λίστα όταν ο χρήστης φτάσει κοντά στο τέλος της."""
++        self.vertical_scrollbar.set(first, last)
++        try:
++            near_bottom = float(last) >= 0.98
++        except (TypeError, ValueError):
++            return
++        if near_bottom:
++            self._load_more()
++
++    def _load_more(self) -> None:
++        """Φορτώνει την επόμενη παρτίδα χωρίς αλλαγή σελίδας ή απώλεια επιλογής."""
++        if self.busy or self.next_before_oid is None:
++            return
++        cursor = self.next_before_oid
++        self.next_before_oid = None
++        self._fetch_batch(cursor)
+ 
+     def _set_busy(self, busy: bool) -> None:
+         """Αποτρέπει παράλληλες αναζητήσεις και αλλαγές φίλτρων κατά την αναμονή."""
+@@ -262,8 +278,6 @@
+         self.type_option.configure(state=state)
+         for entry in self.entries.values():
+             entry.configure(state=state)
+-        self.previous_button.configure(state="normal" if not busy and self.page_index > 0 else "disabled")
+-        self.next_button.configure(state="normal" if not busy and self.next_before_oid is not None else "disabled")
+ 
+     def _clear_rows(self) -> None:
+         """Αφαιρεί την προηγούμενη επιλογή, ώστε να μην ανοίξει παλιός σύνδεσμος."""
+@@ -282,28 +296,12 @@
+         for entry in self.entries.values():
+             entry.delete(0, "end")
+         self.type_option.set("Όλοι οι τύποι")
+-        self.page_cursors, self.page_index, self.active_filters = [None], 0, {}
++        self.active_filters = {}
+         self._clear_rows()
+         self._set_busy(False)
+-        self.page_label.configure(text="")
+         self.status.configure(text="Τα φίλτρα καθαρίστηκαν.")
+         self.entries["mark"].focus_set()
+         logger.info("Καθαρισμός φίλτρων διαβιβασμένων.")
+-
+-    def next_page(self) -> None:
+-        """Χρησιμοποιεί τα φίλτρα της ολοκληρωμένης αναζήτησης."""
+-        if self.busy or self.next_before_oid is None:
+-            return
+-        self.page_cursors = self.page_cursors[:self.page_index + 1] + [self.next_before_oid]
+-        self.page_index += 1
+-        self._fetch_page()
+-
+-    def previous_page(self) -> None:
+-        """Επαναφέρει την προηγούμενη σελίδα με το αποθηκευμένο αναγνωριστικό."""
+-        if self.busy or self.page_index == 0:
+-            return
+-        self.page_index -= 1
+-        self._fetch_page()
+ 
+     def _selected_url(self) -> str:
+         """Επιστρέφει μόνο έγκυρο URL από την τρέχουσα επιλογή."""
+--- a/tests/test_provider_transmitted.py
++++ b/tests/test_provider_transmitted.py
+@@ -315,13 +315,13 @@
+         window.client_code, window.bo_connection_id = "CLIENT-1", 2
+         window.pending, window.rows, window.entries = {}, {}, {}
+         window.type_values = {"Όλοι οι τύποι": ""}
+-        window.page_index, window.page_cursors, window.next_before_oid = 0, [None], None
++        window.next_before_oid = None
+         window.busy, window.active_filters = False, {"mark": "444"}
+         window._initial_load_after_id = None
+         window._shortcut_bindings = []
+         window._shortcut_parent = Mock()
+         for name in ("tree", "status", "url_text", "open_button", "copy_button", "search_button",
+-                     "clear_button", "type_option", "previous_button", "next_button", "page_label", "after_cancel"):
++                     "clear_button", "type_option", "vertical_scrollbar", "after_cancel"):
+             setattr(window, name, Mock())
+         window.tree.get_children.return_value = []
+         return window
+@@ -371,15 +371,34 @@
+         window._selection_changed()
+         window.open_button.configure.assert_called_with(state="disabled")
+ 
+-    def test_pagination_preserves_active_filters(self):
++    def test_load_more_preserves_filters_and_appends_to_same_list(self):
+         window = self.make_window()
+         window.next_before_oid = 101
+-        window._send = Mock()
+-        window.next_page()
+-        self.assertEqual(window.page_index, 1)
+-        fields = window._send.call_args.args[1]
+-        self.assertEqual(fields["mark"], "444")
+-        self.assertEqual(fields["before_oid"], 101)
++        window._fetch_batch = Mock()
++        window._load_more()
++        window._fetch_batch.assert_called_once_with(101)
++        self.assertIsNone(window.next_before_oid)
++
++    def test_scroll_at_bottom_loads_more(self):
++        window = self.make_window()
++        window.next_before_oid = 101
++        window._load_more = Mock()
++        window._tree_scrolled("0.70", "0.99")
++        window.vertical_scrollbar.set.assert_called_once_with("0.70", "0.99")
++        window._load_more.assert_called_once()
++
++    def test_multiple_batches_remain_in_one_list(self):
++        window = self.make_window()
++        base = {"type": "provider_transmitted_search_result", "client_code": "CLIENT-1",
++                "bo_connection_id": 2, "success": True}
++        window.pending["r1"] = ("provider_transmitted_search", "timer-1")
++        window.handle_result({**base, "request_id": "r1", "has_more": True, "next_before_oid": 50,
++                              "invoices": [{"ResponseOID": 100, "DocumentURL": ""}]})
++        window.pending["r2"] = ("provider_transmitted_search", "timer-2")
++        window.handle_result({**base, "request_id": "r2", "has_more": False,
++                              "invoices": [{"ResponseOID": 50, "DocumentURL": ""}]})
++        self.assertEqual(set(window.rows), {"100", "50"})
++        self.assertEqual(window.tree.insert.call_count, 2)
+ 
+     def test_destroy_cancels_pending(self):
+         window = self.make_window()
