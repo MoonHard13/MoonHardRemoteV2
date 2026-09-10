@@ -15,6 +15,7 @@ from app.terminal_executor import TerminalExecutor
 from app.appsettings_reader import AppSettingsReader
 from app.sql_executor import SqlExecutor
 from app.provider.provider_service import ProviderService
+from app.provider.transmitted_invoices import TransmittedInvoicesService
 from app.windows_services import WindowsServicesReader
 from app.process_reader import ProcessReader
 from app.client_update import ClientUpdateChecker
@@ -42,6 +43,7 @@ class MoonHardClientAgent:
         self.appsettings_reader = AppSettingsReader()
         self.sql_executor = SqlExecutor()
         self.provider_service = ProviderService()
+        self.transmitted_invoices_service = TransmittedInvoicesService(self.provider_service)
         self.windows_services_reader = WindowsServicesReader()
         self.process_reader = ProcessReader()
         self.client_update_checker = ClientUpdateChecker(self.config)
@@ -306,9 +308,11 @@ class MoonHardClientAgent:
 
         while True:
             message = await websocket.recv()
-            logger.info("Μήνυμα από server: %s", message)
-
             payload = json.loads(message)
+            if str(payload.get("type", "")).startswith("provider_transmitted_"):
+                logger.info("Αίτημα διαβιβασμένων: %s", payload.get("type"))
+            else:
+                logger.info("Μήνυμα από server: %s", message)
             message_type = payload.get("type")
 
             if message_type == "terminal_command":
@@ -329,6 +333,9 @@ class MoonHardClientAgent:
             elif message_type == "senario_prosorinon_run":
                 await self._handle_senario_prosorinon_run(websocket, payload)
                 
+            elif message_type in ("provider_transmitted_search", "provider_transmitted_types"):
+                await self._handle_provider_transmitted(websocket, payload)
+
             elif message_type == "provider_search_invoices":
                 await self._handle_provider_search_invoices(websocket, payload)
 
@@ -1109,6 +1116,36 @@ class MoonHardClientAgent:
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))
         
+    async def _handle_provider_transmitted(self, websocket, payload: dict) -> None:
+        """Εκτελεί ανάγνωση διαβιβασμένων αποκλειστικά στην επιλεγμένη τοπική βάση."""
+        message_type = payload.get("type")
+        result = TransmittedInvoicesService.failure("Μη έγκυρο BOConnection.")
+        bo_id = payload.get("bo_connection_id", 1)
+        try:
+            if isinstance(bo_id, bool):
+                raise ValueError("Μη έγκυρο BOConnection.")
+            bo_id = int(bo_id)
+
+            def execute() -> dict:
+                """Διαβάζει ρυθμίσεις και SQL εκτός του βρόχου asyncio."""
+                data = self.appsettings_reader.read_appsettings_production()
+                selected = self._get_bo_connection_by_id(data.get("bo_connections") or [], bo_id)
+                if not selected or not selected.get("DatabaseConnection"):
+                    return TransmittedInvoicesService.failure("Το επιλεγμένο BOConnection δεν είναι διαθέσιμο.")
+                connection_string = selected["DatabaseConnection"]
+                if message_type == "provider_transmitted_types":
+                    return self.transmitted_invoices_service.get_document_types(connection_string)
+                return self.transmitted_invoices_service.search(connection_string, payload)
+
+            result = await asyncio.to_thread(execute)
+        except Exception as exc:
+            logger.error("Αποτυχία αιτήματος διαβιβασμένων. exception_type=%s", type(exc).__name__)
+        await websocket.send(json.dumps({
+            **result, "type": f"{message_type}_result",
+            "request_id": payload.get("request_id", ""),
+            "client_code": self.identity["client_code"], "bo_connection_id": bo_id,
+        }, ensure_ascii=False))
+
     async def _handle_provider_search_invoices(self, websocket, payload: dict) -> None:
         """
         Εκτελεί remote MUPT invoice search στον client υπολογιστή.

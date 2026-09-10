@@ -1,3 +1,5 @@
+import sys
+
 from app.config import DashboardConfig
 from app.dashboard_app import MoonHardDashboardApp
 from app.logger_config import DashboardLoggerConfig
@@ -7,6 +9,10 @@ def main() -> None:
     """
     Κεντρικό σημείο εκκίνησης του MoonHard Remote Dashboard.
     """
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--provider-transmitted":
+        from app.provider_transmitted_cli import main as transmitted_main
+        raise SystemExit(transmitted_main(sys.argv[2:]))
 
     config = DashboardConfig()
     DashboardLoggerConfig.setup_logging(config.log_dir)

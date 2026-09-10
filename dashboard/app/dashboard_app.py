@@ -365,6 +365,11 @@ class MoonHardDashboardApp(ctk.CTk):
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_sql_cancel_result(payload)
                 
+        elif message_type in ("provider_transmitted_search_result", "provider_transmitted_types_result"):
+            manage_window = self.manage_windows.get(payload.get("client_code", ""))
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_provider_transmitted_result(payload)
+
         elif message_type == "provider_search_invoices_result":
             client_code = payload.get("client_code", "")
             manage_window = self.manage_windows.get(client_code)

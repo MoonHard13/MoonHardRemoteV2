@@ -4,6 +4,7 @@ from typing import Callable
 
 import customtkinter as ctk
 from tkinter import ttk
+from app.views.manage.provider_transmitted_window import TransmittedInvoicesWindow
 from app.ui.theme import (
     COLORS,
     FONTS,
@@ -50,6 +51,7 @@ class ProviderTab(ctk.CTkFrame):
         self.current_payways_title_label = None
         self.current_payways_invoice_id = ""
         self.current_payways_columns: list[str] = []
+        self.transmitted_window = None
         
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -78,7 +80,14 @@ class ProviderTab(ctk.CTkFrame):
             font=FONTS.subtitle,
             text_color=COLORS.text_primary
         )
-        title.grid(row=0, column=0, columnspan=6, padx=18, pady=(18, 8), sticky="w")
+        title.grid(row=0, column=0, columnspan=4, padx=18, pady=(18, 8), sticky="w")
+        transmitted_button = ctk.CTkButton(
+            top_frame, text="Διαβιβασμένα", width=160,
+            command=self._open_transmitted, **secondary_button_style()
+        )
+        transmitted_button.grid(row=0, column=4, columnspan=2, padx=18, pady=(18, 8), sticky="e")
+        transmitted_button.bind("<Return>", lambda event: self._open_transmitted())
+        self.winfo_toplevel().bind("<Control-Shift-D>", lambda event: self._open_transmitted(), add="+")
 
         bo_label = ctk.CTkLabel(
             top_frame,
@@ -408,6 +417,23 @@ class ProviderTab(ctk.CTkFrame):
             anchor="w"
         )
         self.provider_status_label.pack(side="right", padx=12, pady=12)
+
+    def _open_transmitted(self) -> None:
+        """Ανοίγει τα διαβιβασμένα για το BOConnection του Provider tab."""
+        if self.transmitted_window and self.transmitted_window.winfo_exists():
+            if self.transmitted_window.bo_connection_id == self.selected_bo_connection_id:
+                self.transmitted_window.lift()
+                self.transmitted_window.focus_force()
+                return
+            self.transmitted_window.destroy()
+        self.transmitted_window = TransmittedInvoicesWindow(
+            self, self.client_code, self.selected_bo_connection_id, self.on_provider_request_callback
+        )
+
+    def handle_transmitted_result(self, payload: dict) -> None:
+        """Προωθεί την απάντηση μόνο όσο παραμένει ανοιχτό το παράθυρο."""
+        if self.transmitted_window and self.transmitted_window.winfo_exists():
+            self.transmitted_window.handle_result(payload)
 
     def update_bo_values(self, bo_values: list[str], selected_value: str = "ID 1") -> None:
         """

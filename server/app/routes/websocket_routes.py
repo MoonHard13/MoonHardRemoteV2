@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Header, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.websocket.connection_manager import connection_manager
+from app.websocket.transmitted_requests import TransmittedRequestRouter
 from app.repositories.client_repository import ClientRepository
 
 from app.config import AppConfig
@@ -29,6 +30,7 @@ class WebSocketRoutes:
         self.client_repository = ClientRepository()
         self.config = AppConfig()
         self.pending_requests: dict[str, WebSocket] = {}
+        self.transmitted_requests = TransmittedRequestRouter(connection_manager)
         self.heartbeat_db_write_interval_seconds = 300
         self.client_last_db_heartbeat: dict[str, datetime] = {}
         self.clients_list_broadcast_interval_seconds = 600
@@ -414,7 +416,14 @@ class WebSocketRoutes:
             while True:
                 data = await websocket.receive_json()
 
-                logger.info("Client message received from %s: %s", client_code, data)
+                if str(data.get("type", "")).startswith("provider_transmitted_"):
+                    logger.info("Client transmitted-documents message. type=%s", data.get("type"))
+                else:
+                    logger.info("Client message received from %s: %s", client_code, data)
+
+                if data.get("type") in TransmittedRequestRouter.RESULT_TYPES:
+                    await self.transmitted_requests.result(client_code, data)
+                    continue
 
                 if data.get("type") == "heartbeat":
                     last_seen = self._get_memory_last_seen()
@@ -893,7 +902,14 @@ class WebSocketRoutes:
             while True:
                 data = await websocket.receive_json()
 
-                logger.info("Dashboard message received: %s", data)
+                if str(data.get("type", "")).startswith("provider_transmitted_"):
+                    logger.info("Dashboard transmitted-documents request. type=%s", data.get("type"))
+                else:
+                    logger.info("Dashboard message received: %s", data)
+
+                if data.get("type") in TransmittedRequestRouter.REQUEST_TYPES:
+                    await self.transmitted_requests.request(websocket, data)
+                    continue
 
                 if data.get("type") == "rename_client":
                     client_code = data.get("client_code", "")
@@ -2423,10 +2439,12 @@ class WebSocketRoutes:
                 )
 
         except WebSocketDisconnect:
+            self.transmitted_requests.discard_dashboard(websocket)
             connection_manager.disconnect_dashboard(websocket)
 
         except Exception:
             logger.exception("Unexpected dashboard WebSocket error.")
+            self.transmitted_requests.discard_dashboard(websocket)
             connection_manager.disconnect_dashboard(websocket)
 
 
