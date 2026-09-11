@@ -116,6 +116,19 @@ class FilterTests(unittest.TestCase):
         for statement in ("DELETE ", "UPDATE ", "INSERT ", "SendInvoice"):
             self.assertNotIn(statement, query)
 
+    def test_older_schema_does_not_reference_optional_success_table(self):
+        query, params = Service.build_query(
+            Filters.from_payload({"mark": "444"}),
+            include_success_table=False,
+        )
+        self.assertNotIn("TblSnMyDATA_ResponseSuccess", query)
+        self.assertNotIn("suc.", query)
+        self.assertIn("FROM dbo.TblSnMyDATA_Response AS md", query)
+        self.assertIn("md.MyDATA_ResponseStatusCode = N'Success'", query)
+        self.assertIn(Service.RESPONSE_MARK_SQL + " IS NOT NULL", query)
+        self.assertIn(Service.RESPONSE_MARK_SQL + " = ?", query)
+        self.assertEqual(params, [101, "444"])
+
 
 class DocumentFallbackTests(unittest.TestCase):
     """Εκτελεί τις εκφράσεις fallback σε τοπικά δεδομένα με κενά πεδία απόκρισης."""
@@ -190,6 +203,7 @@ class ServiceTests(unittest.TestCase):
         self.cursor.description = [(c,) for c in ("ResponseOID", "DocumentURL", "Number", "MARK")]
         self.provider = Mock()
         self.provider._to_odbc_connection_string.return_value = "local-secret-connection"
+        self.provider._table_exists.return_value = True
         self.service = Service(self.provider)
 
     def test_fetch_extra_row_for_next_page(self):
@@ -211,6 +225,21 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertFalse(result["has_more"])
         self.assertIsNone(result["next_before_oid"])
+
+    def test_search_uses_response_only_query_when_success_table_is_missing(self):
+        self.provider._table_exists.return_value = False
+        self.cursor.fetchmany.return_value = []
+        result = self.service.search("local", {"mark": "444"})
+        self.assertTrue(result["success"])
+        self.provider._table_exists.assert_called_once_with(
+            self.cursor,
+            "TblSnMyDATA_ResponseSuccess",
+        )
+        query, params = self.cursor.execute.call_args.args
+        self.assertNotIn("TblSnMyDATA_ResponseSuccess", query)
+        self.assertNotIn("suc.", query)
+        self.assertIn(Service.RESPONSE_MARK_SQL, query)
+        self.assertEqual(params, [101, "444"])
 
     def test_large_page_stays_within_websocket_budget(self):
         self.cursor.fetchmany.return_value = [(i, "https://example.invalid/" + "α" * 3900, "1", "4")
@@ -239,6 +268,17 @@ class ServiceTests(unittest.TestCase):
             result = self.service.search("local", {})
         self.assertFalse(result["success"])
         self.assertNotIn("local-secret", str(result) + str(logs.output))
+
+    def test_error_detail_redacts_sql_credentials(self):
+        detail = Service._safe_error_detail(
+            RuntimeError(
+                "Invalid object; UID=operator;PWD=super-secret;Password=second-secret"
+            )
+        )
+        self.assertIn("Invalid object", detail)
+        self.assertNotIn("operator", detail)
+        self.assertNotIn("super-secret", detail)
+        self.assertNotIn("second-secret", detail)
 
     def test_types_have_unambiguous_values(self):
         self.cursor.fetchmany.side_effect = [[(1, "Απόδειξη")], [("11.1",), ("bad value",)]]

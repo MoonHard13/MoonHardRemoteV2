@@ -79,7 +79,10 @@ class TransmittedInvoiceFilters:
 class TransmittedInvoicesService:
     """Ανάγνωση επιτυχών διαβιβάσεων με βάση το επιβεβαιωμένο σχήμα της Sunsoft."""
 
-    MARK_SQL = "COALESCE(NULLIF(LTRIM(RTRIM(md.MyDATA_ResponseInvoiceMARK)), N''), suc.InvoiceMARK)"
+    RESPONSE_MARK_SQL = (
+        "NULLIF(LTRIM(RTRIM(md.MyDATA_ResponseInvoiceMARK)), N'')"
+    )
+    MARK_SQL = f"COALESCE({RESPONSE_MARK_SQL}, suc.InvoiceMARK)"
     INVOICE_DATE_SQL = "COALESCE(md.MyDATA_ResponseInvoiceDate, doc.SalesPWDate)"
     NUMBER_SQL = """COALESCE(
         NULLIF(LTRIM(RTRIM(md.MyDATA_ResponseInvoiceNumber)), N''),
@@ -93,6 +96,10 @@ class TransmittedInvoicesService:
         (md.MyDATA_ResponseStatusCode = N'Success'
          AND NULLIF(LTRIM(RTRIM(md.MyDATA_ResponseInvoiceMARK)), N'') IS NOT NULL)
         OR suc.InvoiceMARK IS NOT NULL
+    )"""
+    RESPONSE_ONLY_SUCCESS_SQL = f"""(
+        md.MyDATA_ResponseStatusCode = N'Success'
+        AND {RESPONSE_MARK_SQL} IS NOT NULL
     )"""
     SOURCE_SQL = """
         FROM dbo.TblSnMyDATA_Response AS md
@@ -111,15 +118,31 @@ class TransmittedInvoicesService:
         self.provider_service = provider_service
 
     @classmethod
-    def build_query(cls, filters: TransmittedInvoiceFilters) -> tuple[str, list[Any]]:
-        """Κατασκευάζει μόνο SELECT με παραμέτρους και σταθερή σελιδοποίηση κατά OID."""
-        where = [cls.SUCCESS_SQL]
+    def build_query(
+        cls,
+        filters: TransmittedInvoiceFilters,
+        include_success_table: bool = True,
+    ) -> tuple[str, list[Any]]:
+        """Κατασκευάζει ασφαλές SELECT για νέο ή παλιό σχήμα MyData."""
+
+        mark_sql = cls.MARK_SQL if include_success_table else cls.RESPONSE_MARK_SQL
+        success_sql = (
+            cls.SUCCESS_SQL
+            if include_success_table
+            else cls.RESPONSE_ONLY_SUCCESS_SQL
+        )
+        source_sql = (
+            cls.SOURCE_SQL
+            if include_success_table
+            else "\n        FROM dbo.TblSnMyDATA_Response AS md\n"
+        )
+        where = [success_sql]
         params: list[Any] = [filters.limit + 1]
         for value, predicate in (
             (filters.start_date, cls.INVOICE_DATE_SQL + " >= ?"),
             (filters.end_exclusive, cls.INVOICE_DATE_SQL + " < ?"),
             (filters.number, cls.NUMBER_SQL + " = ?"),
-            (filters.mark, cls.MARK_SQL + " = ?"),
+            (filters.mark, mark_sql + " = ?"),
             (filters.before_oid, "md.MyDATA_ResponseOID < ?"),
         ):
             if value is not None and value != "":
@@ -144,11 +167,11 @@ class TransmittedInvoicesService:
                 CAST({cls.NUMBER_SQL} AS nvarchar(128)) AS Number,
                 COALESCE(CAST(doc.NoteTypeDescr AS nvarchar(256)), md.MyDATA_ResponseInvoiceType) AS DocumentType,
                 CAST(md.MyDATA_ResponseInvoiceType AS nvarchar(64)) AS MyDataType,
-                CAST({cls.MARK_SQL} AS nvarchar(128)) AS MARK,
+                CAST({mark_sql} AS nvarchar(128)) AS MARK,
                 md.MyDATA_ResponseProviderQRCodeLink AS DocumentURL,
                 CAST(md.MyDATA_ResponseCancellationMARK AS nvarchar(128)) AS CancellationMARK,
                 CONVERT(varchar(19), md.MyDATA_ResponseCancDate, 120) AS CancellationDate
-            {cls.SOURCE_SQL}
+            {source_sql}
             OUTER APPLY (
                 SELECT TOP (1)
                     pw.SalesPWDate, pw.SalesPWNoteRow, pw.SalesPWNoteNo, t.NoteTypeDescr
@@ -169,12 +192,24 @@ class TransmittedInvoicesService:
             filters = TransmittedInvoiceFilters.from_payload(payload)
         except ValueError as exc:
             return self.failure(str(exc))
+        connection_text = ""
         try:
             connection_text = self.provider_service._to_odbc_connection_string(connection_string)
             with pyodbc.connect(connection_text, timeout=30) as connection:
                 connection.timeout = 30
                 cursor = connection.cursor()
-                query, params = self.build_query(filters)
+                include_success_table = self.provider_service._table_exists(
+                    cursor,
+                    "TblSnMyDATA_ResponseSuccess",
+                )
+                logger.info(
+                    "Σχήμα διαβιβασμένων: response_success_table=%s",
+                    include_success_table,
+                )
+                query, params = self.build_query(
+                    filters,
+                    include_success_table=include_success_table,
+                )
                 cursor.execute(query, params)
                 columns = [column[0] for column in cursor.description]
                 rows = cursor.fetchmany(filters.limit + 1)
@@ -200,7 +235,11 @@ class TransmittedInvoicesService:
                     "count": len(invoices), "has_more": has_more,
                     "next_before_oid": invoices[-1]["ResponseOID"] if has_more else None}
         except Exception as exc:
-            logger.error("Αποτυχία ανάγνωσης διαβιβασμένων. exception_type=%s", type(exc).__name__)
+            logger.error(
+                "Αποτυχία ανάγνωσης διαβιβασμένων. exception_type=%s detail=%s",
+                type(exc).__name__,
+                self._safe_error_detail(exc, connection_string, connection_text),
+            )
             return self.failure("Αποτυχία ανάγνωσης διαβιβασμένων. Ελέγξτε BOConnection, σχήμα και δικαιώματα SQL.")
 
     def get_document_types(self, connection_string: str) -> dict:
@@ -235,3 +274,19 @@ class TransmittedInvoicesService:
         """Παρέχει σταθερή δομή αποτυχίας για GUI και CLI."""
         return {"success": False, "error": message, "invoices": [], "count": 0,
                 "has_more": False, "next_before_oid": None}
+
+    @staticmethod
+    def _safe_error_detail(exc: Exception, *connection_strings: str) -> str:
+        """Καταγράφει χρήσιμη SQL λεπτομέρεια χωρίς credentials σύνδεσης."""
+
+        detail = " | ".join(str(item) for item in getattr(exc, "args", ()) if item)
+        detail = detail or str(exc) or type(exc).__name__
+        for connection_string in connection_strings:
+            if connection_string:
+                detail = detail.replace(connection_string, "[REDACTED CONNECTION]")
+        detail = re.sub(
+            r"(?i)\b(?:password|pwd|user\s+id|uid)\s*=\s*[^;\s]*",
+            "credential=***",
+            detail,
+        )
+        return detail[:1000]
