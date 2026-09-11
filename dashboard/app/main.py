@@ -18,6 +18,10 @@ def main() -> None:
         from app.database_cli import main as database_main
         raise SystemExit(database_main(sys.argv[2:]))
 
+    if len(sys.argv) > 1 and sys.argv[1] == "--backup":
+        from app.backup_cli import main as backup_main
+        raise SystemExit(backup_main(sys.argv[2:]))
+
     config = DashboardConfig()
     DashboardLoggerConfig.setup_logging(config.log_dir)
 

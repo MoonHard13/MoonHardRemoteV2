@@ -6,6 +6,7 @@ from typing import ClassVar
 
 import customtkinter as ctk
 
+from app.views.manage.backup_window import BackupManagerWindow
 from app.ui.theme import (
     COLORS,
     FONTS,
@@ -38,6 +39,7 @@ class DatabaseTab(ctk.CTkFrame):
         get_selected_bo_id_callback: Callable[[], int],
         on_bo_selected_callback: Callable[[str], None] | None = None,
         on_database_request_callback: Callable[[dict], None] | None = None,
+        on_backup_request_callback: Callable[[dict], bool | None] | None = None,
     ) -> None:
         """Αρχικοποιεί το tab και το συνδέει με το κοινό BOConnection state."""
 
@@ -47,6 +49,8 @@ class DatabaseTab(ctk.CTkFrame):
         self.get_selected_bo_id_callback = get_selected_bo_id_callback
         self.on_bo_selected_callback = on_bo_selected_callback
         self.on_database_request_callback = on_database_request_callback
+        self.on_backup_request_callback = on_backup_request_callback
+        self.backup_window: BackupManagerWindow | None = None
         self.current_request_id = ""
         self.current_action = ""
         self._progress_messages: set[str] = set()
@@ -234,9 +238,44 @@ class DatabaseTab(ctk.CTkFrame):
         )
         rebuild_button.grid(row=2, column=1, padx=(6, 16), pady=(0, 16), sticky="ew")
 
+        backup_card = ctk.CTkFrame(content, **card_style())
+        backup_card.grid(
+            row=3,
+            column=0,
+            columnspan=2,
+            padx=SPACING.card_padding,
+            pady=(0, SPACING.inner_padding),
+            sticky="ew",
+        )
+        backup_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            backup_card,
+            text="Database Backup",
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, padx=16, pady=(14, 4), sticky="w")
+        ctk.CTkLabel(
+            backup_card,
+            text=(
+                "Create verified full backups to a local folder, UNC share, or cloud destination. "
+                "Configure daily, weekly, and monthly schedules that run on the remote client."
+            ),
+            font=FONTS.body,
+            text_color=COLORS.text_secondary,
+            justify="left",
+            wraplength=760,
+        ).grid(row=1, column=0, padx=16, pady=(0, 14), sticky="w")
+        ctk.CTkButton(
+            backup_card,
+            text="Backup & Scheduling  [Ctrl+7]",
+            command=self.open_backup_manager,
+            width=230,
+            **primary_button_style(),
+        ).grid(row=0, column=1, rowspan=2, padx=16, pady=16, sticky="e")
+
         output_card = ctk.CTkFrame(content, **card_style())
         output_card.grid(
-            row=3,
+            row=4,
             column=0,
             columnspan=2,
             padx=SPACING.card_padding,
@@ -551,6 +590,34 @@ class DatabaseTab(ctk.CTkFrame):
         ):
             self.request_action("rebuild")
 
+    def open_backup_manager(self) -> None:
+        """Ανοίγει ή επαναφέρει το Backup Manager πάνω από το ενεργό Manage window."""
+
+        if self.backup_window and self.backup_window.winfo_exists():
+            self.backup_window.lift()
+            self.backup_window.focus_force()
+            return
+        owner = self.winfo_toplevel()
+        self.backup_window = BackupManagerWindow(
+            parent=owner,
+            client_code=self.client_code,
+            get_bo_values_callback=self.get_bo_values_callback,
+            get_selected_bo_id_callback=self.get_selected_bo_id_callback,
+            on_request_callback=self.on_backup_request_callback,
+        )
+
+    def handle_backup_result(self, payload: dict) -> None:
+        """Προωθεί backup result στο ανοιχτό Backup Manager."""
+
+        if self.backup_window and self.backup_window.winfo_exists():
+            self.backup_window.handle_result(payload)
+
+    def handle_backup_progress(self, payload: dict) -> None:
+        """Προωθεί live backup progress στο ανοιχτό Backup Manager."""
+
+        if self.backup_window and self.backup_window.winfo_exists():
+            self.backup_window.handle_progress(payload)
+
     def handle_result(self, payload: dict) -> None:
         """Εμφανίζει μόνο το αποτέλεσμα της τρέχουσας ενέργειας του συγκεκριμένου client."""
 
@@ -709,6 +776,7 @@ class DatabaseTab(ctk.CTkFrame):
             ("<Control-Key-4>", self.request_history),
             ("<Control-Key-5>", self.request_shrink),
             ("<Control-Key-6>", self.request_rebuild),
+            ("<Control-Key-7>", self.open_backup_manager),
         )
         for key, callback in shortcuts:
             binding_id = self._shortcut_parent.bind(
@@ -729,6 +797,8 @@ class DatabaseTab(ctk.CTkFrame):
     def destroy(self) -> None:
         """Αφαιρεί τα global bindings όταν κλείνει το Manage window."""
 
+        if self.backup_window and self.backup_window.winfo_exists():
+            self.backup_window.destroy()
         for key, binding_id in self._shortcut_bindings:
             if binding_id:
                 self._shortcut_parent.unbind(key, binding_id)

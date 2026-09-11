@@ -378,6 +378,20 @@ class MoonHardDashboardApp(ctk.CTk):
 
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_database_action_progress(payload)
+
+        elif message_type == "backup_result":
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_backup_result(payload)
+
+        elif message_type == "backup_progress":
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_backup_progress(payload)
                 
         elif message_type in ("provider_transmitted_search_result", "provider_transmitted_types_result"):
             manage_window = self.manage_windows.get(payload.get("client_code", ""))
@@ -1754,6 +1768,7 @@ class MoonHardDashboardApp(ctk.CTk):
             on_terminal_autocomplete_callback=self._send_terminal_autocomplete,
             on_sql_execute_callback=self._send_sql_execute,
             on_database_request_callback=self._send_database_request,
+            on_backup_request_callback=self._send_backup_request,
             on_provider_request_callback=self._send_provider_request,
             on_services_request_callback=self._send_services_request,
             on_service_action_callback=self._send_service_action,
@@ -1814,6 +1829,22 @@ class MoonHardDashboardApp(ctk.CTk):
             payload.get("client_code"),
             payload.get("bo_connection_id"),
         )
+
+    def _send_backup_request(self, payload: dict[str, Any]) -> bool:
+        """Στέλνει ελεγχόμενο backup/schedule request στον server."""
+
+        if not self.websocket_client:
+            logger.warning("Dashboard WebSocket is not connected.")
+            return False
+
+        sent = self.websocket_client.send_message(payload)
+        logger.info(
+            "Backup request sent. operation=%s client_code=%s bo_connection_id=%s",
+            payload.get("operation"),
+            payload.get("client_code"),
+            payload.get("bo_connection_id"),
+        )
+        return sent
 
     def _send_provider_request(self, payload: dict[str, Any]) -> None:
         """

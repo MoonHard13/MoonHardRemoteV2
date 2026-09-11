@@ -31,6 +31,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         on_terminal_autocomplete_callback: Callable[[dict], None] | None = None,
         on_sql_execute_callback: Callable[[dict], None] | None = None,
         on_database_request_callback: Callable[[dict], None] | None = None,
+        on_backup_request_callback: Callable[[dict], bool | None] | None = None,
         on_provider_request_callback: Callable[[dict], None] | None = None,
         on_services_request_callback: Callable[[dict], None] | None = None,
         on_service_action_callback: Callable[[dict], None] | None = None,
@@ -53,6 +54,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.on_terminal_autocomplete_callback = on_terminal_autocomplete_callback
         self.on_sql_execute_callback = on_sql_execute_callback
         self.on_database_request_callback = on_database_request_callback
+        self.on_backup_request_callback = on_backup_request_callback
 
         self.client_code = client.get("client_code", "")
         self.appsettings_data: dict = {}
@@ -807,6 +809,7 @@ class ClientManageWindow(ctk.CTkToplevel):
             get_selected_bo_id_callback=lambda: self.selected_bo_connection_id,
             on_bo_selected_callback=self._on_database_bo_selected,
             on_database_request_callback=self.on_database_request_callback,
+            on_backup_request_callback=self.on_backup_request_callback,
         )
         self.database_tab_view.grid(row=0, column=0, sticky="nsew")
 
@@ -832,6 +835,22 @@ class ClientManageWindow(ctk.CTkToplevel):
             return
         if hasattr(self, "database_tab_view"):
             self.database_tab_view.handle_progress(payload)
+
+    def handle_backup_result(self, payload: dict) -> None:
+        """Προωθεί backup result στο Database tab του σωστού client."""
+
+        if payload.get("client_code") != self.client_code:
+            return
+        if hasattr(self, "database_tab_view"):
+            self.database_tab_view.handle_backup_result(payload)
+
+    def handle_backup_progress(self, payload: dict) -> None:
+        """Προωθεί live backup progress στο Backup Manager."""
+
+        if payload.get("client_code") != self.client_code:
+            return
+        if hasattr(self, "database_tab_view"):
+            self.database_tab_view.handle_backup_progress(payload)
 
     def _build_provider_tab(self) -> None:
         """

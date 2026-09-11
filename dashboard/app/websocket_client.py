@@ -187,8 +187,8 @@ class DashboardWebSocketClient:
             payload = json.loads(message)
             message_type = payload.get("type", "unknown")
 
-            if message_type == "database_action_progress":
-                logger.debug("Dashboard received database rebuild progress.")
+            if message_type in {"database_action_progress", "backup_progress"}:
+                logger.debug("Dashboard received progress message: %s", message_type)
             else:
                 logger.info("Dashboard received message type: %s", message_type)
             self.on_message_callback(payload)
