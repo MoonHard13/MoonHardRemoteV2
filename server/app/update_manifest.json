@@ -1,8 +1,8 @@
 {
     "product":  "moonhard-remote-client",
-    "latest_version":  "1.0.12",
-    "download_url":  "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.12/moonhard-client-1.0.12.zip",
-    "sha256":  "4E2F33D5FC73F086FD0472E234736CB8421D8039A6106EEC7EB7E7F9A6C10DB3",
+    "latest_version":  "1.0.13",
+    "download_url":  "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.13/moonhard-client-1.0.13.zip",
+    "sha256":  "5858014A275237AEFD773B6F1E9E22551F4C57BEF70CAC68F49632424F0CBA11",
     "mandatory":  false,
-    "release_notes":  "Database backup scheduling, live progress and stability improvements."
+    "release_notes":  "Legacy MyData schema compatibility, Database maintenance and backup improvements."
 }
