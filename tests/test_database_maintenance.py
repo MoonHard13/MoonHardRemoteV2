@@ -101,6 +101,22 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(result["total_rows"], 125)
         self.assertEqual(result["first_date"], "2026-01-02 12:30:00")
 
+    def test_query_timeout_is_set_on_connection_not_cursor(self):
+        strict_connection = Mock(spec_set=["cursor", "timeout"])
+        strict_cursor = Mock(spec_set=["execute", "fetchone"])
+        strict_cursor.fetchone.side_effect = [("InitialTest",), (0, None)]
+        strict_connection.cursor.return_value = strict_cursor
+        odbc.connect.return_value.__enter__.return_value = strict_connection
+
+        result = self.service.execute(
+            "sales_trans_info",
+            self.connection_string,
+            timeout=321,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(strict_connection.timeout, 321)
+
     def test_connection_secret_is_redacted_from_errors(self):
         odbc.connect.side_effect = RuntimeError(
             f"Failed for {self.connection_string} user sa password top-secret"

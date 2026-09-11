@@ -68,8 +68,8 @@ class DatabaseMaintenanceService:
                 timeout=min(safe_timeout, 60),
                 autocommit=True,
             ) as connection:
+                connection.timeout = safe_timeout
                 cursor = connection.cursor()
-                cursor.timeout = safe_timeout
                 database_name = self._database_name(cursor)
                 result = self._execute_action(
                     cursor=cursor,
