@@ -825,6 +825,14 @@ class ClientManageWindow(ctk.CTkToplevel):
         if hasattr(self, "database_tab_view"):
             self.database_tab_view.handle_result(payload)
 
+    def handle_database_action_progress(self, payload: dict) -> None:
+        """Προωθεί live rebuild progress στο DatabaseTab."""
+
+        if payload.get("client_code") != self.client_code:
+            return
+        if hasattr(self, "database_tab_view"):
+            self.database_tab_view.handle_progress(payload)
+
     def _build_provider_tab(self) -> None:
         """
         Δημιουργεί το Provider tab ως ξεχωριστό modular component.

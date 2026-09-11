@@ -122,6 +122,28 @@ class DatabaseCLI:
                 async for message in websocket:
                     result = json.loads(message)
                     if (
+                        result.get("type") == "database_action_progress"
+                        and result.get("request_id") == payload["request_id"]
+                        and result.get("client_code") == payload["client_code"]
+                        and result.get("bo_connection_id")
+                        == payload["bo_connection_id"]
+                        and result.get("action") == payload["action"]
+                    ):
+                        current_table = result.get("current_table")
+                        total_tables = result.get("total_tables")
+                        prefix = (
+                            f"[{current_table}/{total_tables}] "
+                            if current_table and total_tables
+                            else ""
+                        )
+                        print(
+                            f"{prefix}{result.get('message') or ''}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                        continue
+
+                    if (
                         result.get("type") == "database_action_result"
                         and result.get("request_id") == payload["request_id"]
                         and result.get("client_code") == payload["client_code"]

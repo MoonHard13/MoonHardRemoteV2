@@ -130,6 +130,39 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(self.service._quote_identifier("Db]Name"), "[Db]]Name]")
         self.assertEqual(self.service._quote_literal("Data'File"), "N'Data''File'")
 
+    def test_rebuild_messages_are_complete_and_reported_as_progress(self):
+        class ResultCursor:
+            """Προσομοιώνει διαδοχικά ODBC result sets με περισσότερα από 100 messages."""
+
+            def __init__(self):
+                self.description = None
+                self._batches = [
+                    [
+                        ("01000", f"Table {index} of 75: Running 'Update Statistics [T{index}]'")
+                        for index in range(26, 76)
+                    ]
+                ]
+                self.messages = [
+                    ("01000", f"Table {index} of 75: Running 'Alter Index All On [T{index}]'")
+                    for index in range(1, 76)
+                ]
+
+            def nextset(self):
+                if not self._batches:
+                    return False
+                self.messages = self._batches.pop(0)
+                return True
+
+        reported: list[str] = []
+        messages = self.service._consume_all_results(
+            ResultCursor(),
+            message_callback=reported.append,
+        )
+
+        self.assertEqual(len(messages), 125)
+        self.assertEqual(reported, messages)
+        self.assertIn("Table 75 of 75", messages[-1])
+
 
 class DatabaseRouterTests(unittest.IsolatedAsyncioTestCase):
     """Ελέγχει allowlist, ιδιωτική δρομολόγηση και timeout cleanup."""
@@ -204,6 +237,28 @@ class DatabaseRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.router.pending)
         self.assertFalse(self.manager.send_to_dashboard.call_args.args[1]["success"])
 
+    async def test_rebuild_progress_is_forwarded_without_completing_request(self):
+        rebuild_payload = {
+            **self.payload,
+            "action": "rebuild",
+            "parameters": {},
+        }
+        await self.router.request(self.dashboard, rebuild_payload)
+        progress = {
+            **rebuild_payload,
+            "type": "database_action_progress",
+            "message": "Table 51 of 617: Running 'Alter Index All On [T]'",
+            "current_table": 51,
+            "total_tables": 617,
+        }
+
+        await self.router.progress("CLIENT-1", progress)
+
+        forwarded = self.manager.send_to_dashboard.call_args.args[1]
+        self.assertEqual(forwarded["type"], "database_action_progress")
+        self.assertEqual(forwarded["current_table"], 51)
+        self.assertIn(rebuild_payload["request_id"], self.router.pending)
+
 
 class DatabaseIntegrationSourceTests(unittest.TestCase):
     """Επιβεβαιώνει τις βασικές συνδέσεις UI και την απουσία SQL script action."""
@@ -227,6 +282,28 @@ class DatabaseIntegrationSourceTests(unittest.TestCase):
         source = (ROOT / "dashboard/app/database_cli.py").read_text(encoding="utf-8")
         self.assertNotIn('"execute-sql"', source)
         self.assertNotIn('"execute-script"', source)
+
+    def test_manage_dialogs_use_the_active_window_as_parent(self):
+        database_source = (
+            ROOT / "dashboard/app/views/manage/database_tab.py"
+        ).read_text(encoding="utf-8")
+        sql_source = (ROOT / "dashboard/app/views/manage/sql_tab.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("parent=owner", database_source)
+        self.assertIn("parent=owner", sql_source)
+
+    def test_live_database_progress_is_connected_end_to_end(self):
+        expected_by_path = {
+            "client/app/client_agent.py": "database_action_progress",
+            "server/app/routes/websocket_routes.py": "PROGRESS_TYPE",
+            "dashboard/app/dashboard_app.py": "database_action_progress",
+            "dashboard/app/views/client_manage_window.py": "database_action_progress",
+        }
+        for path, expected in expected_by_path.items():
+            with self.subTest(path=path):
+                source = (ROOT / path).read_text(encoding="utf-8")
+                self.assertIn(expected, source)
 
 
 if __name__ == "__main__":

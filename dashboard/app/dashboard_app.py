@@ -371,6 +371,13 @@ class MoonHardDashboardApp(ctk.CTk):
 
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_database_action_result(payload)
+
+        elif message_type == "database_action_progress":
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_database_action_progress(payload)
                 
         elif message_type in ("provider_transmitted_search_result", "provider_transmitted_types_result"):
             manage_window = self.manage_windows.get(payload.get("client_code", ""))

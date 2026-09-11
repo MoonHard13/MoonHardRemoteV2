@@ -49,6 +49,7 @@ class DatabaseTab(ctk.CTkFrame):
         self.on_database_request_callback = on_database_request_callback
         self.current_request_id = ""
         self.current_action = ""
+        self._progress_messages: set[str] = set()
         self.action_buttons: list[ctk.CTkButton] = []
         self._shortcut_bindings: list[tuple[str, str | None]] = []
         self._shortcut_parent = self.winfo_toplevel()
@@ -243,7 +244,7 @@ class DatabaseTab(ctk.CTkFrame):
             sticky="nsew",
         )
         output_card.grid_columnconfigure(0, weight=1)
-        output_card.grid_rowconfigure(2, weight=1)
+        output_card.grid_rowconfigure(3, weight=1)
 
         ctk.CTkLabel(
             output_card,
@@ -260,6 +261,16 @@ class DatabaseTab(ctk.CTkFrame):
         )
         self.status_label.grid(row=1, column=0, padx=16, pady=(0, 8), sticky="w")
 
+        self.progress_bar = ctk.CTkProgressBar(
+            output_card,
+            height=8,
+            fg_color=COLORS.surface_light,
+            progress_color=COLORS.accent,
+        )
+        self.progress_bar.grid(row=2, column=0, padx=16, pady=(0, 10), sticky="ew")
+        self.progress_bar.set(0)
+        self.progress_bar.grid_remove()
+
         self.output_box = ctk.CTkTextbox(
             output_card,
             height=150,
@@ -270,7 +281,7 @@ class DatabaseTab(ctk.CTkFrame):
             font=FONTS.mono_body,
             wrap="word",
         )
-        self.output_box.grid(row=2, column=0, padx=16, pady=(0, 16), sticky="nsew")
+        self.output_box.grid(row=3, column=0, padx=16, pady=(0, 16), sticky="nsew")
         self._set_output("Select a BOConnection and choose an operation.")
 
         self.clean_from_entry.bind(
@@ -409,9 +420,15 @@ class DatabaseTab(ctk.CTkFrame):
         request_id = str(uuid.uuid4())
         self.current_request_id = request_id
         self.current_action = action
+        self._progress_messages.clear()
         self._set_busy(True)
         title = self.ACTION_TITLES.get(action, action)
         self._set_status(f"Running {title}...", COLORS.accent)
+        if action == "rebuild":
+            self.progress_bar.set(0)
+            self.progress_bar.grid()
+        else:
+            self.progress_bar.grid_remove()
         self._set_output(
             f"Action: {title}\n"
             f"BOConnection ID: {bo_connection_id}\n"
@@ -435,6 +452,39 @@ class DatabaseTab(ctk.CTkFrame):
                 "parameters": parameters or {},
             }
         )
+
+    def handle_progress(self, payload: dict) -> None:
+        """Εμφανίζει live τα SQL μηνύματα και την πρόοδο του ενεργού rebuild."""
+
+        if payload.get("client_code") != self.client_code:
+            return
+        if payload.get("request_id") != self.current_request_id:
+            return
+        if payload.get("action") != self.current_action or self.current_action != "rebuild":
+            return
+
+        message = str(payload.get("message") or "").strip()
+        if not message or message in self._progress_messages:
+            return
+
+        self._progress_messages.add(message)
+        current_table = payload.get("current_table")
+        total_tables = payload.get("total_tables")
+
+        if (
+            type(current_table) is int
+            and type(total_tables) is int
+            and total_tables > 0
+        ):
+            self.progress_bar.set(min(current_table / total_tables, 1.0))
+            self._set_status(
+                f"Rebuild running: table {current_table} of {total_tables}",
+                COLORS.accent,
+            )
+        else:
+            self._set_status("Rebuild running...", COLORS.accent)
+
+        self._append_output(f"\n- {message}")
 
     def request_clean_mydata(self) -> None:
         """Επιβεβαιώνει και ζητά καθαρισμό μη επιτυχημένων MyData responses."""
@@ -517,6 +567,7 @@ class DatabaseTab(ctk.CTkFrame):
         self._set_busy(False)
 
         if not payload.get("success"):
+            self.progress_bar.grid_remove()
             self._set_status("Database action failed.", COLORS.danger)
             self._set_output(
                 f"Action: {self.ACTION_TITLES.get(action, action)}\n"
@@ -528,6 +579,10 @@ class DatabaseTab(ctk.CTkFrame):
             f"Completed on database: {payload.get('database_name') or '-'}",
             COLORS.success,
         )
+        if action == "rebuild":
+            self.progress_bar.set(1)
+        else:
+            self.progress_bar.grid_remove()
         self._set_output(self._format_result(payload))
 
         if action == "mydata_info":
@@ -611,6 +666,14 @@ class DatabaseTab(ctk.CTkFrame):
         self.output_box.insert("1.0", text)
         self.output_box.configure(state="disabled")
 
+    def _append_output(self, text: str) -> None:
+        """Προσθέτει live μήνυμα και μετακινεί την προβολή στην τελευταία γραμμή."""
+
+        self.output_box.configure(state="normal")
+        self.output_box.insert("end", text)
+        self.output_box.see("end")
+        self.output_box.configure(state="disabled")
+
     @staticmethod
     def _valid_date(value: str) -> bool:
         """Ελέγχει πραγματική ημερομηνία σε αυστηρή μορφή YYYYMMDD."""
@@ -621,11 +684,18 @@ class DatabaseTab(ctk.CTkFrame):
         except (TypeError, ValueError):
             return False
 
-    @staticmethod
-    def _confirm(title: str, message: str) -> bool:
+    def _confirm(self, title: str, message: str) -> bool:
         """Ζητά ρητή επιβεβαίωση πριν από λειτουργία που αλλάζει δεδομένα."""
 
-        return bool(messagebox.askyesno(title, message, icon="warning"))
+        owner = self.winfo_toplevel()
+        result = messagebox.askyesno(
+            title,
+            message,
+            icon="warning",
+            parent=owner,
+        )
+        owner.after_idle(owner.focus_force)
+        return bool(result)
 
     def _bind_shortcuts(self) -> None:
         """Συνδέει keyboard shortcuts που ενεργοποιούνται μόνο όταν φαίνεται το tab."""

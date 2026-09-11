@@ -248,10 +248,13 @@ class SqlTab(ctk.CTkFrame):
         Φορτώνει .sql αρχείο στο SQL editor.
         """
 
+        owner = self.winfo_toplevel()
         file_path = filedialog.askopenfilename(
+            parent=owner,
             title="Select SQL file",
             filetypes=[("SQL files", "*.sql"), ("All files", "*.*")]
         )
+        owner.after_idle(owner.focus_force)
 
         if not file_path:
             return

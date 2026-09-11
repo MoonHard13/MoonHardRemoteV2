@@ -187,7 +187,10 @@ class DashboardWebSocketClient:
             payload = json.loads(message)
             message_type = payload.get("type", "unknown")
 
-            logger.info("Dashboard received message type: %s", message_type)
+            if message_type == "database_action_progress":
+                logger.debug("Dashboard received database rebuild progress.")
+            else:
+                logger.info("Dashboard received message type: %s", message_type)
             self.on_message_callback(payload)
 
     async def _send_loop(self, websocket) -> None:

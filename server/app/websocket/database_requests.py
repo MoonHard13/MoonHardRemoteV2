@@ -23,6 +23,7 @@ class DatabaseRequestRouter:
 
     REQUEST_TYPE = "database_action"
     RESULT_TYPE = "database_action_result"
+    PROGRESS_TYPE = "database_action_progress"
     ACTION_TIMEOUTS: ClassVar[dict[str, int]] = {
         "test_connection": 30,
         "sales_trans_info": 60,
@@ -197,6 +198,57 @@ class DatabaseRequestRouter:
         await self.manager.send_to_dashboard(
             pending.dashboard,
             {**data, "client_code": client_code},
+        )
+
+    async def progress(self, client_code: str, data: dict) -> None:
+        """Προωθεί έγκυρο rebuild progress χωρίς να ολοκληρώνει το pending request."""
+
+        request_id = data.get("request_id")
+        if not isinstance(request_id, str):
+            return
+
+        pending = self.pending.get(request_id)
+        if not pending or pending.client_code != client_code:
+            return
+        if data.get("type") != self.PROGRESS_TYPE:
+            return
+        if data.get("bo_connection_id") != pending.bo_connection_id:
+            return
+        if data.get("action") != pending.action or pending.action != "rebuild":
+            return
+
+        message = data.get("message")
+        current_table = data.get("current_table")
+        total_tables = data.get("total_tables")
+        if not isinstance(message, str) or not message or len(message) > 2000:
+            return
+        if current_table is not None and (
+            type(current_table) is not int or current_table < 1
+        ):
+            return
+        if total_tables is not None and (
+            type(total_tables) is not int or total_tables < 1
+        ):
+            return
+        if (
+            current_table is not None
+            and total_tables is not None
+            and current_table > total_tables
+        ):
+            return
+
+        await self.manager.send_to_dashboard(
+            pending.dashboard,
+            {
+                "type": self.PROGRESS_TYPE,
+                "request_id": request_id,
+                "client_code": client_code,
+                "bo_connection_id": pending.bo_connection_id,
+                "action": pending.action,
+                "message": message,
+                "current_table": current_table,
+                "total_tables": total_tables,
+            },
         )
 
     async def _expire(self, request_id: str) -> None:

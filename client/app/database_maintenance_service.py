@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, ClassVar
 
@@ -33,6 +34,7 @@ class DatabaseMaintenanceService:
         connection_string: str,
         parameters: dict[str, Any] | None = None,
         timeout: int = 60,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Εκτελεί μία επιτρεπόμενη ενέργεια και επιστρέφει ασφαλές JSON αποτέλεσμα."""
 
@@ -76,6 +78,7 @@ class DatabaseMaintenanceService:
                     action=clean_action,
                     parameters=validated_parameters,
                     database_name=database_name,
+                    progress_callback=progress_callback,
                 )
 
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
@@ -114,6 +117,7 @@ class DatabaseMaintenanceService:
         action: str,
         parameters: dict[str, Any],
         database_name: str,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Δρομολογεί την ενέργεια στην αντίστοιχη ελεγχόμενη SQL υλοποίηση."""
 
@@ -228,7 +232,15 @@ class DatabaseMaintenanceService:
             }
 
         cursor.execute("EXEC dbo.spsnrebuildupdate;")
-        sql_messages = self._consume_all_results(cursor)
+        sql_messages = self._consume_all_results(
+            cursor,
+            message_callback=(
+                lambda message: self._report_rebuild_progress(
+                    message,
+                    progress_callback,
+                )
+            ),
+        )
         return {
             "message": "Database rebuild/update completed successfully.",
             "sql_messages": sql_messages,
@@ -296,10 +308,14 @@ class DatabaseMaintenanceService:
         return database_name
 
     @staticmethod
-    def _consume_all_results(cursor) -> list[str]:
+    def _consume_all_results(
+        cursor,
+        message_callback: Callable[[str], None] | None = None,
+    ) -> list[str]:
         """Καταναλώνει όλα τα result sets και συλλέγει τα διαθέσιμα SQL μηνύματα."""
 
         messages: list[str] = []
+        seen_messages: set[str] = set()
 
         while True:
             for item in list(getattr(cursor, "messages", []) or []):
@@ -309,8 +325,12 @@ class DatabaseMaintenanceService:
                     else item
                 )
                 clean_message = str(message).strip()
-                if clean_message and clean_message not in messages:
-                    messages.append(clean_message[:2000])
+                safe_message = clean_message[:2000]
+                if safe_message and safe_message not in seen_messages:
+                    seen_messages.add(safe_message)
+                    messages.append(safe_message)
+                    if message_callback:
+                        message_callback(safe_message)
 
             if cursor.description:
                 while cursor.fetchmany(100):
@@ -319,7 +339,25 @@ class DatabaseMaintenanceService:
             if not cursor.nextset():
                 break
 
-        return messages[:100]
+        return messages
+
+    @staticmethod
+    def _report_rebuild_progress(
+        message: str,
+        progress_callback: Callable[[dict[str, Any]], None] | None,
+    ) -> None:
+        """Μετατρέπει το SQL μήνυμα του rebuild σε ασφαλές progress payload."""
+
+        if not progress_callback:
+            return
+
+        progress: dict[str, Any] = {"message": message}
+        match = re.search(r"Table\s+(\d+)\s+of\s+(\d+):", message, re.IGNORECASE)
+        if match:
+            progress["current_table"] = int(match.group(1))
+            progress["total_tables"] = int(match.group(2))
+
+        progress_callback(progress)
 
     def _to_odbc_connection_string(self, connection_string: str) -> str:
         """Μετατρέπει το connection string του BackOffice σε ODBC μορφή."""

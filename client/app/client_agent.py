@@ -953,13 +953,54 @@ class MoonHardClientAgent:
                 action,
                 bo_connection_id,
             )
-            action_result = await asyncio.to_thread(
-                self.database_maintenance_service.execute,
-                action,
-                database_connection,
-                parameters,
-                timeout,
-            )
+
+            progress_queue: asyncio.Queue[dict | None] = asyncio.Queue()
+            event_loop = asyncio.get_running_loop()
+
+            def report_progress(progress: dict) -> None:
+                """Μεταφέρει thread-safe τα SQL progress messages στο asyncio loop."""
+
+                event_loop.call_soon_threadsafe(
+                    progress_queue.put_nowait,
+                    dict(progress),
+                )
+
+            def run_action() -> dict:
+                """Εκτελεί τη βάση σε worker thread και σηματοδοτεί το τέλος του stream."""
+
+                try:
+                    return self.database_maintenance_service.execute(
+                        action,
+                        database_connection,
+                        parameters,
+                        timeout,
+                        report_progress,
+                    )
+                finally:
+                    event_loop.call_soon_threadsafe(progress_queue.put_nowait, None)
+
+            action_task = asyncio.create_task(asyncio.to_thread(run_action))
+
+            while True:
+                progress = await progress_queue.get()
+                if progress is None:
+                    break
+
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "database_action_progress",
+                            "request_id": request_id,
+                            "client_code": self.identity["client_code"],
+                            "bo_connection_id": bo_connection_id,
+                            "action": action,
+                            **progress,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+
+            action_result = await action_task
 
             result_message = {
                 "type": "database_action_result",

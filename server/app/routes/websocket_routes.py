@@ -418,8 +418,23 @@ class WebSocketRoutes:
             while True:
                 data = await websocket.receive_json()
 
-                if str(data.get("type", "")).startswith("provider_transmitted_"):
-                    logger.info("Client transmitted-documents message. type=%s", data.get("type"))
+                message_type = str(data.get("type", ""))
+                if message_type.startswith("provider_transmitted_"):
+                    logger.info("Client transmitted-documents message. type=%s", message_type)
+                elif message_type == DatabaseRequestRouter.PROGRESS_TYPE:
+                    logger.debug(
+                        "Client database progress. request_id=%s current=%s total=%s",
+                        data.get("request_id"),
+                        data.get("current_table"),
+                        data.get("total_tables"),
+                    )
+                elif message_type == DatabaseRequestRouter.RESULT_TYPE:
+                    logger.info(
+                        "Client database result. request_id=%s action=%s success=%s",
+                        data.get("request_id"),
+                        data.get("action"),
+                        data.get("success"),
+                    )
                 else:
                     logger.info("Client message received from %s: %s", client_code, data)
 
@@ -429,6 +444,10 @@ class WebSocketRoutes:
 
                 if data.get("type") == DatabaseRequestRouter.RESULT_TYPE:
                     await self.database_requests.result(client_code, data)
+                    continue
+
+                if data.get("type") == DatabaseRequestRouter.PROGRESS_TYPE:
+                    await self.database_requests.progress(client_code, data)
                     continue
 
                 if data.get("type") == "heartbeat":
