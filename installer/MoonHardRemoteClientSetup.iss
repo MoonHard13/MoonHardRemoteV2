@@ -3,7 +3,7 @@
 [Setup]
 AppId={{8C7C9E7D-5E4A-4B6E-8C3A-1F7E51A01001}
 AppName=MoonHard Remote Client
-AppVersion=1.0.10
+AppVersion=1.0.12
 AppPublisher=MoonHard
 DefaultDirName={autopf}\MoonHardRemoteV2\Client
 DefaultGroupName=MoonHard Remote
@@ -26,6 +26,9 @@ Name: "{commonappdata}\MoonHardRemoteV2\updates"; Permissions: system-full admin
 Name: "{commonappdata}\MoonHardRemoteV2\updates\downloads"; Permissions: system-full admins-full users-modify
 Name: "{commonappdata}\MoonHardRemoteV2\updates\extracted"; Permissions: system-full admins-full users-modify
 Name: "{commonappdata}\MoonHardRemoteV2\updates\backup"; Permissions: system-full admins-full users-modify
+Name: "{commonappdata}\MoonHardRemoteV2\backups"; Permissions: system-full admins-full
+Name: "{commonappdata}\MoonHardRemoteV2\backups\staging"; Permissions: system-full admins-full
+Name: "{commonappdata}\MoonHardRemoteV2\rclone"; Permissions: system-full admins-full
 Name: "{app}"; Permissions: system-readexec admins-full users-readexec
 
 [Files]

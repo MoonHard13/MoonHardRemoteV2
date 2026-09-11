@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Header, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.websocket.connection_manager import connection_manager
+from app.websocket.backup_requests import BackupRequestRouter
 from app.websocket.database_requests import DatabaseRequestRouter
 from app.websocket.transmitted_requests import TransmittedRequestRouter
 from app.repositories.client_repository import ClientRepository
@@ -33,6 +34,7 @@ class WebSocketRoutes:
         self.pending_requests: dict[str, WebSocket] = {}
         self.transmitted_requests = TransmittedRequestRouter(connection_manager)
         self.database_requests = DatabaseRequestRouter(connection_manager)
+        self.backup_requests = BackupRequestRouter(connection_manager)
         self.heartbeat_db_write_interval_seconds = 300
         self.client_last_db_heartbeat: dict[str, datetime] = {}
         self.clients_list_broadcast_interval_seconds = 600
@@ -400,7 +402,18 @@ class WebSocketRoutes:
             elif auth_result.get("auth_mode") == "client_instance":
                 self.client_repository.touch_client_token_last_seen(client_code)
 
-            await connection_manager.connect_client(client_code, websocket)
+            raw_capabilities = first_message.get("capabilities")
+            capabilities = (
+                raw_capabilities
+                if isinstance(raw_capabilities, list)
+                and len(raw_capabilities) <= 32
+                else []
+            )
+            await connection_manager.connect_client(
+                client_code,
+                websocket,
+                capabilities=capabilities,
+            )
 
             await websocket.send_json({
                 "type": "registered",
@@ -435,6 +448,16 @@ class WebSocketRoutes:
                         data.get("action"),
                         data.get("success"),
                     )
+                elif message_type in {
+                    BackupRequestRouter.PROGRESS_TYPE,
+                    BackupRequestRouter.RESULT_TYPE,
+                }:
+                    logger.info(
+                        "Client backup message. type=%s request_id=%s operation=%s",
+                        message_type,
+                        data.get("request_id"),
+                        data.get("operation"),
+                    )
                 else:
                     logger.info("Client message received from %s: %s", client_code, data)
 
@@ -448,6 +471,14 @@ class WebSocketRoutes:
 
                 if data.get("type") == DatabaseRequestRouter.PROGRESS_TYPE:
                     await self.database_requests.progress(client_code, data)
+                    continue
+
+                if data.get("type") == BackupRequestRouter.RESULT_TYPE:
+                    await self.backup_requests.result(client_code, data)
+                    continue
+
+                if data.get("type") == BackupRequestRouter.PROGRESS_TYPE:
+                    await self.backup_requests.progress(client_code, data)
                     continue
 
                 if data.get("type") == "heartbeat":
@@ -938,6 +969,10 @@ class WebSocketRoutes:
 
                 if data.get("type") == DatabaseRequestRouter.REQUEST_TYPE:
                     await self.database_requests.request(websocket, data)
+                    continue
+
+                if data.get("type") == BackupRequestRouter.REQUEST_TYPE:
+                    await self.backup_requests.request(websocket, data)
                     continue
 
                 if data.get("type") == "rename_client":
@@ -2470,12 +2505,14 @@ class WebSocketRoutes:
         except WebSocketDisconnect:
             self.transmitted_requests.discard_dashboard(websocket)
             self.database_requests.discard_dashboard(websocket)
+            self.backup_requests.discard_dashboard(websocket)
             connection_manager.disconnect_dashboard(websocket)
 
         except Exception:
             logger.exception("Unexpected dashboard WebSocket error.")
             self.transmitted_requests.discard_dashboard(websocket)
             self.database_requests.discard_dashboard(websocket)
+            self.backup_requests.discard_dashboard(websocket)
             connection_manager.disconnect_dashboard(websocket)
 
 

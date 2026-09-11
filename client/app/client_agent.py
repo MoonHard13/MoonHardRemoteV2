@@ -9,6 +9,7 @@ import winreg
 import websockets
 
 from app.config import ClientConfig
+from app.backup_service import BackupCoordinator, BackupScheduler
 from app.database_maintenance_service import DatabaseMaintenanceService
 from app.identity_manager import ClientIdentityManager
 from websockets.exceptions import ConnectionClosed
@@ -44,6 +45,16 @@ class MoonHardClientAgent:
         self.appsettings_reader = AppSettingsReader()
         self.sql_executor = SqlExecutor()
         self.database_maintenance_service = DatabaseMaintenanceService()
+        self.backup_coordinator = BackupCoordinator(
+            appsettings_reader=self.appsettings_reader,
+            state_file=self.config.backup_state_file,
+            rclone_executable=self.config.rclone_executable,
+            rclone_config_file=self.config.rclone_config_file,
+        )
+        self.backup_scheduler = BackupScheduler(
+            self.backup_coordinator,
+            interval_seconds=self.config.backup_scheduler_interval_seconds,
+        )
         self.provider_service = ProviderService()
         self.transmitted_invoices_service = TransmittedInvoicesService(self.provider_service)
         self.windows_services_reader = WindowsServicesReader()
@@ -55,6 +66,15 @@ class MoonHardClientAgent:
         """
         Κρατάει τον client ενεργό και κάνει έξυπνο reconnect αν χαθεί η σύνδεση.
         """
+
+        self.backup_scheduler.start()
+        try:
+            await self._run_connection_loop()
+        finally:
+            self.backup_scheduler.stop()
+
+    async def _run_connection_loop(self) -> None:
+        """Διατηρεί τη σύνδεση και επιτρέπει καθαρό τερματισμό του scheduler."""
 
         reconnect_delay = self.config.reconnect_initial_seconds
 
@@ -296,6 +316,9 @@ class MoonHardClientAgent:
             "bo_version": program_versions.get("bo_version"),
             "etp_version": program_versions.get("etp_version"),
             "aws_version": program_versions.get("aws_version"),
+            # Δηλώνει ρητά ποια προαιρετικά remote protocols γνωρίζει ο client.
+            # Έτσι ο server δεν αφήνει νέο αίτημα να περιμένει σε παλιό client.
+            "capabilities": ["database_backup_v1"],
         }
 
         if not client_token_registered:
@@ -334,6 +357,9 @@ class MoonHardClientAgent:
 
             elif message_type == "database_action":
                 await self._handle_database_action(websocket, payload)
+
+            elif message_type == "backup_request":
+                await self._handle_backup_request(websocket, payload)
 
             elif message_type == "senario_prosorinon_run":
                 await self._handle_senario_prosorinon_run(websocket, payload)
@@ -1023,6 +1049,108 @@ class MoonHardClientAgent:
                 "database_name": "",
                 "driver": None,
                 "elapsed_ms": None,
+            }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+    async def _handle_backup_request(self, websocket, payload: dict) -> None:
+        """Εκτελεί backup/schedule operation τοπικά και στέλνει ασφαλή live πρόοδο."""
+
+        request_id = str(payload.get("request_id") or "")
+        operation = str(payload.get("operation") or "")
+        parameters = payload.get("parameters")
+        try:
+            bo_connection_id = int(payload.get("bo_connection_id", 1))
+            logger.info(
+                "Λήφθηκε backup request. request_id=%s operation=%s bo_connection_id=%s",
+                request_id,
+                operation,
+                bo_connection_id,
+            )
+
+            # Άμεσο acknowledgement πριν από οποιαδήποτε πρόσβαση σε SQL/path.
+            # Επιτρέπει στο Dashboard να ξεχωρίζει παλιό client από πραγματικό
+            # database ή permissions error.
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "backup_progress",
+                        "request_id": request_id,
+                        "client_code": self.identity["client_code"],
+                        "bo_connection_id": bo_connection_id,
+                        "operation": operation,
+                        "stage": "accepted",
+                        "message": "Remote client accepted the backup request.",
+                        "percent": 0,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+
+            progress_queue: asyncio.Queue[dict | None] = asyncio.Queue()
+            event_loop = asyncio.get_running_loop()
+
+            def report_progress(progress: dict) -> None:
+                """Μεταφέρει thread-safe την πρόοδο backup στο asyncio loop."""
+
+                event_loop.call_soon_threadsafe(
+                    progress_queue.put_nowait,
+                    dict(progress),
+                )
+
+            def run_operation() -> dict:
+                """Εκτελεί το blocking backup operation σε worker thread."""
+
+                try:
+                    return self.backup_coordinator.execute(
+                        operation=operation,
+                        bo_connection_id=bo_connection_id,
+                        parameters=parameters,
+                        progress_callback=report_progress,
+                    )
+                finally:
+                    event_loop.call_soon_threadsafe(progress_queue.put_nowait, None)
+
+            operation_task = asyncio.create_task(asyncio.to_thread(run_operation))
+            while True:
+                progress = await progress_queue.get()
+                if progress is None:
+                    break
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "backup_progress",
+                            "request_id": request_id,
+                            "client_code": self.identity["client_code"],
+                            "bo_connection_id": bo_connection_id,
+                            "operation": operation,
+                            **progress,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+
+            operation_result = await operation_task
+            result_message = {
+                "type": "backup_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                "operation": operation,
+                **operation_result,
+            }
+        except Exception as exc:
+            logger.exception("Αποτυχία χειρισμού backup request. operation=%s", operation)
+            result_message = {
+                "type": "backup_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": payload.get("bo_connection_id", 1),
+                "operation": operation,
+                "success": False,
+                "status": "failed",
+                "message": "Backup operation failed.",
+                "error": str(exc)[:4000],
             }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))

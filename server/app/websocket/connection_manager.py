@@ -20,6 +20,7 @@ class ConnectionManager:
 
         self.dashboard_connections: list[WebSocket] = []
         self.client_connections: dict[str, WebSocket] = {}
+        self.client_capabilities: dict[str, frozenset[str]] = {}
 
     async def connect_dashboard(self, websocket: WebSocket) -> None:
         """
@@ -47,7 +48,12 @@ class ConnectionManager:
             len(self.dashboard_connections)
         )
 
-    async def connect_client(self, client_code: str, websocket: WebSocket) -> None:
+    async def connect_client(
+        self,
+        client_code: str,
+        websocket: WebSocket,
+        capabilities: list[str] | tuple[str, ...] | None = None,
+    ) -> None:
         """
         Αποθηκεύει μια WebSocket σύνδεση client.
         Αν υπάρχει παλιά σύνδεση για το ίδιο client_code, την αντικαθιστά με ασφάλεια.
@@ -70,6 +76,11 @@ class ConnectionManager:
                 )
 
         self.client_connections[client_code] = websocket
+        self.client_capabilities[client_code] = frozenset(
+            item
+            for item in (capabilities or [])
+            if isinstance(item, str) and 1 <= len(item) <= 64
+        )
 
         logger.info(
             "Client connected: %s. Active clients: %s",
@@ -95,6 +106,7 @@ class ConnectionManager:
 
         if client_code in self.client_connections:
             del self.client_connections[client_code]
+            self.client_capabilities.pop(client_code, None)
 
             logger.info(
                 "Client disconnected: %s. Active clients: %s",
@@ -177,5 +189,10 @@ class ConnectionManager:
         """
 
         return client_code in self.client_connections
+
+    def client_supports(self, client_code: str, capability: str) -> bool:
+        """Επιστρέφει True μόνο όταν ο ενεργός client δήλωσε το capability."""
+
+        return capability in self.client_capabilities.get(client_code, frozenset())
 
 connection_manager = ConnectionManager()

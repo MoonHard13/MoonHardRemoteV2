@@ -17,7 +17,7 @@ class ClientConfig:
         self._load_environment()
 
         self.app_name = "MoonHard Remote v2 Client"
-        self.app_version = "1.0.10"
+        self.app_version = "1.0.12"
         self.client_token = os.getenv("CLIENT_TOKEN", "")
 
         self.server_websocket_url = os.getenv(
@@ -34,6 +34,18 @@ class ClientConfig:
 
         self.identity_file = self.program_data_dir / "client_identity.json"
         self.log_dir = self.program_data_dir / "logs"
+        self.backup_state_file = self.program_data_dir / "backups" / "backup_state.json"
+        self.rclone_executable = os.getenv(
+            "MOONHARD_RCLONE_PATH",
+            str(self.program_data_dir / "rclone" / "rclone.exe")
+        )
+        self.rclone_config_file = Path(
+            os.getenv(
+                "MOONHARD_RCLONE_CONFIG",
+                str(self.program_data_dir / "rclone" / "rclone.conf")
+            )
+        )
+        self.backup_scheduler_interval_seconds = 30
 
         self.reconnect_initial_seconds = 3
         self.reconnect_max_seconds = 30
