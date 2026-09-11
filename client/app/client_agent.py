@@ -9,6 +9,7 @@ import winreg
 import websockets
 
 from app.config import ClientConfig
+from app.database_maintenance_service import DatabaseMaintenanceService
 from app.identity_manager import ClientIdentityManager
 from websockets.exceptions import ConnectionClosed
 from app.terminal_executor import TerminalExecutor
@@ -42,6 +43,7 @@ class MoonHardClientAgent:
         self.terminal_executor = TerminalExecutor()
         self.appsettings_reader = AppSettingsReader()
         self.sql_executor = SqlExecutor()
+        self.database_maintenance_service = DatabaseMaintenanceService()
         self.provider_service = ProviderService()
         self.transmitted_invoices_service = TransmittedInvoicesService(self.provider_service)
         self.windows_services_reader = WindowsServicesReader()
@@ -329,6 +331,9 @@ class MoonHardClientAgent:
 
             elif message_type == "sql_cancel":
                 await self._handle_sql_cancel(websocket, payload)
+
+            elif message_type == "database_action":
+                await self._handle_database_action(websocket, payload)
 
             elif message_type == "senario_prosorinon_run":
                 await self._handle_senario_prosorinon_run(websocket, payload)
@@ -914,6 +919,70 @@ class MoonHardClientAgent:
             "client_code": self.identity["client_code"],
             **cancel_result
         }
+
+        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+
+    async def _handle_database_action(self, websocket, payload: dict) -> None:
+        """Εκτελεί ελεγχόμενη λειτουργία συντήρησης στην επιλεγμένη βάση του client."""
+
+        request_id = str(payload.get("request_id") or "")
+        action = str(payload.get("action") or "")
+        parameters = payload.get("parameters")
+
+        try:
+            bo_connection_id = int(payload.get("bo_connection_id", 1))
+            timeout = int(payload.get("timeout", 60))
+            appsettings_data = self.appsettings_reader.read_appsettings_production()
+            selected_connection = self._get_bo_connection_by_id(
+                bo_connections=appsettings_data.get("bo_connections") or [],
+                bo_connection_id=bo_connection_id,
+            )
+
+            if not selected_connection:
+                raise RuntimeError(f"BOConnection ID {bo_connection_id} was not found.")
+
+            database_connection = selected_connection.get("DatabaseConnection")
+            if not database_connection:
+                raise RuntimeError(
+                    f"BOConnection ID {bo_connection_id} has no DatabaseConnection."
+                )
+
+            logger.info(
+                "Λήφθηκε database action. request_id=%s action=%s bo_connection_id=%s",
+                request_id,
+                action,
+                bo_connection_id,
+            )
+            action_result = await asyncio.to_thread(
+                self.database_maintenance_service.execute,
+                action,
+                database_connection,
+                parameters,
+                timeout,
+            )
+
+            result_message = {
+                "type": "database_action_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": bo_connection_id,
+                **action_result,
+            }
+
+        except Exception as exc:
+            logger.exception("Αποτυχία χειρισμού database action. action=%s", action)
+            result_message = {
+                "type": "database_action_result",
+                "request_id": request_id,
+                "client_code": self.identity["client_code"],
+                "bo_connection_id": payload.get("bo_connection_id", 1),
+                "action": action,
+                "success": False,
+                "error": str(exc),
+                "database_name": "",
+                "driver": None,
+                "elapsed_ms": None,
+            }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))
 

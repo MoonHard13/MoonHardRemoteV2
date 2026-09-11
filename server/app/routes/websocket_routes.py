@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Header, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.websocket.connection_manager import connection_manager
+from app.websocket.database_requests import DatabaseRequestRouter
 from app.websocket.transmitted_requests import TransmittedRequestRouter
 from app.repositories.client_repository import ClientRepository
 
@@ -31,6 +32,7 @@ class WebSocketRoutes:
         self.config = AppConfig()
         self.pending_requests: dict[str, WebSocket] = {}
         self.transmitted_requests = TransmittedRequestRouter(connection_manager)
+        self.database_requests = DatabaseRequestRouter(connection_manager)
         self.heartbeat_db_write_interval_seconds = 300
         self.client_last_db_heartbeat: dict[str, datetime] = {}
         self.clients_list_broadcast_interval_seconds = 600
@@ -423,6 +425,10 @@ class WebSocketRoutes:
 
                 if data.get("type") in TransmittedRequestRouter.RESULT_TYPES:
                     await self.transmitted_requests.result(client_code, data)
+                    continue
+
+                if data.get("type") == DatabaseRequestRouter.RESULT_TYPE:
+                    await self.database_requests.result(client_code, data)
                     continue
 
                 if data.get("type") == "heartbeat":
@@ -909,6 +915,10 @@ class WebSocketRoutes:
 
                 if data.get("type") in TransmittedRequestRouter.REQUEST_TYPES:
                     await self.transmitted_requests.request(websocket, data)
+                    continue
+
+                if data.get("type") == DatabaseRequestRouter.REQUEST_TYPE:
+                    await self.database_requests.request(websocket, data)
                     continue
 
                 if data.get("type") == "rename_client":
@@ -2440,11 +2450,13 @@ class WebSocketRoutes:
 
         except WebSocketDisconnect:
             self.transmitted_requests.discard_dashboard(websocket)
+            self.database_requests.discard_dashboard(websocket)
             connection_manager.disconnect_dashboard(websocket)
 
         except Exception:
             logger.exception("Unexpected dashboard WebSocket error.")
             self.transmitted_requests.discard_dashboard(websocket)
+            self.database_requests.discard_dashboard(websocket)
             connection_manager.disconnect_dashboard(websocket)
 
 

@@ -14,6 +14,10 @@ def main() -> None:
         from app.provider_transmitted_cli import main as transmitted_main
         raise SystemExit(transmitted_main(sys.argv[2:]))
 
+    if len(sys.argv) > 1 and sys.argv[1] == "--database":
+        from app.database_cli import main as database_main
+        raise SystemExit(database_main(sys.argv[2:]))
+
     config = DashboardConfig()
     DashboardLoggerConfig.setup_logging(config.log_dir)
 

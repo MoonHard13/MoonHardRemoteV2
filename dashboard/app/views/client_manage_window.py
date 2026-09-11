@@ -7,6 +7,7 @@ from app.views.manage.provider_tab import ProviderTab
 from app.views.manage.overview_tab import OverviewTab
 from app.views.manage.terminal_tab import TerminalTab
 from app.views.manage.appsettings_tab import AppSettingsTab
+from app.views.manage.database_tab import DatabaseTab
 from app.views.manage.sql_tab import SqlTab
 from app.views.manage.services_tab import ServicesTab
 from app.views.manage.processes_tab import ProcessesTab
@@ -29,6 +30,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         on_terminal_command_callback: Callable[[dict], None] | None = None,
         on_terminal_autocomplete_callback: Callable[[dict], None] | None = None,
         on_sql_execute_callback: Callable[[dict], None] | None = None,
+        on_database_request_callback: Callable[[dict], None] | None = None,
         on_provider_request_callback: Callable[[dict], None] | None = None,
         on_services_request_callback: Callable[[dict], None] | None = None,
         on_service_action_callback: Callable[[dict], None] | None = None,
@@ -50,6 +52,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.on_terminal_command_callback = on_terminal_command_callback
         self.on_terminal_autocomplete_callback = on_terminal_autocomplete_callback
         self.on_sql_execute_callback = on_sql_execute_callback
+        self.on_database_request_callback = on_database_request_callback
 
         self.client_code = client.get("client_code", "")
         self.appsettings_data: dict = {}
@@ -132,9 +135,12 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.terminal_tab.grid_rowconfigure(1, weight=1)
         self.appsettings_tab.grid_columnconfigure(0, weight=1)
         self.appsettings_tab.grid_rowconfigure(1, weight=1)
-        self.sql_tab = self.tabs.add("SQL")
+        self.sql_tab = self.tabs.add("SSMS")
         self.sql_tab.grid_columnconfigure(0, weight=1)
         self.sql_tab.grid_rowconfigure(2, weight=1)
+        self.database_tab = self.tabs.add("Database")
+        self.database_tab.grid_columnconfigure(0, weight=1)
+        self.database_tab.grid_rowconfigure(0, weight=1)
         self.provider_tab = self.tabs.add("Provider")
         self.provider_tab.grid_columnconfigure(0, weight=1)
         self.provider_tab.grid_rowconfigure(0, weight=1)
@@ -155,6 +161,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self._build_terminal_tab()
         self._build_appsettings_tab()
         self._build_sql_tab()
+        self._build_database_tab()
         self._build_provider_tab()
         self._build_services_tab()
         self._build_processes_tab()
@@ -533,6 +540,9 @@ class ClientManageWindow(ctk.CTkToplevel):
                     selected_value="No BOConnections"
                 )
 
+        if hasattr(self, "database_tab_view"):
+            self.database_tab_view.refresh_bo_values()
+
         if hasattr(self, "provider_tab_view"):
             self.provider_tab_view.update_bo_values(
                 bo_values=bo_values,
@@ -786,7 +796,35 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "sql_tab_view"):
             self.sql_tab_view.handle_sql_cancel_result(payload)
-        
+
+    def _build_database_tab(self) -> None:
+        """Δημιουργεί το Database tab ως ανεξάρτητο modular component."""
+
+        self.database_tab_view = DatabaseTab(
+            self.database_tab,
+            client_code=self.client_code,
+            get_bo_values_callback=self._build_bo_connection_values,
+            get_selected_bo_id_callback=lambda: self.selected_bo_connection_id,
+            on_bo_selected_callback=self._on_database_bo_selected,
+            on_database_request_callback=self.on_database_request_callback,
+        )
+        self.database_tab_view.grid(row=0, column=0, sticky="nsew")
+
+    def _on_database_bo_selected(self, selected_value: str) -> None:
+        """Συγχρονίζει το BOConnection ID που επιλέχθηκε στο Database tab."""
+
+        connection_id = self._extract_bo_id_from_option(selected_value)
+        if connection_id is not None:
+            self.selected_bo_connection_id = connection_id
+
+    def handle_database_action_result(self, payload: dict) -> None:
+        """Προωθεί database action result στο DatabaseTab."""
+
+        if payload.get("client_code") != self.client_code:
+            return
+        if hasattr(self, "database_tab_view"):
+            self.database_tab_view.handle_result(payload)
+
     def _build_provider_tab(self) -> None:
         """
         Δημιουργεί το Provider tab ως ξεχωριστό modular component.
