@@ -8,6 +8,7 @@ class ErrorCategory(str, Enum):
     TIMEOUT = "timeout"
     CONNECTION = "connection"
     HTTP_4XX = "http_4xx"
+    NOT_FOUND = "not_found"
     HTTP_5XX = "http_5xx"
     INVALID_JSON = "invalid_json"
     MALFORMED_RESPONSE = "malformed_response"
@@ -24,6 +25,7 @@ MESSAGES = {
     ErrorCategory.TIMEOUT: "Ο Provider δεν απάντησε μέσα στο χρονικό όριο.",
     ErrorCategory.CONNECTION: "Δεν ήταν δυνατή η ασφαλής σύνδεση με τον Provider.",
     ErrorCategory.HTTP_4XX: "Ο Provider απέρριψε το αίτημα.",
+    ErrorCategory.NOT_FOUND: "HTTP 404: Δεν βρέθηκε το ζητούμενο endpoint ή στοιχείο. Ελέγξτε το URL ανάκτησης με την IMPACT.",
     ErrorCategory.HTTP_5XX: "Ο Provider αντιμετώπισε προσωρινό πρόβλημα.",
     ErrorCategory.INVALID_JSON: "Η απάντηση του Provider δεν είναι έγκυρο JSON.",
     ErrorCategory.MALFORMED_RESPONSE: "Η απάντηση έχει μη αναμενόμενη δομή.",

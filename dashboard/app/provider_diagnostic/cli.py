@@ -99,6 +99,7 @@ class ProviderDiagnosticCLI:
                             result = {**context.to_dict(), "companies": session.companies,
                                       "issuer_vat": session.issuer_vat,
                                       "provider_base_url": session.provider_base_url,
+                                      "documents_origin": ProviderEndpoint.documents_origin(session.provider_base_url) if session.provider_base_url else "",
                                       "provider_environment": ProviderEndpoint.environment(session.provider_base_url) if session.provider_base_url else "",
                                       "sql_verified": session.sql_verified,
                                       "invalid_afm_count": session.invalid_afm_count}

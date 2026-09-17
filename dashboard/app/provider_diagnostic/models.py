@@ -25,6 +25,14 @@ class ProviderEndpoint:
     def environment(cls, value: str) -> str:
         return "UAT" if urlsplit(cls.normalize(value)).hostname == "einvoiceapiuat.impact.gr" else "PRODUCTION"
 
+    @classmethod
+    def documents_origin(cls, value: str) -> str:
+        """Διαχωρίζει το τεκμηριωμένο production GetDocuments από το ERP BaseURL."""
+        origin = cls.normalize(value)
+        # Η επίσημη τεκμηρίωση ανάκτησης ορίζει einvoice.impact.gr για την παραγωγή.
+        # Δεν μεταφέρουμε κλειδιά UAT στην παραγωγή ούτε επινοούμε νέο UAT endpoint.
+        return "https://einvoice.impact.gr" if cls.environment(origin) == "PRODUCTION" else origin
+
 
 @dataclass(frozen=True)
 class DiagnosticContext:

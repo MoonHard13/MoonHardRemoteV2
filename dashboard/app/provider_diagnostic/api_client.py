@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 
 from app.provider_diagnostic.diagnostics import APIDiagnosticStore
 from app.provider_diagnostic.errors import ErrorCategory, ProviderAPIError
-from app.provider_diagnostic.models import APIDiagnostic, DocumentPage, VerifiedProviderCredentials
+from app.provider_diagnostic.models import APIDiagnostic, DocumentPage, ProviderEndpoint, VerifiedProviderCredentials
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -32,8 +32,9 @@ class ProviderAPIClient:
         if not 1 <= timeout <= 60 or not 1 <= max_attempts <= 3:
             raise ValueError("Μη έγκυρα όρια επικοινωνίας Provider.")
         self._credentials = credentials
-        self.base_url = credentials.provider_base_url + "/api/invoice/getdocuments"
-        self.endpoint = credentials.provider_base_url + self.ENDPOINT
+        origin = ProviderEndpoint.documents_origin(credentials.provider_base_url)
+        self.base_url = origin + "/api/invoice/getdocuments"
+        self.endpoint = origin + self.ENDPOINT
         self.diagnostics = diagnostics
         self.timeout = timeout
         self.max_attempts = max_attempts
@@ -115,6 +116,7 @@ class ProviderAPIClient:
         except urllib.error.HTTPError as exc:
             status = exc.code
             category = {401: ErrorCategory.AUTHENTICATION, 403: ErrorCategory.AUTHORIZATION,
+                        404: ErrorCategory.NOT_FOUND,
                         400: ErrorCategory.VALIDATION, 422: ErrorCategory.VALIDATION}.get(
                             status, ErrorCategory.HTTP_5XX if status >= 500 else ErrorCategory.HTTP_4XX)
             error = ProviderAPIError(category, status)
