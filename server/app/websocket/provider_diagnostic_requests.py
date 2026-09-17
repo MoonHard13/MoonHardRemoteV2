@@ -6,9 +6,10 @@ from app.websocket.transmitted_requests import PendingTransmittedRequest, Transm
 class ProviderDiagnosticRequestRouter(TransmittedRequestRouter):
     """Δρομολογεί προσωρινά στοιχεία μόνο στο Dashboard που τα ζήτησε."""
 
-    REQUEST_TYPES = ("provider_diagnostic_context",)
-    RESULT_TYPES = ("provider_diagnostic_context_result",)
-    ALLOWED_FIELDS = ("type", "request_id", "client_code", "bo_connection_id", "issuer_vat")
+    REQUEST_TYPES = ("provider_diagnostic_context", "provider_diagnostic_erp_page")
+    RESULT_TYPES = tuple(f"{name}_result" for name in REQUEST_TYPES)
+    ALLOWED_FIELDS = ("type", "request_id", "client_code", "bo_connection_id", "issuer_vat",
+                      "date_from", "date_to", "source", "before_oid")
     CAPABILITY = "provider_diagnostic_v1"
 
     @staticmethod
@@ -20,15 +21,17 @@ class ProviderDiagnosticRequestRouter(TransmittedRequestRouter):
     async def request(self, dashboard, data):
         issuer = data.get("issuer_vat", "")
         error = ""
-        if not isinstance(issuer, str) or (issuer and not re.fullmatch(r"EL[0-9]{9}", issuer)):
+        erp = data.get("type") == "provider_diagnostic_erp_page"
+        capability = "provider_reconciliation_v1" if erp else self.CAPABILITY
+        if not isinstance(issuer, str) or (issuer and not re.fullmatch(r"EL[0-9]{9}", issuer)) or (erp and not issuer):
             error = "Μη έγκυρο ΑΦΜ εκδότη."
         elif not isinstance(data.get("client_code"), str):
             error = "Μη έγκυρος κωδικός Client."
-        elif self.CAPABILITY not in self.manager.client_capabilities.get(data.get("client_code", ""), ()):
+        elif capability not in self.manager.client_capabilities.get(data.get("client_code", ""), ()):
             error = "Απαιτείται ενημερωμένος και συνδεδεμένος Client με Provider Diagnostic Center."
         if error:
             pending = PendingTransmittedRequest(dashboard, data.get("client_code", ""),
-                self.RESULT_TYPES[0], data.get("bo_connection_id"))
+                f"{data.get('type')}_result", data.get("bo_connection_id"))
             await self.manager.send_to_dashboard(dashboard, self.error_payload(data.get("request_id", ""), pending, error))
             return
         await super().request(dashboard, data)
@@ -37,4 +40,8 @@ class ProviderDiagnosticRequestRouter(TransmittedRequestRouter):
         # Η επιτρεπόμενη λίστα αποκλείει SQL credentials και raw appsettings.
         allowed = ("type", "request_id", "bo_connection_id", "success", "error", "error_code", "companies",
                    "issuer_vat", "api_key", "invalid_afm_count", "sql_verified", "provider_base_url")
+        if data.get("type") == "provider_diagnostic_erp_page_result":
+            allowed = ("type", "request_id", "bo_connection_id", "success", "error", "issuer_vat",
+                       "date_from", "date_to", "source", "records", "has_more", "next_before_oid",
+                       "coverage_complete", "warnings")
         await super().result(client_code, {key: data[key] for key in allowed if key in data})

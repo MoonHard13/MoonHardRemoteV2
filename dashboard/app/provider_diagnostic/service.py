@@ -8,6 +8,8 @@ from app.provider_diagnostic.diagnostics import APIDiagnosticStore
 from app.provider_diagnostic.errors import ErrorCategory, ProviderAPIError
 from app.provider_diagnostic.models import DiagnosticContext, VerifiedProviderCredentials
 from app.provider_diagnostic.documents import DocumentLoader
+from app.provider_diagnostic.erp_data import ERPLoader
+from app.provider_diagnostic.reconciliation import ReconciliationEngine
 
 
 class ProviderDiagnosticService:
@@ -56,3 +58,9 @@ class ProviderDiagnosticService:
         credentials = self.credentials(context)
         client = ProviderAPIClient(credentials, diagnostics or self.diagnostics)
         return DocumentLoader(client).load(date_from, date_to, credentials.issuer_vat, cancel, progress)
+
+    def reconcile(self, context, date_from, date_to, cancel, fetch_erp, progress=None, diagnostics=None):
+        """Ανακτά νέα στιγμιότυπα στο ίδιο ΑΦΜ και συγκρίνει χωρίς μεταβολές δεδομένων."""
+        provider = self.documents(context, date_from, date_to, cancel, progress, diagnostics)
+        erp = ERPLoader.load(fetch_erp, context, date_from, date_to, cancel, progress)
+        return ReconciliationEngine.compare(erp, provider, cancel)
