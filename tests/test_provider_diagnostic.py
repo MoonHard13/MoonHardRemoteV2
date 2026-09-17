@@ -215,6 +215,30 @@ class APIClientTests(unittest.TestCase):
         self.assertEqual(request.get_header("Apikey"), "fixture-key-only")
         self.assertTrue(self.store.entries()[0].endpoint.startswith("https://einvoiceapiuat.impact.gr/"))
 
+    def test_production_api_configuration_uses_documented_retrieval_host(self):
+        credentials = replace(binding(), provider_base_url="https://einvoiceapi.impact.gr/")
+        client = ProviderAPIClient(credentials, self.store, opener=self.opener)
+        self.opener.open.return_value = Response()
+        client.get_documents_page("20260901", "20260917")
+        request = self.opener.open.call_args.args[0]
+        self.assertEqual(request.full_url,
+            "https://einvoice.impact.gr/api/invoice/getdocuments/EL123456789/1/?From=20260901&dateTo=20260917")
+        self.assertEqual(request.get_header("Apikey"), "fixture-key-only")
+        self.assertEqual(self.opener.open.call_count, 1)
+        self.assertEqual(credentials.provider_base_url, "https://einvoiceapi.impact.gr")
+        self.assertEqual(self.store.entries()[0].endpoint,
+            "https://einvoice.impact.gr" + ProviderAPIClient.ENDPOINT)
+
+    def test_404_has_specific_diagnostic_without_retry_or_alternate_host(self):
+        self.opener.open.side_effect = urllib.error.HTTPError("secret-url", 404, "secret-body", {}, None)
+        with self.assertRaises(ProviderAPIError) as result:
+            self.client.get_documents_page("20260901", "20260917")
+        self.assertEqual(result.exception.category, ErrorCategory.NOT_FOUND)
+        self.assertIn("404", result.exception.message)
+        self.assertNotIn("secret", result.exception.message)
+        self.assertEqual(self.opener.open.call_count, 1)
+        self.assertEqual(self.store.entries()[0].error_category, "not_found")
+
     def test_provider_urls_reject_untrusted_targets_before_network(self):
         for url in ("http://einvoiceapiuat.impact.gr/", "https://einvoiceapiuat.impact.gr.evil.invalid/",
                     "https://einvoiceapiuat.impact.gr:8443/", "https://user@einvoiceapiuat.impact.gr/",

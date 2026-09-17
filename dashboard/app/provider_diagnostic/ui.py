@@ -178,7 +178,8 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             f"Client: {context.client_code}\nBOConnection: {context.bo_connection_id or 'Μη διαθέσιμο'}\n"
             f"Server: {context.database_server or 'Μη διαθέσιμο'}\nDatabase: {context.database_name or 'Μη διαθέσιμο'}\n"
             f"ΑΦΜ εκδότη: {context.issuer_vat or self.session.issuer_vat or 'Επιλέξτε εταιρεία'}\n"
-            f"Περιβάλλον: {environment}\nProvider URL: {self.session.provider_base_url or 'Μη διαθέσιμο'}\n"
+            f"Περιβάλλον: {environment}\nProvider URL (ρυθμίσεις): {self.session.provider_base_url or 'Μη διαθέσιμο'}\n"
+            f"GetDocuments URL: {ProviderEndpoint.documents_origin(self.session.provider_base_url) if self.session.provider_base_url else 'Μη διαθέσιμο'}\n"
             f"ERP: {erp}\nProvider: {provider}"))
         self.probe_button.configure(state="normal" if context.provider_ready and not self._task.busy else "disabled")
         self.status.configure(text="Phase 1 · Χρήση του υπάρχοντος customer/BO context · Διαγνωστικά μόνο για πραγματικές κλήσεις")
