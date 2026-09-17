@@ -393,7 +393,7 @@ class MoonHardDashboardApp(ctk.CTk):
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_backup_progress(payload)
                 
-        elif message_type == "provider_diagnostic_context_result":
+        elif message_type in ("provider_diagnostic_context_result", "provider_diagnostic_erp_page_result"):
             manage_window = self.manage_windows.get(payload.get("client_code", ""))
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_provider_diagnostic_context_result(payload)
@@ -1861,7 +1861,7 @@ class MoonHardDashboardApp(ctk.CTk):
             logger.warning("Dashboard WebSocket is not connected.")
             return False
 
-        if payload.get("type") == "provider_diagnostic_context":
+        if str(payload.get("type", "")).startswith("provider_diagnostic_"):
             from urllib.parse import urlsplit
             if urlsplit(self.websocket_client.websocket_url).scheme != "wss":
                 logger.warning("Η ανάκτηση Provider στοιχείων απαιτεί κρυπτογραφημένο WSS.")

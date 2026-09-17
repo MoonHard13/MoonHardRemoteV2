@@ -904,7 +904,10 @@ class ClientManageWindow(ctk.CTkToplevel):
 
     def handle_provider_diagnostic_context_result(self, payload: dict) -> None:
         """Παραδίδει τα προσωρινά στοιχεία μόνο στην αντίστοιχη diagnostic συνεδρία."""
-        self.provider_diagnostic_tab_view.handle_context_result(payload)
+        if payload.get("type") == "provider_diagnostic_erp_page_result":
+            self.provider_diagnostic_tab_view.handle_erp_result(payload)
+        else:
+            self.provider_diagnostic_tab_view.handle_context_result(payload)
 
     def handle_provider_transmitted_result(self, payload: dict) -> None:
         """Προωθεί τα διαβιβασμένα στο ανεξάρτητο Provider component."""

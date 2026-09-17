@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentsView(ctk.CTkFrame):
+    EXPORT_FILENAME = "provider-documents.json"
     MAX_DETAIL_ROWS = 20
     COLUMNS = (("dateIssued", "Ημερομηνία", 165), ("series", "Σειρά", 95),
                ("number", "Αριθμός", 95), ("invoiceType", "Τύπος", 80),
@@ -127,7 +128,7 @@ class DocumentsView(ctk.CTkFrame):
         if self._filter_job is not None:
             self.after_cancel(self._filter_job)
             self._filter_job = None
-        values = {name: entry.get().strip() for name, entry in self.filters.items()}
+        values = self.filter_values()
         self._rows = self.dataset.filtered(**values) if self.dataset else []
         self._sort_reverse.clear()
         self._render()
@@ -139,6 +140,9 @@ class DocumentsView(ctk.CTkFrame):
                 f"{self.dataset.warning or self.dataset.completion_note}")
         logger.info("Φιλτράρισμα παραστατικών. visible=%s", len(self._rows))
 
+    def filter_values(self):
+        return {name: entry.get().strip() for name, entry in self.filters.items()}
+
     def reset_filters(self):
         for entry in self.filters.values():
             entry.delete(0, "end")
@@ -146,7 +150,7 @@ class DocumentsView(ctk.CTkFrame):
 
     def sort(self, name):
         reverse = self._sort_reverse.get(name, False)
-        numeric = name in ("number", "totalAmount", "totalVatAmount", "mark")
+        numeric = name in ("number", "totalAmount", "totalVatAmount", "mark", "erp_amount", "provider_amount", "erp_vat", "provider_vat")
         def key(row):
             value = DocumentFields.amount(row.get(name)) if numeric else str(row.get(name) or "").casefold()
             return (value is not None, value if value is not None else Decimal(0)) if numeric else value
@@ -250,7 +254,7 @@ class DocumentsView(ctk.CTkFrame):
             self._status("Ανακτήστε πρώτα παραστατικά.")
             return
         path = filedialog.asksaveasfilename(parent=self.winfo_toplevel(), defaultextension=".json",
-            initialfile="provider-documents.json", filetypes=[("JSON", "*.json")])
+            initialfile=self.EXPORT_FILENAME, filetypes=[("JSON", "*.json")])
         if not path:
             return
         try:

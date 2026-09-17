@@ -12,6 +12,9 @@ from app.provider_diagnostic.tasks import BackgroundTask
 from app.provider_diagnostic.session import ProviderContextSession
 from app.provider_diagnostic.models import ProviderEndpoint
 from app.provider_diagnostic.documents_view import DocumentsView
+from app.provider_diagnostic.reconciliation_view import ReconciliationView
+from app.provider_diagnostic.erp_data import ERPPageBridge
+from app.provider_diagnostic.reconciliation import STATUS_LABELS
 from app.ui.theme import COLORS, FONTS, apply_treeview_style, card_style, secondary_button_style
 
 
@@ -33,6 +36,7 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
         self.service = service
         self.session = session or ProviderContextSession()
         self._request_context = request_context
+        self._erp_bridge = ERPPageBridge(request_context)
         self._company_labels = {}
         self._last_ready = False
         self._is_active = is_active
@@ -87,7 +91,11 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
                      justify="left", anchor="w", font=FONTS.body, text_color=COLORS.text_secondary,
                      wraplength=740)
         self.document_totals.grid(row=3, column=0, padx=16, pady=16, sticky="ew")
+        self.reconciliation_totals = ctk.CTkLabel(self.overview, text="Δεν έχει εκτελεστεί σύγκριση ERP–Provider.",
+            justify="left", anchor="w", font=FONTS.body, wraplength=740)
+        self.reconciliation_totals.grid(row=4, column=0, padx=16, pady=16, sticky="ew")
         self.documents_view = DocumentsView(self, self.load_documents, lambda text: self.status.configure(text=text))
+        self.reconciliation_view = ReconciliationView(self, self.load_reconciliation, lambda text: self.status.configure(text=text))
         self.planned = ctk.CTkFrame(self, **card_style())
         self.planned.grid_columnconfigure(0, weight=1)
         self.planned_text = ctk.CTkLabel(self.planned, text="", font=FONTS.body,
@@ -136,9 +144,9 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
 
     def _show_section(self, section: str) -> None:
         self.section.set(section)
-        for frame in (self.overview, self.api_view, self.documents_view, self.planned):
+        for frame in (self.overview, self.api_view, self.documents_view, self.reconciliation_view, self.planned):
             frame.grid_remove()
-        frame = self.overview if section == "Overview" else self.api_view if section == "API Diagnostics" else self.documents_view if section == "Documents" else self.planned
+        frame = self.overview if section == "Overview" else self.api_view if section == "API Diagnostics" else self.documents_view if section == "Documents" else self.reconciliation_view if section == "Reconciliation" else self.planned
         if frame is self.planned:
             phase = self.SECTIONS[section]
             text = (f"{section}\n\nΠρογραμματισμένη υλοποίηση: Phase {phase}.\n"
@@ -189,7 +197,10 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
         self.documents_view.load_button.configure(state="normal" if context.provider_ready and not self._task.busy else "disabled")
         self.documents_view.scope.configure(text=f"{context.display_name} · BOConnection {context.bo_connection_id} · "
             f"ΑΦΜ: {context.issuer_vat or self.session.issuer_vat or 'Επιλέξτε εταιρεία'} · {environment}")
-        self.status.configure(text="Phase 2 · Πραγματικά εξερχόμενα παραστατικά και API Diagnostics")
+        if hasattr(self, "reconciliation_view"):
+            self.reconciliation_view.load_button.configure(state="normal" if context.provider_ready and not self._task.busy else "disabled")
+            self.reconciliation_view.scope.configure(text=self.documents_view.scope.cget("text"))
+        self.status.configure(text="Provider · Παραστατικά, σύγκριση ERP και API Diagnostics")
         self.refresh_diagnostics()
         logger.info("Ενημέρωση context Provider Diagnostic Center.")
 
@@ -264,11 +275,39 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             self.cancel_button.configure(state="normal")
             logger.info("Έναρξη χειροκίνητου Provider diagnostic request.")
 
+    def handle_erp_result(self, payload):
+        return self._erp_bridge.accept(payload)
+
     def _clear_documents(self):
+        if hasattr(self, "_erp_bridge"):
+            self._erp_bridge.close()
+        if hasattr(self, "reconciliation_view"):
+            self.reconciliation_view.clear()
+        if hasattr(self, "reconciliation_totals"):
+            self.reconciliation_totals.configure(text="Δεν έχει εκτελεστεί σύγκριση ERP–Provider.")
         self.documents_view.clear()
         self.document_totals.configure(text="Δεν έχουν ανακτηθεί παραστατικά για το επιλεγμένο διάστημα.")
 
+    def load_reconciliation(self):
+        self.refresh_context()
+        self._show_section("Reconciliation")
+        if not self._context.provider_ready or self._task.busy:
+            return
+        context, diagnostics = self._context, self.service.diagnostics
+        start, end = self.reconciliation_view.date_from.get().strip(), self.reconciliation_view.date_to.get().strip()
+        self._clear_documents()
+        if self._task.start(lambda cancel: self.service.reconcile(context, start, end, cancel,
+                self._erp_bridge.request, self._task.report_progress, diagnostics)):
+            self._running_kind, self._running_scope = "reconciliation", self._scope
+            self.status.configure(text="Ανάκτηση Provider και ERP για σύγκριση…")
+            self.probe_button.configure(state="disabled")
+            self.reconciliation_view.load_button.configure(state="disabled")
+            self.documents_view.load_button.configure(state="disabled")
+            self.cancel_button.configure(state="normal")
+
     def load_documents(self):
+        if self.section.get() == "Reconciliation":
+            return self.load_reconciliation()
         self.refresh_context()
         self._show_section("Documents")
         if not self._context.provider_ready or self._task.busy:
@@ -318,8 +357,8 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             self.refresh_context()
         progress = self._task.poll_progress()
         if isinstance(progress, dict) and not self._task.cancel_event.is_set() and getattr(self, "_running_scope", None) == self._scope:
-            self.status.configure(text=f"Ανάκτηση: {progress['pages']} σελίδες · {progress['records']} στο διάστημα · "
-                f"{progress.get('fetched_records', progress['records'])} από API…")
+            self.status.configure(text=f"Ανάκτηση {progress.get('stage', 'Provider')}: {progress['pages']} σελίδες · "
+                f"{progress['records']} στο διάστημα…")
         result = self._task.poll()
         if result is not None:
             value, error = result
@@ -329,10 +368,22 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
                 elif getattr(self, "_running_kind", "probe") == "documents":
                     self._install_documents(value)
                     self.status.configure(text=value.status_text)
+                elif getattr(self, "_running_kind", "probe") == "reconciliation":
+                    self.reconciliation_view.set_dataset(value)
+                    if hasattr(self, "reconciliation_totals"):
+                        summary = value.summary()
+                        self.reconciliation_totals.configure(text=f"Σύγκριση: {value.date_from}–{value.date_to}\n"
+                            f"ERP: {value.erp_records} · Provider: {value.provider_records}\n"
+                            + " · ".join(f"{STATUS_LABELS[name]}: {count}" for name, count in summary["statuses"].items())
+                            + "\n" + (value.warning or value.completion_note)
+                            + "\n" + "\n".join(value.erp_warnings))
+                    self.status.configure(text=f"Σύγκριση ολοκληρώθηκε. ERP: {value.erp_records} · Provider: {value.provider_records}")
                 else:
                     self.status.configure(text=f"Έλεγχος ολοκληρώθηκε. Records πρώτης σελίδας: {value['records']}")
             self.probe_button.configure(state="normal" if self._context.provider_ready else "disabled")
             self.documents_view.load_button.configure(state="normal" if self._context.provider_ready else "disabled")
+            if hasattr(self, "reconciliation_view"):
+                self.reconciliation_view.load_button.configure(state="normal" if self._context.provider_ready else "disabled")
             self.cancel_button.configure(state="disabled")
             self.refresh_diagnostics()
         self._job = self.after(100, self._poll)
@@ -372,9 +423,12 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             finally:
                 self.menu.grab_release()
 
+    def _data_view(self):
+        return self.reconciliation_view if self.section.get() == "Reconciliation" else self.documents_view
+
     def copy_selected(self) -> None:
-        if self.section.get() == "Documents":
-            self.documents_view.copy_selected()
+        if self.section.get() in ("Documents", "Reconciliation"):
+            self._data_view().copy_selected()
             return
         lines = ["\t".join(str(value) for value in self.tree.item(iid, "values")) for iid in self.tree.selection()]
         if lines:
@@ -383,8 +437,8 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             logger.info("Αντιγραφή επιλεγμένων API diagnostics.")
 
     def export(self) -> None:
-        if self.section.get() == "Documents":
-            self.documents_view.export()
+        if self.section.get() in ("Documents", "Reconciliation"):
+            self._data_view().export()
             return
         path = filedialog.asksaveasfilename(parent=self.winfo_toplevel(), defaultextension=".json",
             initialfile="provider-api-diagnostics.json", filetypes=[("JSON", "*.json")])
@@ -401,8 +455,8 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             logger.warning("Αποτυχία αποθήκευσης API diagnostics.")
 
     def _search(self) -> None:
-        if self.section.get() == "Documents":
-            self.documents_view.filters["number"].focus_set()
+        if self.section.get() in ("Documents", "Reconciliation"):
+            self._data_view().filters["number"].focus_set()
             return
         self._show_section("API Diagnostics")
         self.endpoint.focus_set()
@@ -415,7 +469,7 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
                 ("<Control-c>", self.copy_selected), ("<Control-e>", self.export)):
             def handler(event, action=operation):
                 if self._is_active() and event.widget.winfo_toplevel() == top:
-                    if event.keysym.lower() == "c" and event.widget not in (self.tree, self.documents_view.tree):
+                    if event.keysym.lower() == "c" and event.widget not in (self.tree, self.documents_view.tree, getattr(getattr(self, "reconciliation_view", None), "tree", None)):
                         return None
                     action()
                     return "break"
@@ -423,25 +477,28 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             self._bindings.append((sequence, top.bind(sequence, handler, add="+")))
         for sequence, action in (("<Control-l>", self.load_documents),
                 ("<Alt-d>", lambda: self._show_section("Documents")),
+                ("<Alt-r>", lambda: self._show_section("Reconciliation")),
                 ("<Alt-Key-1>", lambda: self._focus_document_date("date_from")),
                 ("<Alt-Key-2>", lambda: self._focus_document_date("date_to")),
-                ("<Control-o>", self.documents_view.open_url),
-                ("<Control-r>", self.documents_view.reset_filters),
-                ("<Control-Shift-C>", self.documents_view.copy_details)):
+                ("<Control-o>", lambda: self._data_view().open_url()),
+                ("<Control-r>", lambda: self._data_view().reset_filters()),
+                ("<Control-Shift-C>", lambda: self._data_view().copy_details())):
             def document_handler(event, operation=action, shortcut=sequence):
                 if self._is_active() and event.widget.winfo_toplevel() == top and (
-                        shortcut.startswith("<Alt-") or shortcut == "<Control-l>" or self.section.get() == "Documents"):
+                        shortcut.startswith("<Alt-") or shortcut == "<Control-l>" or self.section.get() in ("Documents", "Reconciliation")):
                     operation()
                     return "break"
             self._bindings.append((sequence, top.bind(sequence, document_handler, add="+")))
 
     def _focus_document_date(self, name):
-        self._show_section("Documents")
-        getattr(self.documents_view, name).focus_set()
+        self._show_section("Reconciliation" if self.section.get() == "Reconciliation" else "Documents")
+        getattr(self._data_view(), name).focus_set()
 
     def destroy(self) -> None:
         self._closed = True
         self._task.close()
+        if hasattr(self, "_erp_bridge"):
+            self._erp_bridge.close()
         self.session.clear()
         self.service.close()
         if self._job is not None:

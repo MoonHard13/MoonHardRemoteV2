@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import webbrowser
+from contextlib import suppress
 from datetime import date
 from pathlib import Path
 from threading import Event
@@ -20,6 +21,8 @@ from app.provider_diagnostic.session import ProviderContextSession
 from app.provider_diagnostic.errors import ProviderAPIError
 from app.provider_diagnostic.models import ProviderEndpoint
 from app.provider_diagnostic.documents import DocumentFields
+from app.provider_diagnostic.erp_data import ERPPageBridge
+from app.provider_diagnostic.reconciliation import STATUS_LABELS
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +33,7 @@ class ProviderDiagnosticCLI:
 
     @staticmethod
     def parser() -> argparse.ArgumentParser:
-        parser = argparse.ArgumentParser(description="MoonHard Provider Diagnostic Center · Phase 2")
+        parser = argparse.ArgumentParser(description="MoonHard Provider Diagnostic Center")
         actions = parser.add_mutually_exclusive_group(required=True)
         actions.add_argument("--client", help="Υπάρχων κωδικός client για ανάγνωση context.")
         actions.add_argument("--sections", action="store_true", help="Εμφάνιση ενοτήτων και φάσεων.")
@@ -40,6 +43,8 @@ class ProviderDiagnosticCLI:
         operations = parser.add_mutually_exclusive_group()
         operations.add_argument("--probe", action="store_true", help="Ανάγνωση πρώτης σελίδας σημερινών παραστατικών.")
         operations.add_argument("--documents", action="store_true", help="Πλήρης ανάκτηση εξερχόμενων παραστατικών.")
+        operations.add_argument("--reconcile", action="store_true", help="Σύγκριση ERP και Provider στο ίδιο διάστημα.")
+        parser.add_argument("--reconciliation-status", choices=tuple(STATUS_LABELS), default="")
         today = date.today().strftime("%Y%m%d")
         parser.add_argument("--date-from", default=today, help="Αρχή διαστήματος YYYYMMDD.")
         parser.add_argument("--date-to", default=today, help="Τέλος διαστήματος YYYYMMDD.")
@@ -141,9 +146,13 @@ class ProviderDiagnosticCLI:
                 try:
                     verified = service.snapshot()
                     if documents is not None:
-                        dataset = await asyncio.wait_for(asyncio.to_thread(service.documents, verified,
-                            documents["date_from"], documents["date_to"], cancel,
-                            lambda value: logger.info("CLI ανάκτηση. pages=%s records=%s", value["pages"], value["records"])), timeout=3600)
+                        progress = lambda value: logger.info("CLI ανάκτηση. stage=%s pages=%s records=%s",
+                            value.get("stage", "Provider"), value["pages"], value["records"])
+                        if documents.get("reconcile"):
+                            dataset = await self.reconcile(websocket, service, verified, documents, cancel, progress)
+                        else:
+                            dataset = await asyncio.wait_for(asyncio.to_thread(service.documents, verified,
+                                documents["date_from"], documents["date_to"], cancel, progress), timeout=3600)
                         rows = dataset.filtered(**documents.get("filters", {}))
                         opened = documents.get("open_document")
                         if opened is not None:
@@ -159,6 +168,7 @@ class ProviderDiagnosticCLI:
                             "completion_verified": dataset.completion_verified,
                             "completion_note": dataset.completion_note,
                             "visible_records": len(rows), "documents": rows,
+                            "operation": "reconciliation" if documents.get("reconcile") else "documents",
                             "diagnostics": [row.to_dict() for row in service.diagnostics.entries()]}
                     response = await asyncio.to_thread(service.probe, verified, cancel)
                     return {**result, **verified.to_dict(), "success": True, "probe": response,
@@ -175,6 +185,37 @@ class ProviderDiagnosticCLI:
             session.clear()
 
     @staticmethod
+    async def reconcile(websocket, service, context, options, cancel, progress):
+        """Ο worker περιμένει ERP απαντήσεις ενώ το event loop εξυπηρετεί το WebSocket."""
+        loop = asyncio.get_running_loop()
+        def send(payload):
+            future = asyncio.run_coroutine_threadsafe(websocket.send(json.dumps(payload)), loop)
+            try:
+                future.result(timeout=15)
+            except Exception:
+                future.cancel()
+                raise
+            return True
+        bridge = ERPPageBridge(send)
+        async def receive_pages():
+            try:
+                async for raw in websocket:
+                    bridge.accept(json.loads(raw))
+            finally:
+                bridge.close()
+                cancel.set()
+        receiver = asyncio.create_task(receive_pages())
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(service.reconcile, context,
+                options["date_from"], options["date_to"], cancel, bridge.request, progress), timeout=3600)
+        finally:
+            cancel.set()
+            bridge.close()
+            receiver.cancel()
+            with suppress(asyncio.CancelledError):
+                await receiver
+
+    @staticmethod
     def diagnostics(args) -> list[dict]:
         if args.diagnostics_file.stat().st_size > 8 * 1024 * 1024:
             raise ValueError("Το αρχείο διαγνωστικών υπερβαίνει το επιτρεπτό μέγεθος.")
@@ -189,15 +230,18 @@ class ProviderDiagnosticCLI:
     def run(self, argv=None) -> int:
         parser = self.parser()
         args = parser.parse_args(argv)
-        if (args.probe or args.documents or args.issuer_vat) and not args.client:
-            parser.error("Τα --probe, --documents και --issuer-vat απαιτούν --client.")
-        if (args.open_document is not None or args.series or args.number or args.invoice_type or args.mark) and not args.documents:
-            parser.error("Τα φίλτρα παραστατικών και --open-document απαιτούν --documents.")
+        if (args.probe or args.documents or args.reconcile or args.issuer_vat) and not args.client:
+            parser.error("Τα --probe, --documents, --reconcile και --issuer-vat απαιτούν --client.")
+        if (args.open_document is not None or args.series or args.number or args.invoice_type or args.mark) and not (args.documents or args.reconcile):
+            parser.error("Τα φίλτρα παραστατικών και --open-document απαιτούν --documents ή --reconcile.")
+        if args.reconciliation_status and not args.reconcile:
+            parser.error("Το --reconciliation-status απαιτεί --reconcile.")
         config = DashboardConfig()
         DashboardLoggerConfig.setup_logging(config.log_dir)
         try:
             if args.sections:
-                result = {"phase": 2, "sections": SECTIONS}
+                result = {"phase": 2, "sections": SECTIONS,
+                    "implemented_sections": ["Overview", "Documents", "Reconciliation", "API Diagnostics"]}
             elif args.diagnostics_file:
                 result = {"scope": "Το επιλεγμένο export· δεν διαβάζεται η RAM άλλου Dashboard process.",
                           "diagnostics": self.diagnostics(args)}
@@ -205,7 +249,9 @@ class ProviderDiagnosticCLI:
                 options = {"date_from": args.date_from, "date_to": args.date_to,
                     "filters": {"series": args.series, "number": args.number,
                         "invoice_type": args.invoice_type, "mark": args.mark},
-                    "open_document": args.open_document} if args.documents else None
+                    "open_document": args.open_document, "reconcile": args.reconcile} if args.documents or args.reconcile else None
+                if args.reconcile:
+                    options["filters"]["status"] = args.reconciliation_status
                 if options is None:
                     result = asyncio.run(self.context(config, args.client, args.bo_connection, args.issuer_vat, args.probe))
                 else:

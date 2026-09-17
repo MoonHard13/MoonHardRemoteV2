@@ -10,6 +10,9 @@ class ErrorCategory(str, Enum):
     HTTP_4XX = "http_4xx"
     NOT_FOUND = "not_found"
     END_OF_LIST = "end_of_list"
+    ERP_READ = "erp_read"
+    ERP_TIMEOUT = "erp_timeout"
+    ERP_CONNECTION = "erp_connection"
     DATA_LIMIT = "data_limit"
     HTTP_5XX = "http_5xx"
     INVALID_JSON = "invalid_json"
@@ -29,6 +32,9 @@ MESSAGES = {
     ErrorCategory.HTTP_4XX: "Ο Provider απέρριψε το αίτημα.",
     ErrorCategory.NOT_FOUND: "HTTP 404: Δεν βρέθηκε το ζητούμενο endpoint ή στοιχείο. Ελέγξτε το URL ανάκτησης με την IMPACT.",
     ErrorCategory.END_OF_LIST: "Ο Provider δήλωσε ότι η ζητούμενη σελίδα υπερβαίνει τις διαθέσιμες σελίδες.",
+    ErrorCategory.ERP_TIMEOUT: "Ο Client δεν απάντησε εγκαίρως στην ανάκτηση ERP.",
+    ErrorCategory.ERP_CONNECTION: "Δεν ήταν δυνατή η αποστολή του αιτήματος ERP στον Client.",
+    ErrorCategory.ERP_READ: "Απέτυχε η ανάγνωση ERP. Ελέγξτε έκδοση Client/server, σχήμα και σύνδεση εταιρείας.",
     ErrorCategory.DATA_LIMIT: "Η ανάκτηση υπερέβη το όριο δεδομένων. Επιλέξτε μικρότερο διάστημα· δεν εμφανίζεται μερική λίστα.",
     ErrorCategory.HTTP_5XX: "Ο Provider αντιμετώπισε προσωρινό πρόβλημα.",
     ErrorCategory.INVALID_JSON: "Η απάντηση του Provider δεν είναι έγκυρο JSON.",
