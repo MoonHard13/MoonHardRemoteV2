@@ -252,6 +252,26 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual([d.http_status for d in store.entries()], [200, 404])
         self.assertFalse(store.entries()[-1].success)
 
+    def test_explicit_provider_page_limit_completes_dataset_and_keeps_http_diagnostic(self):
+        class Response(io.BytesIO):
+            headers = {"NextPage": "2"}
+            def getcode(self):
+                return 200
+        store, opener = APIDiagnosticStore(), Mock()
+        credentials = VerifiedProviderCredentials("CLIENT", 1, "EL012345678", "fixture-key", "test", "https://einvoiceapi.impact.gr")
+        opener.open.side_effect = [Response(json.dumps([row()]).encode()),
+            urllib.error.HTTPError("", 404, "", {}, io.BytesIO(b'{"Message":"Page > TotalPageSize"}'))]
+        result = DocumentLoader(ProviderAPIClient(credentials, store, opener=opener)).load(
+            "20260901", "20260917", credentials.issuer_vat, self.cancel)
+        self.assertTrue(result.complete)
+        self.assertEqual(result.termination, "provider_page_limit")
+        self.assertEqual((len(result.records), result.pages), (1, 1))
+        self.assertEqual(result.warning, "")
+        self.assertIn("Provider", result.status_text)
+        self.assertEqual(store.entries()[-1].http_status, 404)
+        self.assertEqual(store.entries()[-1].error_category, "end_of_list")
+        self.assertFalse(store.entries()[-1].success)
+
     def test_json_amount_precision_survives_loading_and_summary(self):
         class Response(io.BytesIO):
             headers = {}

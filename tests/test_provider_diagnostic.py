@@ -135,6 +135,60 @@ class APIClientTests(unittest.TestCase):
         self.opener.open.assert_not_called()
         self.assertEqual(self.store.entries(), [])
 
+    def test_next_page_404_requires_explicit_page_limit_message(self):
+        for body in (b'Page > TotalPageSize', b'{"Message":"Page > TotalPageSize"}',
+                b'{"error":"Page number is out of range."}', b'"Page exceeds total page count"'):
+            with self.subTest(body=body):
+                self.opener.open.side_effect = urllib.error.HTTPError("secret-url", 404, "", {}, io.BytesIO(body))
+                with self.assertRaises(ProviderAPIError) as result:
+                    self.client.get_documents_page("20260901", "20260917", page=2)
+                self.assertEqual(result.exception.category, ErrorCategory.END_OF_LIST)
+                self.assertEqual(result.exception.status, 404)
+                self.assertNotIn("secret", json.dumps(self.store.entries()[-1].to_dict()))
+
+    def test_generic_or_untrusted_404_body_never_confirms_page_limit(self):
+        for body in (b'', b'Not Found', b'{"Message":"Not Found"}',
+                b'<html>Page > TotalPageSize</html>', b'{"api_key":"Page > TotalPageSize"}',
+                b'{"Message":"fixture-key-only Page > TotalPageSize"}',
+                b'{"Message":"Page > TotalPageSize",', b'["Page > TotalPageSize"]',
+                b'Page > TotalPageSize' + b' ' * 4096, b'\xff'):
+            with self.subTest(body=body):
+                self.opener.open.side_effect = urllib.error.HTTPError("secret-url", 404, "", {}, io.BytesIO(body))
+                with self.assertRaises(ProviderAPIError) as result:
+                    self.client.get_documents_page("20260901", "20260917", page=2)
+                self.assertEqual(result.exception.category, ErrorCategory.NOT_FOUND)
+                self.assertNotIn("fixture-key-only", json.dumps(self.store.entries()[-1].to_dict()))
+
+    def test_first_page_or_other_status_is_never_classified_as_end_of_list(self):
+        for status, page, expected in ((404, 1, ErrorCategory.NOT_FOUND),
+                (401, 2, ErrorCategory.AUTHENTICATION), (403, 2, ErrorCategory.AUTHORIZATION),
+                (400, 2, ErrorCategory.VALIDATION)):
+            with self.subTest(status=status, page=page):
+                self.opener.open.side_effect = urllib.error.HTTPError("", status, "", {},
+                    io.BytesIO(b'Page > TotalPageSize'))
+                with self.assertRaises(ProviderAPIError) as result:
+                    self.client.get_documents_page("20260901", "20260917", page=page)
+                self.assertEqual(result.exception.category, expected)
+
+    def test_page_limit_body_read_is_bounded_and_read_failure_stays_404(self):
+        response = Mock()
+        response.read.return_value = b'Page > TotalPageSize'
+        self.assertTrue(self.client._declares_page_limit(response))
+        response.read.assert_called_once_with(4097)
+        response.read.side_effect = TimeoutError()
+        self.assertFalse(self.client._declares_page_limit(response))
+
+    def test_cancel_during_error_body_read_never_reports_completion(self):
+        cancel = Event()
+        class Body(io.BytesIO):
+            def read(self, size):
+                cancel.set()
+                return super().read(size)
+        self.opener.open.side_effect = urllib.error.HTTPError("", 404, "", {}, Body(b'Page > TotalPageSize'))
+        with self.assertRaises(ProviderAPIError) as result:
+            self.client.get_documents_page("20260901", "20260917", page=2, cancel=cancel)
+        self.assertEqual(result.exception.category, ErrorCategory.CANCELLED)
+
     def test_401_and_403_are_not_retried_or_leaked(self):
         for status, category in ((401, ErrorCategory.AUTHENTICATION), (403, ErrorCategory.AUTHORIZATION)):
             with self.subTest(status=status):

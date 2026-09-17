@@ -9,6 +9,7 @@ class ErrorCategory(str, Enum):
     CONNECTION = "connection"
     HTTP_4XX = "http_4xx"
     NOT_FOUND = "not_found"
+    END_OF_LIST = "end_of_list"
     DATA_LIMIT = "data_limit"
     HTTP_5XX = "http_5xx"
     INVALID_JSON = "invalid_json"
@@ -27,6 +28,7 @@ MESSAGES = {
     ErrorCategory.CONNECTION: "Δεν ήταν δυνατή η ασφαλής σύνδεση με τον Provider.",
     ErrorCategory.HTTP_4XX: "Ο Provider απέρριψε το αίτημα.",
     ErrorCategory.NOT_FOUND: "HTTP 404: Δεν βρέθηκε το ζητούμενο endpoint ή στοιχείο. Ελέγξτε το URL ανάκτησης με την IMPACT.",
+    ErrorCategory.END_OF_LIST: "Ο Provider δήλωσε ότι η ζητούμενη σελίδα υπερβαίνει τις διαθέσιμες σελίδες.",
     ErrorCategory.DATA_LIMIT: "Η ανάκτηση υπερέβη το όριο δεδομένων. Επιλέξτε μικρότερο διάστημα· δεν εμφανίζεται μερική λίστα.",
     ErrorCategory.HTTP_5XX: "Ο Provider αντιμετώπισε προσωρινό πρόβλημα.",
     ErrorCategory.INVALID_JSON: "Η απάντηση του Provider δεν είναι έγκυρο JSON.",

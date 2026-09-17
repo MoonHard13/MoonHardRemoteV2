@@ -81,7 +81,7 @@ class DocumentsView(ctk.CTkFrame):
         actions = ctk.CTkFrame(self, fg_color="transparent")
         actions.grid(row=4, column=0, sticky="ew", pady=4)
         for column, (label, action) in enumerate((("Άνοιγμα URL · Ctrl+O", self.open_url),
-                ("Αντιγραφή · Ctrl+C", self.copy_selected), ("Λεπτομέρειες · Ctrl+Shift+C", self.copy_details),
+                ("Αντιγραφή · Ctrl+C", self.copy_selected),
                 ("Εξαγωγή JSON · Ctrl+E", self.export))):
             ctk.CTkButton(actions, text=label, command=action, width=170,
                 **secondary_button_style()).grid(row=0, column=column, padx=3)
