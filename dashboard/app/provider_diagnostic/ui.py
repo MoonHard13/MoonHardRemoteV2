@@ -1,0 +1,273 @@
+import json
+import logging
+from collections.abc import Callable
+from tkinter import Menu, filedialog, ttk
+
+import customtkinter as ctk
+
+from app.provider_diagnostic.diagnostics import APIDiagnosticStore
+from app.provider_diagnostic.service import ProviderDiagnosticService
+from app.provider_diagnostic.sections import SECTIONS
+from app.provider_diagnostic.tasks import BackgroundTask
+from app.ui.theme import COLORS, FONTS, apply_treeview_style, card_style, secondary_button_style
+
+
+logger = logging.getLogger(__name__)
+
+
+class ProviderDiagnosticTab(ctk.CTkFrame):
+    """Μη μπλοκαρισμένο diagnostic module μέσα στο υπάρχον Manage window."""
+
+    SECTIONS = SECTIONS
+    COLUMNS = ("Timestamp", "Endpoint", "Operation", "Duration ms", "HTTP Status",
+               "Records", "Result", "Error Category", "Message")
+
+    def __init__(self, parent, service: ProviderDiagnosticService,
+                 is_active: Callable[[], bool]) -> None:
+        super().__init__(parent, fg_color="transparent")
+        self.service = service
+        self._is_active = is_active
+        self._task = BackgroundTask()
+        self._closed = False
+        self._scope = None
+        self._context = None
+        self._job = None
+        self._bindings = []
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+        self._build_ui()
+        self._bind_shortcuts()
+        self.refresh_context()
+        self._job = self.after(100, self._poll)
+
+    def _build_ui(self) -> None:
+        toolbar = ctk.CTkFrame(self, **card_style())
+        toolbar.grid(row=0, column=0, sticky="ew", padx=8, pady=8)
+        toolbar.grid_columnconfigure(0, weight=1)
+        self.section = ctk.CTkOptionMenu(toolbar, values=list(self.SECTIONS),
+                                         command=self._show_section, width=200)
+        self.section.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkButton(toolbar, text="Context · F5", command=self.refresh_context,
+                      width=120, **secondary_button_style()).grid(row=0, column=1, padx=5)
+        self.probe_button = ctk.CTkButton(toolbar, text="Έλεγχος Provider · Ctrl+Enter",
+                                          command=self.probe, width=220, **secondary_button_style())
+        self.probe_button.grid(row=0, column=2, padx=5)
+        self.cancel_button = ctk.CTkButton(toolbar, text="Ακύρωση · Esc", command=self.cancel,
+                                           width=120, state="disabled", **secondary_button_style())
+        self.cancel_button.grid(row=0, column=3, padx=10)
+        self.status = ctk.CTkLabel(self, text="", anchor="w", font=FONTS.small,
+                                   text_color=COLORS.text_secondary, wraplength=750)
+        self.status.grid(row=1, column=0, padx=12, pady=(0, 8), sticky="ew")
+        self.overview = ctk.CTkScrollableFrame(self, fg_color=COLORS.surface)
+        self.overview.grid_columnconfigure(0, weight=1)
+        self.context_text = ctk.CTkLabel(self.overview, text="", anchor="w", justify="left",
+                                         font=FONTS.body, wraplength=740)
+        self.context_text.grid(row=0, column=0, padx=16, pady=16, sticky="ew")
+        self.last_request = ctk.CTkLabel(self.overview, text="Δεν έχει γίνει Provider API call.",
+                                         anchor="w", justify="left", font=FONTS.body)
+        self.last_request.grid(row=1, column=0, padx=16, pady=8, sticky="ew")
+        ctk.CTkLabel(self.overview, text="Οι μετρητές παραστατικών και reconciliation θα ενεργοποιηθούν\n"
+                     "όταν φορτώνονται πραγματικά δεδομένα στις επόμενες φάσεις.",
+                     justify="left", anchor="w", font=FONTS.body, text_color=COLORS.text_secondary,
+                     wraplength=740).grid(row=2, column=0, padx=16, pady=16, sticky="ew")
+        self.planned = ctk.CTkFrame(self, **card_style())
+        self.planned.grid_columnconfigure(0, weight=1)
+        self.planned_text = ctk.CTkLabel(self.planned, text="", font=FONTS.body,
+                                         justify="left", wraplength=740)
+        self.planned_text.grid(row=0, column=0, padx=24, pady=40, sticky="nw")
+        self.api_view = ctk.CTkFrame(self, fg_color="transparent")
+        self.api_view.grid_columnconfigure(0, weight=1)
+        self.api_view.grid_rowconfigure(1, weight=1)
+        filters = ctk.CTkFrame(self.api_view, fg_color="transparent")
+        filters.grid(row=0, column=0, sticky="ew", pady=8)
+        filters.grid_columnconfigure(1, weight=1)
+        self.outcome = ctk.CTkOptionMenu(filters, values=["All", "Success", "Errors"],
+                                         width=100, command=lambda _: self.refresh_diagnostics())
+        self.outcome.grid(row=0, column=0, padx=4)
+        self.endpoint = ctk.CTkEntry(filters, placeholder_text="Endpoint · Ctrl+F")
+        self.endpoint.grid(row=0, column=1, sticky="ew", padx=4)
+        self.http_status = ctk.CTkEntry(filters, placeholder_text="HTTP Status", width=105)
+        self.http_status.grid(row=0, column=2, padx=4)
+        for entry in (self.endpoint, self.http_status):
+            entry.bind("<KeyRelease>", lambda _: self.refresh_diagnostics())
+        for column, text, action in ((3, "Copy · Ctrl+C", self.copy_selected),
+                                     (4, "Export · Ctrl+E", self.export)):
+            ctk.CTkButton(filters, text=text, command=action, width=120,
+                          **secondary_button_style()).grid(row=0, column=column, padx=4)
+        table = ctk.CTkFrame(self.api_view, fg_color="transparent")
+        table.grid(row=1, column=0, sticky="nsew")
+        table.grid_columnconfigure(0, weight=1)
+        table.grid_rowconfigure(0, weight=1)
+        self.tree = ttk.Treeview(table, columns=self.COLUMNS, show="headings",
+                                 style=apply_treeview_style(), selectmode="extended")
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        for column in self.COLUMNS:
+            self.tree.heading(column, text=column, command=lambda c=column: self._sort(c))
+            self.tree.column(column, width=150 if column != "Endpoint" else 350, minwidth=80, stretch=True)
+        vertical = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal = ttk.Scrollbar(table, orient="horizontal", command=self.tree.xview)
+        horizontal.grid(row=1, column=0, sticky="ew")
+        self.tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        self._sort_reverse: dict[str, bool] = {}
+        self.menu = Menu(self.tree, tearoff=False)
+        self.menu.add_command(label="Αντιγραφή διαγνωστικών", command=self.copy_selected)
+        self.menu.add_command(label="Εξαγωγή ορατών διαγνωστικών", command=self.export)
+        self.tree.bind("<Button-3>", self._context_menu)
+        self._show_section("Overview")
+
+    def _show_section(self, section: str) -> None:
+        self.section.set(section)
+        for frame in (self.overview, self.api_view, self.planned):
+            frame.grid_remove()
+        frame = self.overview if section == "Overview" else self.api_view if section == "API Diagnostics" else self.planned
+        if frame is self.planned:
+            phase = self.SECTIONS[section]
+            text = (f"{section}\n\nΠρογραμματισμένη υλοποίηση: Phase {phase}.\n"
+                    "Η λειτουργία δεν έχει υλοποιηθεί ακόμη.") if phase else (
+                        "QR Tools\n\nΑπαιτείται πλήρες endpoint/schema από S1Ecos\n"
+                        "για το RequestGroupQRDetails. Δεν εκτελείται guessed request.")
+            self.planned_text.configure(text=text)
+        frame.grid(row=2, column=0, padx=8, pady=8, sticky="nsew")
+
+    def refresh_context(self) -> None:
+        if self._closed:
+            return
+        context = self.service.snapshot()
+        scope = (context.client_code, context.bo_connection_id, context.database_server, context.database_name)
+        if self._scope is not None and scope != self._scope:
+            self._task.cancel()
+            # Το προηγούμενο worker κρατά το προηγούμενο store, ποτέ το νέο customer dataset.
+            self.service.diagnostics.close()
+            self.service.diagnostics = APIDiagnosticStore()
+        self._scope, self._context = scope, context
+        erp = "Client συνδεδεμένος · SQL σύνδεση δεν έχει ελεγχθεί" if context.client_connected else "Client εκτός σύνδεσης · SQL σύνδεση δεν έχει ελεγχθεί"
+        provider = "Έτοιμος για χειροκίνητο έλεγχο" if context.provider_ready else context.provider_reason
+        self.context_text.configure(text=(f"Πελάτης/εγκατάσταση: {context.display_name}\n"
+            f"Client: {context.client_code}\nBOConnection: {context.bo_connection_id or 'Μη διαθέσιμο'}\n"
+            f"Server: {context.database_server or 'Μη διαθέσιμο'}\nDatabase: {context.database_name or 'Μη διαθέσιμο'}\n"
+            f"ΑΦΜ εκδότη: {context.issuer_vat or 'Δεν έχει εντοπιστεί επιβεβαιωμένη πηγή'}\n"
+            f"ERP: {erp}\nProvider: {provider}"))
+        self.probe_button.configure(state="normal" if context.provider_ready and not self._task.busy else "disabled")
+        self.status.configure(text="Phase 1 · Χρήση του υπάρχοντος customer/BO context · Διαγνωστικά μόνο για πραγματικές κλήσεις")
+        self.refresh_diagnostics()
+        logger.info("Ενημέρωση context Provider Diagnostic Center.")
+
+    def probe(self) -> None:
+        self.refresh_context()
+        if not self._context.provider_ready or self._task.busy:
+            return
+        context = self._context
+        diagnostics = self.service.diagnostics
+        if self._task.start(lambda cancel: self.service.probe(context, cancel, diagnostics)):
+            self._running_scope = self._scope
+            self.status.configure(text="Ανάγνωση πρώτης σελίδας σημερινών παραστατικών…")
+            self.probe_button.configure(state="disabled")
+            self.cancel_button.configure(state="normal")
+            logger.info("Έναρξη χειροκίνητου Provider diagnostic request.")
+
+    def cancel(self) -> None:
+        if self._task.busy:
+            self._task.cancel()
+            self.status.configure(text="Ζητήθηκε ακύρωση· το ενεργό socket έχει πεπερασμένο timeout.")
+            logger.info("Ζητήθηκε ακύρωση Provider diagnostic request.")
+
+    def _poll(self) -> None:
+        if self._closed:
+            return
+        result = self._task.poll()
+        if result is not None:
+            value, error = result
+            if getattr(self, "_running_scope", None) == self._scope:
+                self.status.configure(text=error.message if error else f"Έλεγχος ολοκληρώθηκε. Records πρώτης σελίδας: {value['records']}")
+            self.probe_button.configure(state="normal" if self._context.provider_ready else "disabled")
+            self.cancel_button.configure(state="disabled")
+            self.refresh_diagnostics()
+        self._job = self.after(100, self._poll)
+
+    def refresh_diagnostics(self) -> None:
+        rows = self.service.diagnostics.entries(self.outcome.get(), self.endpoint.get().strip(), self.http_status.get().strip())
+        for iid in self.tree.get_children():
+            self.tree.delete(iid)
+        for row in rows:
+            self.tree.insert("", "end", values=(row.timestamp.isoformat(timespec="seconds"), row.endpoint,
+                row.operation, row.duration_ms, row.http_status if row.http_status is not None else "-",
+                row.records, "Success" if row.success else "Failure", row.error_category, row.error_message))
+        all_rows = self.service.diagnostics.entries()
+        latest_success = next((row for row in reversed(all_rows) if row.success), None)
+        last = all_rows[-1] if all_rows else None
+        self.last_request.configure(text=(f"Τελευταία επιτυχία: {latest_success.timestamp.isoformat(timespec='seconds') if latest_success else 'Δεν υπάρχει'}\n"
+            f"Διάρκεια τελευταίου attempt: {last.duration_ms if last else '-'} ms\n"
+            f"Τελευταίο HTTP status: {last.http_status if last else '-'}"))
+
+    def _sort(self, column: str) -> None:
+        numeric = column in ("Duration ms", "HTTP Status", "Records")
+        def key(iid):
+            value = self.tree.set(iid, column)
+            return int(value) if numeric and value.isdigit() else -1 if numeric else value.casefold()
+        reverse = self._sort_reverse.get(column, False)
+        for position, iid in enumerate(sorted(self.tree.get_children(), key=key, reverse=reverse)):
+            self.tree.move(iid, "", position)
+        self._sort_reverse[column] = not reverse
+
+    def _context_menu(self, event) -> None:
+        iid = self.tree.identify_row(event.y)
+        if iid:
+            if iid not in self.tree.selection():
+                self.tree.selection_set(iid)
+            try:
+                self.menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                self.menu.grab_release()
+
+    def copy_selected(self) -> None:
+        lines = ["\t".join(str(value) for value in self.tree.item(iid, "values")) for iid in self.tree.selection()]
+        if lines:
+            self.clipboard_clear()
+            self.clipboard_append("\n".join(lines))
+            logger.info("Αντιγραφή επιλεγμένων API diagnostics.")
+
+    def export(self) -> None:
+        path = filedialog.asksaveasfilename(parent=self.winfo_toplevel(), defaultextension=".json",
+            initialfile="provider-api-diagnostics.json", filetypes=[("JSON", "*.json")])
+        if not path:
+            return
+        try:
+            rows = [dict(zip(self.COLUMNS, self.tree.item(iid, "values"))) for iid in self.tree.get_children()]
+            with open(path, "w", encoding="utf-8") as stream:
+                json.dump(rows, stream, ensure_ascii=False, indent=2)
+            self.status.configure(text=f"Εξαγωγή ολοκληρώθηκε. Εγγραφές: {len(rows)}")
+            logger.info("Εξαγωγή API diagnostics ολοκληρώθηκε. count=%s", len(rows))
+        except OSError:
+            self.status.configure(text="Δεν ήταν δυνατή η αποθήκευση. Ελέγξτε δικαιώματα και διαθέσιμο χώρο.")
+            logger.warning("Αποτυχία αποθήκευσης API diagnostics.")
+
+    def _search(self) -> None:
+        self._show_section("API Diagnostics")
+        self.endpoint.focus_set()
+
+    def _bind_shortcuts(self) -> None:
+        top = self.winfo_toplevel()
+        for sequence, operation in (("<F5>", self.refresh_context), ("<Control-Return>", self.probe),
+                ("<Escape>", self.cancel), ("<Control-f>", self._search),
+                ("<Control-c>", self.copy_selected), ("<Control-e>", self.export)):
+            def handler(event, action=operation):
+                if self._is_active() and event.widget.winfo_toplevel() == top:
+                    if event.keysym.lower() == "c" and event.widget is not self.tree:
+                        return None
+                    action()
+                    return "break"
+                return None
+            self._bindings.append((sequence, top.bind(sequence, handler, add="+")))
+
+    def destroy(self) -> None:
+        self._closed = True
+        self._task.close()
+        self.service.close()
+        if self._job is not None:
+            self.after_cancel(self._job)
+        top = self.winfo_toplevel()
+        for sequence, binding in self._bindings:
+            if binding:
+                top.unbind(sequence, binding)
+        super().destroy()
