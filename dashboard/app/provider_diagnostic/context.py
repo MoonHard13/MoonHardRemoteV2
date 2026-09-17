@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import replace
 
-from app.provider_diagnostic.models import DiagnosticContext, VerifiedProviderCredentials
+from app.provider_diagnostic.models import DiagnosticContext, VerifiedProviderCredentials, ProviderEndpoint
 
 
 class CustomerContextAdapter:
@@ -34,7 +34,10 @@ class CustomerContextAdapter:
     def bind(context: DiagnosticContext, credentials: VerifiedProviderCredentials) -> DiagnosticContext:
         if (credentials.client_code != context.client_code
                 or credentials.bo_connection_id != context.bo_connection_id
-                or (context.issuer_vat and credentials.issuer_vat != context.issuer_vat)):
+                or (context.issuer_vat and credentials.issuer_vat != context.issuer_vat)
+                or (context.provider_base_url and credentials.provider_base_url != context.provider_base_url)):
             raise ValueError("Τα στοιχεία Provider δεν αντιστοιχούν στον επιλεγμένο πελάτη/βάση.")
         return replace(context, issuer_vat=credentials.issuer_vat,
+                       provider_base_url=credentials.provider_base_url,
+                       provider_environment=ProviderEndpoint.environment(credentials.provider_base_url),
                        provider_ready=True, provider_reason="")

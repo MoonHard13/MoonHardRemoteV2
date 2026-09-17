@@ -10,6 +10,7 @@ from app.provider_diagnostic.service import ProviderDiagnosticService
 from app.provider_diagnostic.sections import SECTIONS
 from app.provider_diagnostic.tasks import BackgroundTask
 from app.provider_diagnostic.session import ProviderContextSession
+from app.provider_diagnostic.models import ProviderEndpoint
 from app.ui.theme import COLORS, FONTS, apply_treeview_style, card_style, secondary_button_style
 
 
@@ -149,13 +150,13 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
         if self._closed:
             return
         context = self.service.snapshot()
-        scope = (*self.session.scope(context), self.session.issuer_vat, self.session.generation)
+        scope = (*self.session.scope(context), self.session.issuer_vat, self.session.provider_base_url, self.session.generation)
         if self._scope is not None and scope != self._scope:
             self._task.cancel()
             if scope[:4] != self._scope[:4]:
                 self.session.clear()
                 context = self.service.snapshot()
-                scope = (*self.session.scope(context), self.session.issuer_vat, self.session.generation)
+                scope = (*self.session.scope(context), self.session.issuer_vat, self.session.provider_base_url, self.session.generation)
                 self._update_company_options()
             # Το προηγούμενο worker κρατά το προηγούμενο store, ποτέ το νέο customer dataset.
             self.service.diagnostics.close()
@@ -165,17 +166,19 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             self.session.clear()
             self._update_company_options()
             context = self.service.snapshot()
-            scope = (*self.session.scope(context), self.session.issuer_vat, self.session.generation)
+            scope = (*self.session.scope(context), self.session.issuer_vat, self.session.provider_base_url, self.session.generation)
         self._scope, self._context = scope, context
         self._last_ready = context.provider_ready
         erp = "Client συνδεδεμένος · SQL σύνδεση δεν έχει ελεγχθεί" if context.client_connected else "Client εκτός σύνδεσης · SQL σύνδεση δεν έχει ελεγχθεί"
         if self.session.sql_verified:
             erp = "Επιτυχής ανάγνωση TblSnCompany στην επιλεγμένη βάση"
         provider = "Έτοιμος για χειροκίνητο έλεγχο" if context.provider_ready else self.session.message
+        environment = ProviderEndpoint.environment(self.session.provider_base_url) if self.session.provider_base_url else "Μη διαθέσιμο"
         self.context_text.configure(text=(f"Πελάτης/εγκατάσταση: {context.display_name}\n"
             f"Client: {context.client_code}\nBOConnection: {context.bo_connection_id or 'Μη διαθέσιμο'}\n"
             f"Server: {context.database_server or 'Μη διαθέσιμο'}\nDatabase: {context.database_name or 'Μη διαθέσιμο'}\n"
             f"ΑΦΜ εκδότη: {context.issuer_vat or self.session.issuer_vat or 'Επιλέξτε εταιρεία'}\n"
+            f"Περιβάλλον: {environment}\nProvider URL: {self.session.provider_base_url or 'Μη διαθέσιμο'}\n"
             f"ERP: {erp}\nProvider: {provider}"))
         self.probe_button.configure(state="normal" if context.provider_ready and not self._task.busy else "disabled")
         self.status.configure(text="Phase 1 · Χρήση του υπάρχοντος customer/BO context · Διαγνωστικά μόνο για πραγματικές κλήσεις")
@@ -223,7 +226,7 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             return
         self._update_company_options()
         self.refresh_context()
-        if len(self.session.companies) == 1 and not self.session.issuer_vat and payload.get("success") is True:
+        if len(self.session.companies) == 1 and not self.session.issuer_vat and self.session.context_valid:
             self._select_company(next(iter(self._company_labels)))
         else:
             self.status.configure(text=self.session.message + (

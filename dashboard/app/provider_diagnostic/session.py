@@ -3,7 +3,7 @@ import time
 from threading import RLock
 from uuid import uuid4
 
-from app.provider_diagnostic.models import VerifiedProviderCredentials
+from app.provider_diagnostic.models import VerifiedProviderCredentials, ProviderEndpoint
 
 
 class ProviderContextSession:
@@ -30,6 +30,8 @@ class ProviderContextSession:
             self._expires = 0
             self.companies = []
             self.issuer_vat = ""
+            self.provider_base_url = ""
+            self.context_valid = False
             self.invalid_afm_count = 0
             self.sql_verified = False
             self.message = "Ανακτήστε εταιρείες με F5 και επιλέξτε ΑΦΜ εκδότη."
@@ -52,6 +54,7 @@ class ProviderContextSession:
             self.generation += 1
             self._credentials = None
             self.issuer_vat = issuer_vat
+            self.context_valid = False
             if not issuer_vat:
                 self.companies = []
                 self.sql_verified = False
@@ -67,6 +70,7 @@ class ProviderContextSession:
             self.generation += 1
             self._pending = None
             self._credentials = None
+            self.context_valid = False
             self.message = message
 
     def expire_pending(self):
@@ -86,6 +90,7 @@ class ProviderContextSession:
                 return False
             self._pending = None
             self._credentials = None
+            self.context_valid = False
             try:
                 rows = payload.get("companies", [])
                 if not isinstance(rows, list) or len(rows) > 2000:
@@ -112,17 +117,20 @@ class ProviderContextSession:
                     # Τα ελεγχόμενα Client errors δεν περιέχουν raw ODBC ή Provider responses.
                     self.message = "Απέτυχε η ανάκτηση. Ελέγξτε σύνδεση, ΑΦΜ και subscriptionKey του BOConnection."
                     return True
+                self.provider_base_url = ProviderEndpoint.normalize(payload.get("provider_base_url", ""))
                 if pending[2]:
                     if payload.get("issuer_vat") != pending[2] or pending[2] not in seen:
                         raise ValueError
                     self._credentials = VerifiedProviderCredentials(context.client_code,
                         context.bo_connection_id, pending[2], payload.get("api_key", ""),
-                        "Client: BOConnections.subscriptionKey / dbo.TblSnCompany.CompanyAFM")
+                        "Client: BOConnections.subscriptionKey / dbo.TblSnCompany.CompanyAFM",
+                        self.provider_base_url)
                     self._expires = time.monotonic() + self.KEY_TTL_SECONDS
                     self.message = "Έτοιμος για χειροκίνητο Provider έλεγχο."
                 else:
                     self.issuer_vat = ""
                     self.message = "Επιλέξτε ΑΦΜ εκδότη." if companies else "Δεν βρέθηκαν εταιρείες με ΑΦΜ 9 ψηφίων."
+                self.context_valid = True
                 return True
             except (ValueError, TypeError, AttributeError):
                 self._credentials = None
@@ -137,5 +145,7 @@ class ProviderContextSession:
                     or time.monotonic() >= self._expires):
                 self._credentials = None
             if context.issuer_vat and context.issuer_vat != self.issuer_vat:
+                return None
+            if context.provider_base_url and context.provider_base_url != self.provider_base_url:
                 return None
             return self._credentials

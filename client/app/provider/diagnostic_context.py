@@ -1,6 +1,7 @@
 import logging
 import re
 from contextlib import closing
+from urllib.parse import urlsplit
 
 import pyodbc
 
@@ -12,6 +13,37 @@ class ProviderDiagnosticContextReader:
     """Ανακτά εταιρείες από τη σωστή βάση και το τοπικό subscriptionKey."""
 
     MAX_COMPANIES = 2000
+    PROVIDER_HOSTS = frozenset(("einvoice.impact.gr", "einvoiceapi.impact.gr", "einvoiceapiuat.impact.gr"))
+
+    @classmethod
+    def _normalize_base_url(cls, value):
+        if not isinstance(value, str) or any(ord(c) < 33 or ord(c) == 127 for c in value):
+            raise ValueError("Μη έγκυρο BaseURL Provider.")
+        parts = urlsplit(value)
+        if (parts.scheme != "https" or parts.hostname not in cls.PROVIDER_HOSTS
+                or parts.username is not None or parts.password is not None
+                or parts.port not in (None, 443) or parts.query or parts.fragment
+                or parts.path.rstrip("/") not in ("", "/api", "/api/invoice")):
+            raise ValueError("Το BaseURL πρέπει να είναι έγκυρο HTTPS endpoint IMPACT.")
+        return f"https://{parts.hostname}"
+
+    def _provider_base_url(self, data, selected):
+        """Χρησιμοποιεί ρητή αντιστοίχιση Provider ή ένα μοναδικό διαθέσιμο endpoint."""
+        providers = [row for row in data.get("provider_connections", []) if isinstance(row, dict)]
+        references = {str(value) for key, value in selected.items()
+                      if str(key).lower() in ("providerconnectionid", "providerid") and value is not None}
+        if len(references) > 1:
+            raise ValueError("Αμφίσημη αντιστοίχιση ProviderConnection.")
+        if references:
+            providers = [row for row in providers if str(row.get("ID")) in references]
+            if len(providers) != 1:
+                raise ValueError("Δεν βρέθηκε μοναδική ProviderConnection για το BOConnection.")
+        if not providers:
+            raise ValueError("Δεν υπάρχει ProviderConnection με BaseURL.")
+        endpoints = {self._normalize_base_url(row.get("BaseURL")) for row in providers}
+        if len(endpoints) != 1:
+            raise ValueError("Υπάρχουν διαφορετικά BaseURL χωρίς ρητή αντιστοίχιση ProviderConnectionID.")
+        return endpoints.pop()
 
     def __init__(self, appsettings_reader, provider_service):
         self._settings = appsettings_reader
@@ -37,9 +69,13 @@ class ProviderDiagnosticContextReader:
             if len(matches) != 1 or not matches[0].get("DatabaseConnection"):
                 return self.failure("Το επιλεγμένο BOConnection δεν είναι διαθέσιμο ή δεν είναι μοναδικό.")
             selected = matches[0]
+            try:
+                base_url = self._provider_base_url(data, selected)
+            except ValueError:
+                return self.failure("Ελέγξτε BaseURL και αντιστοίχιση ProviderConnectionID του επιλεγμένου BOConnection.")
             companies, invalid = self._companies(selected["DatabaseConnection"])
             result = {"success": True, "companies": companies, "invalid_afm_count": invalid,
-                      "issuer_vat": "", "sql_verified": True}
+                      "issuer_vat": "", "sql_verified": True, "provider_base_url": base_url}
             if not companies:
                 return {**result, "success": False,
                         "error": "Δεν βρέθηκε ΑΦΜ 9 ψηφίων στο TblSnCompany.CompanyAFM."}

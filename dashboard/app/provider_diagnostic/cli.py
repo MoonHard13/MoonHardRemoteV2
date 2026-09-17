@@ -16,6 +16,7 @@ from app.provider_diagnostic.security import SECRET_REDACTOR
 from app.provider_diagnostic.service import ProviderDiagnosticService
 from app.provider_diagnostic.session import ProviderContextSession
 from app.provider_diagnostic.errors import ProviderAPIError
+from app.provider_diagnostic.models import ProviderEndpoint
 
 
 logger = logging.getLogger(__name__)
@@ -97,14 +98,17 @@ class ProviderDiagnosticCLI:
                             context = adapter.snapshot()
                             result = {**context.to_dict(), "companies": session.companies,
                                       "issuer_vat": session.issuer_vat,
+                                      "provider_base_url": session.provider_base_url,
+                                      "provider_environment": ProviderEndpoint.environment(session.provider_base_url) if session.provider_base_url else "",
                                       "sql_verified": session.sql_verified,
                                       "invalid_afm_count": session.invalid_afm_count}
-                            if reply.get("success") is not True:
+                            if reply.get("success") is not True or not session.context_valid:
                                 return {**result, "success": False, "error": session.message}
                             if not probe:
                                 if chosen and chosen not in {row["issuer_vat"] for row in session.companies}:
                                     return {**result, "success": False, "error": "Το ΑΦΜ δεν υπάρχει στην επιλεγμένη βάση."}
-                                return {**result, "success": True, "issuer_vat": chosen}
+                                selected = chosen or (session.companies[0]["issuer_vat"] if len(session.companies) == 1 else "")
+                                return {**result, "success": True, "issuer_vat": selected}
                             if not session.issuer_vat:
                                 selected = chosen or (session.companies[0]["issuer_vat"] if len(session.companies) == 1 else "")
                                 if not selected:

@@ -24,7 +24,6 @@ class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 class ProviderAPIClient:
     """Απευθείας HTTPS ανάγνωση documented outgoing documents από το Dashboard."""
 
-    BASE_URL = "https://einvoice.impact.gr/api/invoice/getdocuments"
     ENDPOINT = "/api/invoice/getdocuments/{IssuerVatNumber}/{PageNumber}/"
     MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
@@ -33,6 +32,8 @@ class ProviderAPIClient:
         if not 1 <= timeout <= 60 or not 1 <= max_attempts <= 3:
             raise ValueError("Μη έγκυρα όρια επικοινωνίας Provider.")
         self._credentials = credentials
+        self.base_url = credentials.provider_base_url + "/api/invoice/getdocuments"
+        self.endpoint = credentials.provider_base_url + self.ENDPOINT
         self.diagnostics = diagnostics
         self.timeout = timeout
         self.max_attempts = max_attempts
@@ -58,7 +59,7 @@ class ProviderAPIClient:
             raise ProviderAPIError(ErrorCategory.VALIDATION)
         cancel = cancel or Event()
         # Η τεκμηρίωση δείχνει From/dateTo για το συγκεκριμένο paginated endpoint.
-        url = f"{self.BASE_URL}/{self._credentials.issuer_vat}/{page}/?" + urlencode(
+        url = f"{self.base_url}/{self._credentials.issuer_vat}/{page}/?" + urlencode(
             {"From": start, "dateTo": end})
         for attempt in range(self.max_attempts):
             if cancel.is_set():
@@ -138,7 +139,7 @@ class ProviderAPIClient:
         if cancel.is_set():
             error, retryable, result = ProviderAPIError(ErrorCategory.CANCELLED, status), False, None
         self.diagnostics.add(APIDiagnostic(
-            timestamp, self.ENDPOINT, "GetDocumentsPage", int((time.perf_counter() - started) * 1000),
+            timestamp, self.endpoint, "GetDocumentsPage", int((time.perf_counter() - started) * 1000),
             status, records, error is None, error.category.value if error else "",
             error.message if error else ""))
         return result, error, retryable
