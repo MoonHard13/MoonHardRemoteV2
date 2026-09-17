@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from threading import Event
 from urllib.parse import parse_qsl, urljoin, urlsplit
@@ -88,6 +88,8 @@ class DocumentDataset:
     invalid_date_count: int = 0
     complete: bool = True
     termination: str = "next_page_absent"
+    api_date_from: str = ""
+    api_date_to: str = ""
 
     @property
     def warning(self):
@@ -133,7 +135,9 @@ class DocumentDataset:
                 "missing_amounts": missing_amounts, "missing_vat": missing_vat, "invoice_types": types,
                 "fetched_records": self.fetched_records if self.fetched_records is not None else len(self.records),
                 "excluded_by_date": self.excluded_by_date, "invalid_date_count": self.invalid_date_count,
-                "complete": self.complete, "termination": self.termination}
+                "complete": self.complete, "termination": self.termination,
+                "api_date_from": self.api_date_from or self.date_from,
+                "api_date_to": self.api_date_to or self.date_to}
 
 
 class DocumentLoader:
@@ -143,6 +147,15 @@ class DocumentLoader:
 
     def __init__(self, client: ProviderAPIClient):
         self.client = client
+
+    @staticmethod
+    def _request_window(start, end):
+        # Το API μπορεί να φιλτράρει ημερομηνίες δημιουργίας σε UTC.
+        # Διαβάζουμε μία επιπλέον ημέρα σε κάθε πλευρά και φιλτράρουμε το dateIssued.
+        first, last = (datetime.strptime(value, "%Y%m%d").date() for value in (start, end))
+        first = first - timedelta(days=1) if first > date.min else first
+        last = last + timedelta(days=1) if last < date.max else last
+        return tuple(f"{value.year:04d}{value.month:02d}{value.day:02d}" for value in (first, last))
 
     def _next_page(self, value, current, issuer, start, end):
         # Ελέγχουμε το NextPage χωρίς να στέλνουμε κλειδί σε URL της απάντησης.
@@ -174,15 +187,17 @@ class DocumentLoader:
         start, end = self.client._date(start), self.client._date(end)
         if start > end:
             raise ProviderAPIError(ErrorCategory.VALIDATION)
+        request_start, request_end = self._request_window(start, end)
         records, hashes, size, page_number = [], set(), 0, 1
         fetched = excluded = invalid_dates = successful_pages = 0
         complete, termination = True, "next_page_absent"
-        logger.info("Έναρξη πλήρους ανάκτησης παραστατικών.")
+        logger.info("Έναρξη ανάκτησης παραστατικών. requested_from=%s requested_to=%s api_from=%s api_to=%s",
+            start, end, request_start, request_end)
         while True:
             if cancel.is_set():
                 raise ProviderAPIError(ErrorCategory.CANCELLED)
             try:
-                page = self.client.get_documents_page(start, end, page_number, cancel)
+                page = self.client.get_documents_page(request_start, request_end, page_number, cancel)
             except ProviderAPIError as exc:
                 # Μόνο 404 μετά από έγκυρο NextPage κρατά τα διαθέσιμα στοιχεία με προειδοποίηση.
                 if exc.category != ErrorCategory.NOT_FOUND or not successful_pages:
@@ -218,9 +233,10 @@ class DocumentLoader:
                 break
             if page_number >= self.MAX_PAGES:
                 raise ProviderAPIError(ErrorCategory.DATA_LIMIT)
-            page_number = self._next_page(page.next_page, page_number, issuer, start, end)
+            page_number = self._next_page(page.next_page, page_number, issuer, request_start, request_end)
         if cancel.is_set():
             raise ProviderAPIError(ErrorCategory.CANCELLED)
         logger.info("Ανάκτηση ολοκληρώθηκε. pages=%s records=%s fetched=%s complete=%s", successful_pages, len(records), fetched, complete)
         return DocumentDataset(tuple(records), start, end, successful_pages,
-            datetime.now(timezone.utc).isoformat(timespec="seconds"), fetched, excluded, invalid_dates, complete, termination)
+            datetime.now(timezone.utc).isoformat(timespec="seconds"), fetched, excluded, invalid_dates,
+            complete, termination, request_start, request_end)
