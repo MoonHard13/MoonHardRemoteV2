@@ -42,12 +42,12 @@ class LoaderTests(unittest.TestCase):
     def load(self, progress=None):
         return self.loader.load("20260901", "20260917", "EL012345678", self.cancel, progress)
 
-    def next_url(self, page=2, host="einvoice.impact.gr", query="From=20260901&dateTo=20260917"):
+    def next_url(self, page=2, host="einvoice.impact.gr", query="From=20260831&dateTo=20260918"):
         return f"https://{host}/api/invoice/getdocuments/EL012345678/{page}/?{query}"
 
     def test_all_pages_follow_header_and_reconstruct_safe_requests(self):
         self.client.get_documents_page.side_effect = [DocumentPage([row()], self.next_url()),
-            DocumentPage([row("2")], "/api/invoice/getdocuments/EL012345678/3/?From=20260901&To=20260917"),
+            DocumentPage([row("2")], "/api/invoice/getdocuments/EL012345678/3/?From=20260831&To=20260918"),
             DocumentPage([row("3")])]
         progress = Mock()
         dataset = self.load(progress)
@@ -89,6 +89,45 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual([r["number"] for r in result.records], ["outside"])
         result = self.loader.load("20260101", "20260101", "EL012345678", self.cancel)
         self.assertEqual(len(result.records), 0)
+
+    def test_utc_midnight_documents_are_included_and_daily_totals_add_up(self):
+        rows = [row(str(n), dateIssued="2026-09-16T12:00:00", dateUpdated="2026-09-16T09:00:00")
+            for n in range(42)]
+        rows += [row(str(n + 42), dateIssued=f"2026-09-17T00:{n + 1:02d}:00",
+            dateUpdated=f"2026-09-16T21:{n + 1:02d}:00") for n in range(5)]
+        rows += [row(str(n + 47), dateIssued="2026-09-17T12:00:00", dateUpdated="2026-09-17T09:00:00")
+            for n in range(2)]
+        def fetch(start, end, page, cancel):
+            if page > 1:
+                raise ProviderAPIError(ErrorCategory.NOT_FOUND, 404)
+            found = [r for r in rows if start <= r["dateUpdated"][:10].replace("-", "") <= end]
+            return DocumentPage(found, "2")
+        self.client.get_documents_page.side_effect = fetch
+        first = self.loader.load("20260916", "20260916", "EL012345678", self.cancel)
+        second = self.loader.load("20260917", "20260917", "EL012345678", self.cancel)
+        together = self.loader.load("20260916", "20260917", "EL012345678", self.cancel)
+        self.assertEqual([len(result.records) for result in (first, second, together)], [42, 7, 49])
+        self.assertEqual({r["number"] for r in first.records + second.records},
+            {r["number"] for r in together.records})
+        self.assertEqual((second.date_from, second.date_to), ("20260917", "20260917"))
+        self.assertEqual((second.summary()["api_date_from"], second.summary()["api_date_to"]),
+            ("20260916", "20260918"))
+        self.assertFalse(second.complete)
+
+    def test_padded_window_is_used_on_every_page_and_header_validation(self):
+        self.client.get_documents_page.side_effect = [DocumentPage([row()], self.next_url()),
+            DocumentPage([row("2")])]
+        self.load()
+        for call in self.client.get_documents_page.call_args_list:
+            self.assertEqual(call.args[:2], ("20260831", "20260918"))
+
+    def test_request_window_handles_month_year_leap_day_and_calendar_limits(self):
+        for start, end, expected in (
+            ("20260101", "20260101", ("20251231", "20260102")),
+            ("20240301", "20240301", ("20240229", "20240302")),
+            ("00010101", "99991231", ("00010101", "99991231"))):
+            with self.subTest(start=start, end=end):
+                self.assertEqual(DocumentLoader._request_window(start, end), expected)
 
     def test_first_page_404_remains_an_error(self):
         self.client.get_documents_page.side_effect = ProviderAPIError(ErrorCategory.NOT_FOUND, 404)
@@ -195,8 +234,8 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual([d.http_status for d in store.entries()], [200, 200])
         self.assertTrue(all(d.records == 1 for d in store.entries()))
         self.assertEqual([d.operation for d in store.entries()], [
-            "GetDocumentsPage page=1 From=20260901 dateTo=20260917",
-            "GetDocumentsPage page=2 From=20260901 dateTo=20260917"])
+            "GetDocumentsPage page=1 From=20260831 dateTo=20260918",
+            "GetDocumentsPage page=2 From=20260831 dateTo=20260918"])
 
     def test_real_terminal_404_remains_a_failed_diagnostic(self):
         class Response(io.BytesIO):
