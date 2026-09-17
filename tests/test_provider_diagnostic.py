@@ -413,7 +413,7 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["companies"][0]["issuer_vat"], "EL012345678")
         self.assertNotIn("secret-fixture", json.dumps(result))
 
-    async def _company_cli(self, companies, chosen="", probe=True, documents=None, complete=True):
+    async def _company_cli(self, companies, chosen="", probe=True, documents=None, complete=True, termination=None):
         class WebSocket:
             def __init__(self):
                 self.send = AsyncMock()
@@ -448,7 +448,7 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
             "mark": "123", "invoiceType": "11.1", "totalAmount": 0.1, "totalVatAmount": 0.02,
             "url": "https://einvoice.impact.gr/v/fixture"}) for number in ("1", "2")),
             "20260901", "20260917", 2, "now", complete=complete,
-            termination="next_page_absent" if complete else "next_page_404")
+            termination=termination or ("next_page_absent" if complete else "next_page_404"), last_page_records=2)
         with patch.object(self.cli.websockets, "connect", return_value=websocket), \
                 patch.object(self.cli.ProviderDiagnosticService, "probe", return_value={"records": 2}) as request, \
                 patch.object(self.cli.ProviderDiagnosticService, "documents", return_value=dataset) as document_request:
@@ -482,6 +482,15 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["summary"]["complete"])
         self.assertEqual(len(result["documents"]), 2)
         self.assertIn("404", result["warning"])
+
+    async def test_cli_keeps_inferred_completion_distinct_from_verified_completion(self):
+        result, _, _ = await self._company_cli([{"issuer_vat": "EL012345678"}], probe=False,
+            documents={"date_from": "20260901", "date_to": "20260917"}, termination="short_page_404")
+        self.assertTrue(result["complete"])
+        self.assertTrue(result["completion_inferred"])
+        self.assertFalse(result["completion_verified"])
+        self.assertEqual(result["summary"]["termination"], "short_page_404")
+        self.assertIn("2/100", result["completion_note"])
 
     async def test_cli_documents_requires_selection_when_multiple_vats_exist(self):
         result, requests, operation = await self._company_cli(

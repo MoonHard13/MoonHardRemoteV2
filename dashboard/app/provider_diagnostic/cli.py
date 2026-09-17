@@ -155,6 +155,9 @@ class ProviderDiagnosticCLI:
                             "date_from": dataset.date_from, "date_to": dataset.date_to,
                             "loaded_at": dataset.loaded_at, "summary": dataset.summary(),
                             "complete": dataset.complete, "warning": dataset.warning,
+                            "completion_inferred": dataset.completion_inferred,
+                            "completion_verified": dataset.completion_verified,
+                            "completion_note": dataset.completion_note,
                             "visible_records": len(rows), "documents": rows,
                             "diagnostics": [row.to_dict() for row in service.diagnostics.entries()]}
                     response = await asyncio.to_thread(service.probe, verified, cancel)
