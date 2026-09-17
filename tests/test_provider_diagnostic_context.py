@@ -132,6 +132,37 @@ class CompanyReaderTests(unittest.TestCase):
         result = self.reader.read(1, "EL012345678")
         self.assertEqual(result["provider_base_url"], "https://einvoiceapiuat.impact.gr")
 
+    def test_provider_id_does_not_act_as_an_unconfirmed_connection_reference(self):
+        self.settings.read_appsettings_production.return_value["bo_connections"][1]["ProviderID"] = 99
+        result = self.reader.read(1, "EL012345678")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["api_key"], "fixture-key")
+
+    def test_provider_configuration_errors_have_precise_safe_codes(self):
+        cases = (
+            ([], {}, "provider_connections_missing"),
+            ([{"ID": 1, "BaseURL": "https://einvoice.impact.gr"}],
+             {"ProviderConnectionID": 99}, "provider_reference_missing"),
+            ([{"ID": 1, "BaseURL": "https://einvoice.impact.gr"}],
+             {"ProviderConnectionID": 1, "providerconnectionid": 2}, "provider_reference_ambiguous"),
+            ([{"ID": 1, "BaseURL": "https://einvoiceapi.impact.gr"},
+              {"ID": 2, "BaseURL": "https://einvoiceapiuat.impact.gr"}], {}, "provider_endpoints_ambiguous"),
+            ([{"ID": 1, "BaseURL": "https://einvoiceapiuat.impact.gr:bad/"}], {}, "provider_url_invalid"),
+        )
+        data = self.settings.read_appsettings_production.return_value
+        for providers, reference, expected in cases:
+            with self.subTest(expected=expected):
+                data["provider_connections"] = providers
+                data["bo_connections"][1] = {"ID": 1, "DatabaseConnection": "RIGHT-DB", **reference}
+                result = self.reader.read(1, "EL012345678")
+                self.assertEqual(result["error_code"], expected)
+                self.assertNotIn("api_key", result)
+        odbc.connect.assert_not_called()
+
+    def test_padded_provider_url_is_normalized(self):
+        self.settings.read_appsettings_production.return_value["provider_connections"][0]["BaseURL"] = " https://einvoiceapiuat.impact.gr/ \n"
+        self.assertEqual(self.reader.read(1)["provider_base_url"], "https://einvoiceapiuat.impact.gr")
+
     def test_missing_ambiguous_or_untrusted_provider_never_releases_key(self):
         for providers in ([], [{"ID": 1, "BaseURL": "https://untrusted.invalid/"}],
                           [{"ID": 1, "BaseURL": "https://einvoiceapi.impact.gr/"},
@@ -206,6 +237,20 @@ class SessionTests(unittest.TestCase):
         self.session.accept({**response, "provider_base_url": "https://einvoiceapiuat.impact.gr/"}, context())
         self.assertEqual(self.session.resolve(context()).provider_base_url, "https://einvoiceapiuat.impact.gr")
 
+    def test_known_error_codes_are_visible_but_raw_details_are_never_displayed(self):
+        for code, expected in ProviderContextSession.ERROR_MESSAGES.items():
+            with self.subTest(code=code):
+                request = self.session.request(context())
+                self.session.accept({**request, "success": False, "companies": [],
+                    "error_code": code, "error": "password=private-fixture"}, context())
+                self.assertEqual(self.session.message, expected)
+                self.assertIsNone(self.session.resolve(context()))
+        for code in ("password=private-fixture", {"password": "private-fixture"}, None):
+            request = self.session.request(context())
+            self.session.accept({**request, "success": False, "companies": [],
+                "error_code": code, "error": "password=private-fixture"}, context())
+            self.assertNotIn("private-fixture", self.session.message)
+
 
 class DiagnosticRouterTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -242,6 +287,14 @@ class DiagnosticRouterTests(unittest.IsolatedAsyncioTestCase):
             await self.router.request(self.dashboard, request)
             self.assertEqual(self.manager.send_to_dashboard.call_args.args[1]["request_id"], request["request_id"])
         self.manager.send_to_client.assert_not_awaited()
+
+    async def test_configuration_error_code_survives_routing(self):
+        await self.router.request(self.dashboard, self.request)
+        await self.router.result("CLIENT-1", {**self.request,
+            "type": "provider_diagnostic_context_result", "success": False,
+            "error_code": "provider_reference_missing", "companies": [], "sql_verified": False})
+        result = self.manager.send_to_dashboard.call_args.args[1]
+        self.assertEqual(result["error_code"], "provider_reference_missing")
 
     async def test_timeout_disconnect_and_late_result_do_not_leak_key(self):
         await self.router.request(self.dashboard, self.request)
