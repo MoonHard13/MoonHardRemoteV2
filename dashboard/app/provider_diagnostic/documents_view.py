@@ -64,8 +64,15 @@ class DocumentsView(ctk.CTkFrame):
         self.count = ctk.CTkLabel(self, text="Δεν έχουν ανακτηθεί παραστατικά.", anchor="w",
             justify="left", wraplength=740, font=FONTS.small)
         self.count.grid(row=2, column=0, sticky="ew", padx=4, pady=4)
-        table = ctk.CTkFrame(self, fg_color="transparent")
-        table.grid(row=3, column=0, sticky="nsew")
+        content = ctk.CTkFrame(self, fg_color="transparent")
+        content.grid(row=3, column=0, sticky="nsew")
+        content.grid_columnconfigure(0, weight=3, uniform="document_panels")
+        content.grid_columnconfigure(1, weight=2, uniform="document_panels")
+        content.grid_rowconfigure(0, weight=1)
+        table = ctk.CTkFrame(content, fg_color="transparent")
+        table.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        # Οι στήλες του πίνακα κυλούν οριζόντια χωρίς να εκτοπίζουν το πεδίο JSON.
+        table.grid_propagate(False)
         table.grid_columnconfigure(0, weight=1)
         table.grid_rowconfigure(0, weight=1)
         self.tree = ttk.Treeview(table, columns=[name for name, _, _ in self.COLUMNS],
@@ -92,8 +99,8 @@ class DocumentsView(ctk.CTkFrame):
         self.selection_info = ctk.CTkLabel(actions, text="", anchor="w", font=FONTS.small,
             justify="left", wraplength=740)
         self.selection_info.grid(row=1, column=0, columnspan=4, sticky="ew", padx=4, pady=4)
-        self.details = ctk.CTkTextbox(self, height=150, wrap="word", font=FONTS.small)
-        self.details.grid(row=5, column=0, sticky="ew", pady=4)
+        self.details = ctk.CTkTextbox(content, width=300, wrap="word", font=FONTS.small)
+        self.details.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         self.details.configure(state="disabled")
 
     def _schedule_filter(self, event=None):
