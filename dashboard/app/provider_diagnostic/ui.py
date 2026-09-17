@@ -11,6 +11,7 @@ from app.provider_diagnostic.sections import SECTIONS
 from app.provider_diagnostic.tasks import BackgroundTask
 from app.provider_diagnostic.session import ProviderContextSession
 from app.provider_diagnostic.models import ProviderEndpoint
+from app.provider_diagnostic.documents_view import DocumentsView
 from app.ui.theme import COLORS, FONTS, apply_treeview_style, card_style, secondary_button_style
 
 
@@ -82,10 +83,11 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
         self.last_request = ctk.CTkLabel(self.overview, text="Δεν έχει γίνει Provider API call.",
                                          anchor="w", justify="left", font=FONTS.body)
         self.last_request.grid(row=2, column=0, padx=16, pady=8, sticky="ew")
-        ctk.CTkLabel(self.overview, text="Οι μετρητές παραστατικών και reconciliation θα ενεργοποιηθούν\n"
-                     "όταν φορτώνονται πραγματικά δεδομένα στις επόμενες φάσεις.",
+        self.document_totals = ctk.CTkLabel(self.overview, text="Δεν έχουν ανακτηθεί παραστατικά για το επιλεγμένο διάστημα.",
                      justify="left", anchor="w", font=FONTS.body, text_color=COLORS.text_secondary,
-                     wraplength=740).grid(row=3, column=0, padx=16, pady=16, sticky="ew")
+                     wraplength=740)
+        self.document_totals.grid(row=3, column=0, padx=16, pady=16, sticky="ew")
+        self.documents_view = DocumentsView(self, self.load_documents, lambda text: self.status.configure(text=text))
         self.planned = ctk.CTkFrame(self, **card_style())
         self.planned.grid_columnconfigure(0, weight=1)
         self.planned_text = ctk.CTkLabel(self.planned, text="", font=FONTS.body,
@@ -134,9 +136,9 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
 
     def _show_section(self, section: str) -> None:
         self.section.set(section)
-        for frame in (self.overview, self.api_view, self.planned):
+        for frame in (self.overview, self.api_view, self.documents_view, self.planned):
             frame.grid_remove()
-        frame = self.overview if section == "Overview" else self.api_view if section == "API Diagnostics" else self.planned
+        frame = self.overview if section == "Overview" else self.api_view if section == "API Diagnostics" else self.documents_view if section == "Documents" else self.planned
         if frame is self.planned:
             phase = self.SECTIONS[section]
             text = (f"{section}\n\nΠρογραμματισμένη υλοποίηση: Phase {phase}.\n"
@@ -153,6 +155,7 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
         scope = (*self.session.scope(context), self.session.issuer_vat, self.session.provider_base_url, self.session.generation)
         if self._scope is not None and scope != self._scope:
             self._task.cancel()
+            self._clear_documents()
             if scope[:4] != self._scope[:4]:
                 self.session.clear()
                 context = self.service.snapshot()
@@ -163,6 +166,7 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             self.service.diagnostics = APIDiagnosticStore()
         if not context.client_connected:
             self._task.cancel()
+            self._clear_documents()
             self.session.clear()
             self._update_company_options()
             context = self.service.snapshot()
@@ -182,7 +186,10 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             f"GetDocuments URL: {ProviderEndpoint.documents_origin(self.session.provider_base_url) if self.session.provider_base_url else 'Μη διαθέσιμο'}\n"
             f"ERP: {erp}\nProvider: {provider}"))
         self.probe_button.configure(state="normal" if context.provider_ready and not self._task.busy else "disabled")
-        self.status.configure(text="Phase 1 · Χρήση του υπάρχοντος customer/BO context · Διαγνωστικά μόνο για πραγματικές κλήσεις")
+        self.documents_view.load_button.configure(state="normal" if context.provider_ready and not self._task.busy else "disabled")
+        self.documents_view.scope.configure(text=f"{context.display_name} · BOConnection {context.bo_connection_id} · "
+            f"ΑΦΜ: {context.issuer_vat or self.session.issuer_vat or 'Επιλέξτε εταιρεία'} · {environment}")
+        self.status.configure(text="Phase 2 · Πραγματικά εξερχόμενα παραστατικά και API Diagnostics")
         self.refresh_diagnostics()
         logger.info("Ενημέρωση context Provider Diagnostic Center.")
 
@@ -250,11 +257,43 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
         context = self._context
         diagnostics = self.service.diagnostics
         if self._task.start(lambda cancel: self.service.probe(context, cancel, diagnostics)):
+            self._running_kind = "probe"
             self._running_scope = self._scope
             self.status.configure(text="Ανάγνωση πρώτης σελίδας σημερινών παραστατικών…")
             self.probe_button.configure(state="disabled")
             self.cancel_button.configure(state="normal")
             logger.info("Έναρξη χειροκίνητου Provider diagnostic request.")
+
+    def _clear_documents(self):
+        self.documents_view.clear()
+        self.document_totals.configure(text="Δεν έχουν ανακτηθεί παραστατικά για το επιλεγμένο διάστημα.")
+
+    def load_documents(self):
+        self.refresh_context()
+        self._show_section("Documents")
+        if not self._context.provider_ready or self._task.busy:
+            return
+        context, diagnostics = self._context, self.service.diagnostics
+        start, end = self.documents_view.date_from.get().strip(), self.documents_view.date_to.get().strip()
+        if self._task.start(lambda cancel: self.service.documents(context, start, end, cancel,
+                self._task.report_progress, diagnostics)):
+            self._clear_documents()
+            self._running_kind, self._running_scope = "documents", self._scope
+            self.status.configure(text="Ανάκτηση παραστατικών…")
+            self.probe_button.configure(state="disabled")
+            self.documents_view.load_button.configure(state="disabled")
+            self.cancel_button.configure(state="normal")
+
+    def _install_documents(self, dataset):
+        self.documents_view.set_dataset(dataset)
+        summary = dataset.summary()
+        self.document_totals.configure(text=(f"Διάστημα: {dataset.date_from}–{dataset.date_to}\n"
+            f"Παραστατικά: {summary['records']} · Σελίδες API: {summary['pages']}\n"
+            f"Συνολική αξία: {summary['total_amount']} · ΦΠΑ: {summary['total_vat']}\n"
+            f"Με MARK: {summary['with_mark']} · Χωρίς MARK: {summary['without_mark']}\n"
+            f"Τύποι: {', '.join(f'{name}: {count}' for name, count in sorted(summary['invoice_types'].items())) or 'Δεν υπάρχουν'}\n"
+            f"Χωρίς διαθέσιμη αξία: {summary['missing_amounts']} · Χωρίς διαθέσιμο ΦΠΑ: {summary['missing_vat']}\n"
+            f"Τελευταία πλήρης ανάκτηση: {dataset.loaded_at}"))
 
     def cancel(self) -> None:
         if self.session.pending:
@@ -276,12 +315,22 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             self.cancel_button.configure(state="disabled")
         if self._last_ready and not self.service.snapshot().provider_ready:
             self.refresh_context()
+        progress = self._task.poll_progress()
+        if isinstance(progress, dict) and not self._task.cancel_event.is_set() and getattr(self, "_running_scope", None) == self._scope:
+            self.status.configure(text=f"Ανάκτηση: {progress['pages']} σελίδες · {progress['records']} παραστατικά…")
         result = self._task.poll()
         if result is not None:
             value, error = result
             if getattr(self, "_running_scope", None) == self._scope:
-                self.status.configure(text=error.message if error else f"Έλεγχος ολοκληρώθηκε. Records πρώτης σελίδας: {value['records']}")
+                if error:
+                    self.status.configure(text=error.message)
+                elif getattr(self, "_running_kind", "probe") == "documents":
+                    self._install_documents(value)
+                    self.status.configure(text=f"Πλήρης ανάκτηση: {len(value.records)} παραστατικά · {value.pages} σελίδες.")
+                else:
+                    self.status.configure(text=f"Έλεγχος ολοκληρώθηκε. Records πρώτης σελίδας: {value['records']}")
             self.probe_button.configure(state="normal" if self._context.provider_ready else "disabled")
+            self.documents_view.load_button.configure(state="normal" if self._context.provider_ready else "disabled")
             self.cancel_button.configure(state="disabled")
             self.refresh_diagnostics()
         self._job = self.after(100, self._poll)
@@ -322,6 +371,9 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
                 self.menu.grab_release()
 
     def copy_selected(self) -> None:
+        if self.section.get() == "Documents":
+            self.documents_view.copy_selected()
+            return
         lines = ["\t".join(str(value) for value in self.tree.item(iid, "values")) for iid in self.tree.selection()]
         if lines:
             self.clipboard_clear()
@@ -329,6 +381,9 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             logger.info("Αντιγραφή επιλεγμένων API diagnostics.")
 
     def export(self) -> None:
+        if self.section.get() == "Documents":
+            self.documents_view.export()
+            return
         path = filedialog.asksaveasfilename(parent=self.winfo_toplevel(), defaultextension=".json",
             initialfile="provider-api-diagnostics.json", filetypes=[("JSON", "*.json")])
         if not path:
@@ -344,6 +399,9 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             logger.warning("Αποτυχία αποθήκευσης API diagnostics.")
 
     def _search(self) -> None:
+        if self.section.get() == "Documents":
+            self.documents_view.filters["number"].focus_set()
+            return
         self._show_section("API Diagnostics")
         self.endpoint.focus_set()
 
@@ -355,12 +413,29 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
                 ("<Control-c>", self.copy_selected), ("<Control-e>", self.export)):
             def handler(event, action=operation):
                 if self._is_active() and event.widget.winfo_toplevel() == top:
-                    if event.keysym.lower() == "c" and event.widget is not self.tree:
+                    if event.keysym.lower() == "c" and event.widget not in (self.tree, self.documents_view.tree):
                         return None
                     action()
                     return "break"
                 return None
             self._bindings.append((sequence, top.bind(sequence, handler, add="+")))
+        for sequence, action in (("<Control-l>", self.load_documents),
+                ("<Alt-d>", lambda: self._show_section("Documents")),
+                ("<Alt-Key-1>", lambda: self._focus_document_date("date_from")),
+                ("<Alt-Key-2>", lambda: self._focus_document_date("date_to")),
+                ("<Control-o>", self.documents_view.open_url),
+                ("<Control-r>", self.documents_view.reset_filters),
+                ("<Control-Shift-C>", self.documents_view.copy_details)):
+            def document_handler(event, operation=action, shortcut=sequence):
+                if self._is_active() and event.widget.winfo_toplevel() == top and (
+                        shortcut.startswith("<Alt-") or shortcut == "<Control-l>" or self.section.get() == "Documents"):
+                    operation()
+                    return "break"
+            self._bindings.append((sequence, top.bind(sequence, document_handler, add="+")))
+
+    def _focus_document_date(self, name):
+        self._show_section("Documents")
+        getattr(self.documents_view, name).focus_set()
 
     def destroy(self) -> None:
         self._closed = True
