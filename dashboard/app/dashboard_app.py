@@ -393,6 +393,11 @@ class MoonHardDashboardApp(ctk.CTk):
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_backup_progress(payload)
                 
+        elif message_type == "provider_diagnostic_context_result":
+            manage_window = self.manage_windows.get(payload.get("client_code", ""))
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_provider_diagnostic_context_result(payload)
+
         elif message_type in ("provider_transmitted_search_result", "provider_transmitted_types_result"):
             manage_window = self.manage_windows.get(payload.get("client_code", ""))
             if manage_window and manage_window.winfo_exists():
@@ -1846,7 +1851,7 @@ class MoonHardDashboardApp(ctk.CTk):
         )
         return sent
 
-    def _send_provider_request(self, payload: dict[str, Any]) -> None:
+    def _send_provider_request(self, payload: dict[str, Any]) -> bool:
         """
         Στέλνει Provider/MUPT request στον server.
         Δεν αποθηκεύει τίποτα στη Supabase.
@@ -1854,16 +1859,22 @@ class MoonHardDashboardApp(ctk.CTk):
 
         if not self.websocket_client:
             logger.warning("Dashboard WebSocket is not connected.")
-            return
+            return False
 
-        self.websocket_client.send_message(payload)
+        if payload.get("type") == "provider_diagnostic_context":
+            from urllib.parse import urlsplit
+            if urlsplit(self.websocket_client.websocket_url).scheme != "wss":
+                logger.warning("Η ανάκτηση Provider στοιχείων απαιτεί κρυπτογραφημένο WSS.")
+                return False
+        sent = self.websocket_client.send_message(payload)
 
         logger.info(
             "Provider request sent. type=%s client_code=%s",
             payload.get("type"),
             payload.get("client_code")
         )
-        
+        return sent
+
     def _send_services_request(self, payload: dict) -> None:
         """
         Στέλνει services request στον server.
@@ -1965,3 +1976,4 @@ class MoonHardDashboardApp(ctk.CTk):
 
         self._refresh_clients()
         self._schedule_clients_auto_refresh()
+

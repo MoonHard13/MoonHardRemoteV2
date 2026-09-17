@@ -13,6 +13,10 @@ from app.views.manage.services_tab import ServicesTab
 from app.views.manage.processes_tab import ProcessesTab
 from app.views.manage.updates_tab import UpdatesTab
 from app.views.manage.senario_prosorinon_tab import SenarioProsorinonTab
+from app.provider_diagnostic.context import CustomerContextAdapter
+from app.provider_diagnostic.service import ProviderDiagnosticService
+from app.provider_diagnostic.session import ProviderContextSession
+from app.provider_diagnostic.ui import ProviderDiagnosticTab
 
 
 class ClientManageWindow(ctk.CTkToplevel):
@@ -146,6 +150,9 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.provider_tab = self.tabs.add("Provider")
         self.provider_tab.grid_columnconfigure(0, weight=1)
         self.provider_tab.grid_rowconfigure(0, weight=1)
+        self.provider_diagnostic_tab = self.tabs.add("Provider Diagnostic Center")
+        self.provider_diagnostic_tab.grid_columnconfigure(0, weight=1)
+        self.provider_diagnostic_tab.grid_rowconfigure(0, weight=1)
         self.services_tab = self.tabs.add("Services")
         self.services_tab.grid_columnconfigure(0, weight=1)
         self.services_tab.grid_rowconfigure(0, weight=1)
@@ -165,6 +172,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self._build_sql_tab()
         self._build_database_tab()
         self._build_provider_tab()
+        self._build_provider_diagnostic_tab()
         self._build_services_tab()
         self._build_processes_tab()
         self._build_updates_tab()
@@ -274,6 +282,8 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "overview_tab_view"):
             self.overview_tab_view.update_client_data(self.client)
+
+        self._refresh_provider_diagnostic_context()
 
     def _build_overview_tab(self) -> None:
         """
@@ -566,6 +576,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         Εμφανίζει τα στοιχεία του επιλεγμένου BOConnection.
         """
 
+        self._refresh_provider_diagnostic_context()
         appsettings = self.appsettings_data or {}
         summary = appsettings.get("appsettings_summary") or {}
         provider_connections = appsettings.get("provider_connections") or []
@@ -762,6 +773,7 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if connection_id is not None:
             self.selected_bo_connection_id = connection_id
+            self._refresh_provider_diagnostic_context()
 
 
     def handle_sql_result(self, payload: dict) -> None:
@@ -819,6 +831,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         connection_id = self._extract_bo_id_from_option(selected_value)
         if connection_id is not None:
             self.selected_bo_connection_id = connection_id
+            self._refresh_provider_diagnostic_context()
 
     def handle_database_action_result(self, payload: dict) -> None:
         """Προωθεί database action result στο DatabaseTab."""
@@ -866,6 +879,33 @@ class ClientManageWindow(ctk.CTkToplevel):
         )
         self.provider_tab_view.grid(row=0, column=0, sticky="nsew")
         
+    def _build_provider_diagnostic_tab(self) -> None:
+        """Προσθέτει diagnostics με το ίδιο client/BO context, χωρίς νέο selector."""
+        adapter = CustomerContextAdapter(
+            get_client=lambda: self.client,
+            get_bo=self._get_selected_bo_connection,
+            get_bo_id=lambda: self.selected_bo_connection_id,
+            parse_connection=self._parse_connection_string,
+        )
+        session = ProviderContextSession()
+        self.provider_diagnostic_tab_view = ProviderDiagnosticTab(
+            self.provider_diagnostic_tab,
+            service=ProviderDiagnosticService(adapter, session.resolve),
+            session=session,
+            request_context=self.on_provider_request_callback,
+            is_active=lambda: self.tabs.get() == "Provider Diagnostic Center",
+        )
+        self.provider_diagnostic_tab_view.grid(row=0, column=0, sticky="nsew")
+
+    def _refresh_provider_diagnostic_context(self) -> None:
+        """Ακολουθεί ενημερώσεις πελάτη και αλλαγές υπάρχοντος BOConnection."""
+        if hasattr(self, "provider_diagnostic_tab_view"):
+            self.provider_diagnostic_tab_view.refresh_context()
+
+    def handle_provider_diagnostic_context_result(self, payload: dict) -> None:
+        """Παραδίδει τα προσωρινά στοιχεία μόνο στην αντίστοιχη diagnostic συνεδρία."""
+        self.provider_diagnostic_tab_view.handle_context_result(payload)
+
     def handle_provider_transmitted_result(self, payload: dict) -> None:
         """Προωθεί τα διαβιβασμένα στο ανεξάρτητο Provider component."""
         if payload.get("client_code") == self.client_code and hasattr(self, "provider_tab_view"):
@@ -974,3 +1014,4 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "updates_tab_view"):
             self.updates_tab_view.handle_update_apply_result(payload)
+
