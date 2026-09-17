@@ -102,8 +102,10 @@ class DocumentDataset:
 
     @property
     def status_text(self):
+        completed = ("Ολοκληρώθηκε· ο Provider δήλωσε υπέρβαση των διαθέσιμων σελίδων."
+            if self.termination == "provider_page_limit" else "Ολοκληρώθηκε.")
         return (f"Ανάκτηση: {len(self.records)} παραστατικά στο διάστημα · {self.pages} σελίδες. "
-                + (self.warning or "Ολοκληρώθηκε."))
+                + (self.warning or completed))
 
     def filtered(self, series="", number="", invoice_type="", mark=""):
         filters = [(name, value.strip() if name in ("invoiceType", "mark") else value.strip().casefold())
@@ -199,11 +201,14 @@ class DocumentLoader:
             try:
                 page = self.client.get_documents_page(request_start, request_end, page_number, cancel)
             except ProviderAPIError as exc:
-                # Μόνο 404 μετά από έγκυρο NextPage κρατά τα διαθέσιμα στοιχεία με προειδοποίηση.
-                if exc.category != ErrorCategory.NOT_FOUND or not successful_pages:
+                # Το HTTP status μόνο του δεν αποδεικνύει το τέλος της λίστας.
+                if exc.category not in (ErrorCategory.NOT_FOUND, ErrorCategory.END_OF_LIST) or not successful_pages:
                     raise
-                complete, termination = False, "next_page_404"
-                logger.warning("Η επόμενη σελίδα επέστρεψε 404. page=%s successful_pages=%s", page_number, successful_pages)
+                complete = exc.category == ErrorCategory.END_OF_LIST
+                termination = "provider_page_limit" if complete else "next_page_404"
+                logger.log(logging.INFO if complete else logging.WARNING,
+                    "Τερματισμός σελιδοποίησης. page=%s successful_pages=%s reason=%s",
+                    page_number, successful_pages, termination)
                 break
             encoded = json.dumps(page.documents, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
             size += len(encoded)

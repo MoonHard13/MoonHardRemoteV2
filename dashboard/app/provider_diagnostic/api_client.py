@@ -27,6 +27,30 @@ class ProviderAPIClient:
 
     ENDPOINT = "/api/invoice/getdocuments/{IssuerVatNumber}/{PageNumber}/"
     MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+    MAX_ERROR_BYTES = 4096
+    END_MESSAGES = frozenset(("page > totalpagesize", "page exceeds total page count",
+        "page number exceeds total page count", "page number is out of range"))
+
+    @classmethod
+    def _declares_page_limit(cls, response):
+        # Η απάντηση μένει προσωρινά στη RAM· καταγράφεται μόνο η ελεγχόμενη κατηγορία.
+        try:
+            raw = response.read(cls.MAX_ERROR_BYTES + 1)
+            if not raw or len(raw) > cls.MAX_ERROR_BYTES:
+                return False
+            text = raw.decode("utf-8-sig").strip()
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                payload = text
+            if isinstance(payload, dict):
+                values = [payload.get(name) for name in ("message", "Message", "error", "Error")]
+            else:
+                values = [payload]
+            return any(isinstance(value, str) and " ".join(value.strip().rstrip(".").casefold().split())
+                in cls.END_MESSAGES for value in values)
+        except (OSError, ValueError, http.client.HTTPException):
+            return False
 
     def __init__(self, credentials: VerifiedProviderCredentials, diagnostics: APIDiagnosticStore,
                  timeout: float = 15, max_attempts: int = 3, opener=None) -> None:
@@ -70,7 +94,7 @@ class ProviderAPIClient:
                 "APIKey": self._credentials.api_key, "Accept": "application/json",
                 "User-Agent": "MoonHardRemoteV2-ProviderDiagnostic/1.0"})
             result, error, retryable = self._attempt(request, cancel,
-                f"GetDocumentsPage page={page} From={start} dateTo={end}")
+                f"GetDocumentsPage page={page} From={start} dateTo={end}", page)
             if error is None:
                 return result
             if not retryable or attempt + 1 == self.max_attempts:
@@ -79,7 +103,7 @@ class ProviderAPIClient:
                 raise ProviderAPIError(ErrorCategory.CANCELLED)
         raise ProviderAPIError(ErrorCategory.CONNECTION)
 
-    def _attempt(self, request, cancel: Event, operation: str) -> tuple[DocumentPage | None, ProviderAPIError | None, bool]:
+    def _attempt(self, request, cancel: Event, operation: str, page: int) -> tuple[DocumentPage | None, ProviderAPIError | None, bool]:
         started = time.perf_counter()
         timestamp = datetime.now(timezone.utc)
         status, records, result, error, retryable = None, 0, None, None, False
@@ -121,6 +145,8 @@ class ProviderAPIClient:
                         404: ErrorCategory.NOT_FOUND,
                         400: ErrorCategory.VALIDATION, 422: ErrorCategory.VALIDATION}.get(
                             status, ErrorCategory.HTTP_5XX if status >= 500 else ErrorCategory.HTTP_4XX)
+            if status == 404 and page > 1 and self._declares_page_limit(exc):
+                category = ErrorCategory.END_OF_LIST
             error = ProviderAPIError(category, status)
             if 300 <= status < 400:
                 error = ProviderAPIError(ErrorCategory.UNSUPPORTED, status)
