@@ -2,6 +2,8 @@ import argparse
 import asyncio
 import json
 import logging
+import webbrowser
+from datetime import date
 from pathlib import Path
 from threading import Event
 from urllib.parse import urlsplit
@@ -17,6 +19,7 @@ from app.provider_diagnostic.service import ProviderDiagnosticService
 from app.provider_diagnostic.session import ProviderContextSession
 from app.provider_diagnostic.errors import ProviderAPIError
 from app.provider_diagnostic.models import ProviderEndpoint
+from app.provider_diagnostic.documents import DocumentFields
 
 
 logger = logging.getLogger(__name__)
@@ -27,14 +30,24 @@ class ProviderDiagnosticCLI:
 
     @staticmethod
     def parser() -> argparse.ArgumentParser:
-        parser = argparse.ArgumentParser(description="MoonHard Provider Diagnostic Center · Phase 1")
+        parser = argparse.ArgumentParser(description="MoonHard Provider Diagnostic Center · Phase 2")
         actions = parser.add_mutually_exclusive_group(required=True)
         actions.add_argument("--client", help="Υπάρχων κωδικός client για ανάγνωση context.")
         actions.add_argument("--sections", action="store_true", help="Εμφάνιση ενοτήτων και φάσεων.")
         actions.add_argument("--diagnostics-file", type=Path, help="JSON που εξήχθη από το API Diagnostics GUI.")
         parser.add_argument("--bo-connection", type=int, default=1)
         parser.add_argument("--issuer-vat", default="", help="ΑΦΜ εταιρείας από τη βάση· απαιτείται όταν υπάρχουν πολλά.")
-        parser.add_argument("--probe", action="store_true", help="Ανάγνωση πρώτης σελίδας σημερινών παραστατικών.")
+        operations = parser.add_mutually_exclusive_group()
+        operations.add_argument("--probe", action="store_true", help="Ανάγνωση πρώτης σελίδας σημερινών παραστατικών.")
+        operations.add_argument("--documents", action="store_true", help="Πλήρης ανάκτηση εξερχόμενων παραστατικών.")
+        today = date.today().strftime("%Y%m%d")
+        parser.add_argument("--date-from", default=today, help="Αρχή διαστήματος YYYYMMDD.")
+        parser.add_argument("--date-to", default=today, help="Τέλος διαστήματος YYYYMMDD.")
+        parser.add_argument("--series", default="")
+        parser.add_argument("--number", default="")
+        parser.add_argument("--invoice-type", default="", help="Ακριβής τύπος παραστατικού.")
+        parser.add_argument("--mark", default="", help="Ακριβές MARK.")
+        parser.add_argument("--open-document", type=int, help="Άνοιγμα URL ορατού παραστατικού με αρίθμηση από 1.")
         parser.add_argument("--outcome", choices=("All", "Success", "Errors"), default="All")
         parser.add_argument("--endpoint", default="")
         parser.add_argument("--status", default="")
@@ -55,12 +68,13 @@ class ProviderDiagnosticCLI:
         return result
 
     async def context(self, config: DashboardConfig, client_code: str, bo_id: int,
-                      issuer_vat: str = "", probe: bool = False) -> dict:
+                      issuer_vat: str = "", probe: bool = False, documents: dict | None = None) -> dict:
         if not config.dashboard_token or bo_id < 1 or not client_code or len(client_code) > 128:
             raise ValueError("Ελέγξτε DASHBOARD_TOKEN, client code και BOConnection ID.")
         if urlsplit(config.dashboard_websocket_url).scheme != "wss":
             raise ValueError("Η ανάκτηση Provider στοιχείων απαιτεί κρυπτογραφημένη σύνδεση WSS.")
         session = ProviderContextSession()
+        cancel = Event()
         chosen = issuer_vat.strip().upper()
         if chosen and not chosen.startswith("EL"):
             chosen = "EL" + chosen.removeprefix("GR")
@@ -105,7 +119,7 @@ class ProviderDiagnosticCLI:
                                       "invalid_afm_count": session.invalid_afm_count}
                             if reply.get("success") is not True or not session.context_valid:
                                 return {**result, "success": False, "error": session.message}
-                            if not probe:
+                            if not probe and documents is None:
                                 if chosen and chosen not in {row["issuer_vat"] for row in session.companies}:
                                     return {**result, "success": False, "error": "Το ΑΦΜ δεν υπάρχει στην επιλεγμένη βάση."}
                                 selected = chosen or (session.companies[0]["issuer_vat"] if len(session.companies) == 1 else "")
@@ -117,21 +131,43 @@ class ProviderDiagnosticCLI:
                                 await websocket.send(json.dumps(session.request(context, selected)))
                             else:
                                 service = ProviderDiagnosticService(adapter, session.resolve)
-                                try:
-                                    verified = service.snapshot()
-                                    response = await asyncio.to_thread(service.probe, verified, Event())
-                                    return {**result, **verified.to_dict(), "success": True, "probe": response,
-                                            "diagnostics": [row.to_dict() for row in service.diagnostics.entries()]}
-                                except ProviderAPIError as exc:
-                                    return {**result, "success": False, "error": exc.message,
-                                            "error_category": exc.category.value,
-                                            "diagnostics": [row.to_dict() for row in service.diagnostics.entries()]}
-                                finally:
-                                    service.close()
+                                return result, service
                     raise ValueError("Η σύνδεση έκλεισε πριν ολοκληρωθεί η ανάγνωση.")
 
-                return await asyncio.wait_for(receive(), timeout=180)
+                ready = await asyncio.wait_for(receive(), timeout=180)
+                if isinstance(ready, dict):
+                    return ready
+                result, service = ready
+                try:
+                    verified = service.snapshot()
+                    if documents is not None:
+                        dataset = await asyncio.wait_for(asyncio.to_thread(service.documents, verified,
+                            documents["date_from"], documents["date_to"], cancel,
+                            lambda value: logger.info("CLI ανάκτηση. pages=%s records=%s", value["pages"], value["records"])), timeout=3600)
+                        rows = dataset.filtered(**documents.get("filters", {}))
+                        opened = documents.get("open_document")
+                        if opened is not None:
+                            if not 1 <= opened <= len(rows) or not DocumentFields.safe_url(rows[opened - 1].get("url")):
+                                raise ValueError("Δεν υπάρχει διαθέσιμο URL για τον επιλεγμένο αριθμό.")
+                            if not webbrowser.open(rows[opened - 1]["url"], new=2):
+                                raise ValueError("Δεν ήταν δυνατό το άνοιγμα του browser.")
+                        return {**result, **verified.to_dict(), "success": True,
+                            "date_from": dataset.date_from, "date_to": dataset.date_to,
+                            "loaded_at": dataset.loaded_at, "summary": dataset.summary(),
+                            "visible_records": len(rows), "documents": rows,
+                            "diagnostics": [row.to_dict() for row in service.diagnostics.entries()]}
+                    response = await asyncio.to_thread(service.probe, verified, cancel)
+                    return {**result, **verified.to_dict(), "success": True, "probe": response,
+                            "diagnostics": [row.to_dict() for row in service.diagnostics.entries()]}
+                except ProviderAPIError as exc:
+                    return {**result, "success": False, "error": exc.message,
+                            "error_category": exc.category.value,
+                            "diagnostics": [row.to_dict() for row in service.diagnostics.entries()]}
+                finally:
+                    cancel.set()
+                    service.close()
         finally:
+            cancel.set()
             session.clear()
 
     @staticmethod
@@ -149,18 +185,28 @@ class ProviderDiagnosticCLI:
     def run(self, argv=None) -> int:
         parser = self.parser()
         args = parser.parse_args(argv)
-        if (args.probe or args.issuer_vat) and not args.client:
-            parser.error("Τα --probe και --issuer-vat απαιτούν --client.")
+        if (args.probe or args.documents or args.issuer_vat) and not args.client:
+            parser.error("Τα --probe, --documents και --issuer-vat απαιτούν --client.")
+        if (args.open_document is not None or args.series or args.number or args.invoice_type or args.mark) and not args.documents:
+            parser.error("Τα φίλτρα παραστατικών και --open-document απαιτούν --documents.")
         config = DashboardConfig()
         DashboardLoggerConfig.setup_logging(config.log_dir)
         try:
             if args.sections:
-                result = {"phase": 1, "sections": SECTIONS}
+                result = {"phase": 2, "sections": SECTIONS}
             elif args.diagnostics_file:
                 result = {"scope": "Το επιλεγμένο export· δεν διαβάζεται η RAM άλλου Dashboard process.",
                           "diagnostics": self.diagnostics(args)}
             else:
-                result = asyncio.run(self.context(config, args.client, args.bo_connection, args.issuer_vat, args.probe))
+                options = {"date_from": args.date_from, "date_to": args.date_to,
+                    "filters": {"series": args.series, "number": args.number,
+                        "invoice_type": args.invoice_type, "mark": args.mark},
+                    "open_document": args.open_document} if args.documents else None
+                if options is None:
+                    result = asyncio.run(self.context(config, args.client, args.bo_connection, args.issuer_vat, args.probe))
+                else:
+                    result = asyncio.run(self.context(config, args.client, args.bo_connection, args.issuer_vat,
+                        args.probe, documents=options))
             text = json.dumps(SECRET_REDACTOR.redact_object(result), ensure_ascii=False, indent=2)
             if args.output:
                 args.output.write_text(text + "\n", encoding="utf-8")

@@ -7,6 +7,7 @@ from app.provider_diagnostic.context import CustomerContextAdapter
 from app.provider_diagnostic.diagnostics import APIDiagnosticStore
 from app.provider_diagnostic.errors import ErrorCategory, ProviderAPIError
 from app.provider_diagnostic.models import DiagnosticContext, VerifiedProviderCredentials
+from app.provider_diagnostic.documents import DocumentLoader
 
 
 class ProviderDiagnosticService:
@@ -50,3 +51,8 @@ class ProviderDiagnosticService:
 
     def close(self) -> None:
         self.diagnostics.close()
+
+    def documents(self, context, date_from, date_to, cancel, progress=None, diagnostics=None):
+        credentials = self.credentials(context)
+        client = ProviderAPIClient(credentials, diagnostics or self.diagnostics)
+        return DocumentLoader(client).load(date_from, date_to, credentials.issuer_vat, cancel, progress)

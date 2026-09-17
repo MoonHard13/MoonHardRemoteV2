@@ -11,6 +11,7 @@ class BackgroundTask:
     def __init__(self) -> None:
         self.cancel_event = Event()
         self._queue: Queue = Queue(maxsize=1)
+        self._progress: Queue = Queue(maxsize=1)
         self._thread: Thread | None = None
         self._closed = False
 
@@ -22,6 +23,7 @@ class BackgroundTask:
         if self.busy or self._closed:
             return False
         self.cancel_event.clear()
+        self.poll_progress()
 
         def worker() -> None:
             try:
@@ -32,6 +34,8 @@ class BackgroundTask:
             except Exception:
                 # Δεν μεταφέρουμε πιθανώς ευαίσθητα exception strings στο GUI.
                 value, error = None, ProviderAPIError(ErrorCategory.MALFORMED_RESPONSE)
+            if self.cancel_event.is_set():
+                value, error = None, ProviderAPIError(ErrorCategory.CANCELLED)
             if not self._closed:
                 self._queue.put((value, error))
 
@@ -45,10 +49,24 @@ class BackgroundTask:
         except Empty:
             return None
         self._thread = None
+        if self.cancel_event.is_set():
+            return None, ProviderAPIError(ErrorCategory.CANCELLED)
         return result
 
     def cancel(self) -> None:
         self.cancel_event.set()
+
+    def report_progress(self, value) -> None:
+        if self._closed:
+            return
+        self.poll_progress()
+        self._progress.put_nowait(value)
+
+    def poll_progress(self):
+        try:
+            return self._progress.get_nowait()
+        except Empty:
+            return None
 
     def close(self) -> None:
         self._closed = True

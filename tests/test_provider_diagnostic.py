@@ -359,7 +359,7 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["companies"][0]["issuer_vat"], "EL012345678")
         self.assertNotIn("secret-fixture", json.dumps(result))
 
-    async def _company_cli(self, companies, chosen="", probe=True):
+    async def _company_cli(self, companies, chosen="", probe=True, documents=None):
         class WebSocket:
             def __init__(self):
                 self.send = AsyncMock()
@@ -389,10 +389,44 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
 
         websocket = WebSocket()
         config = types.SimpleNamespace(dashboard_token="token-fixture", dashboard_websocket_url="wss://fixture.invalid")
+        from app.provider_diagnostic.documents import DocumentDataset, DocumentFields
+        dataset = DocumentDataset(tuple(DocumentFields.project({"series": "AA", "number": number,
+            "mark": "123", "invoiceType": "11.1", "totalAmount": 0.1, "totalVatAmount": 0.02,
+            "url": "https://einvoice.impact.gr/v/fixture"}) for number in ("1", "2")),
+            "20260901", "20260917", 2, "now")
         with patch.object(self.cli.websockets, "connect", return_value=websocket), \
-                patch.object(self.cli.ProviderDiagnosticService, "probe", return_value={"records": 2}) as request:
-            result = await self.cli.ProviderDiagnosticCLI().context(config, "client-one", 1, chosen, probe)
-        return result, websocket.requests, request
+                patch.object(self.cli.ProviderDiagnosticService, "probe", return_value={"records": 2}) as request, \
+                patch.object(self.cli.ProviderDiagnosticService, "documents", return_value=dataset) as document_request:
+            result = await self.cli.ProviderDiagnosticCLI().context(config, "client-one", 1, chosen, probe, documents)
+        return result, websocket.requests, document_request if documents is not None else request
+
+    async def test_cli_full_documents_auto_selects_vat_filters_and_exports_safe_fields(self):
+        options = {"date_from": "20260901", "date_to": "20260917", "filters": {"number": "2"}}
+        result, requests, operation = await self._company_cli([{"issuer_vat": "EL012345678"}],
+            probe=False, documents=options)
+        self.assertTrue(result["success"])
+        self.assertEqual(requests[-1]["issuer_vat"], "EL012345678")
+        self.assertEqual(result["summary"]["records"], 2)
+        self.assertEqual(result["summary"]["total_amount"], "0.2")
+        self.assertEqual(result["visible_records"], 1)
+        self.assertEqual(result["documents"][0]["number"], "2")
+        self.assertNotIn("cli-private-fixture", json.dumps(result))
+        self.assertEqual(operation.call_args.args[1:3], ("20260901", "20260917"))
+
+    async def test_cli_document_url_opening_uses_filtered_record_without_headers(self):
+        options = {"date_from": "20260901", "date_to": "20260917", "filters": {"number": "2"}, "open_document": 1}
+        with patch.object(self.cli.webbrowser, "open", return_value=True) as browser:
+            result, _, _ = await self._company_cli([{"issuer_vat": "EL012345678"}], probe=False, documents=options)
+        self.assertTrue(result["success"])
+        browser.assert_called_once_with("https://einvoice.impact.gr/v/fixture", new=2)
+
+    async def test_cli_documents_requires_selection_when_multiple_vats_exist(self):
+        result, requests, operation = await self._company_cli(
+            [{"issuer_vat": "EL012345678"}, {"issuer_vat": "EL987654321"}],
+            probe=False, documents={"date_from": "20260901", "date_to": "20260917"})
+        self.assertFalse(result["success"])
+        self.assertEqual(len(requests), 1)
+        operation.assert_not_called()
 
     async def test_cli_many_vats_requires_explicit_selection_and_makes_no_provider_call(self):
         companies = [{"issuer_vat": "EL012345678"}, {"issuer_vat": "EL987654321"}]
@@ -446,6 +480,7 @@ class UILogicTests(unittest.TestCase):
         for method in ("refresh_context", "load_companies", "_focus_company", "_focus_section", "probe", "cancel", "_search", "copy_selected", "export"):
             setattr(view, method, Mock())
         view.tree = Mock()
+        view.documents_view = Mock()
         view.tree.winfo_toplevel.return_value = top
         view._bind_shortcuts()
         event = types.SimpleNamespace(widget=view.tree, keysym="F5")
@@ -494,6 +529,7 @@ class UILogicTests(unittest.TestCase):
         view._task = Mock()
         view._task.poll.return_value = ({"records": 1}, None)
         view.status, view.probe_button, view.cancel_button = Mock(), Mock(), Mock()
+        view.documents_view = Mock()
         view._context = types.SimpleNamespace(provider_ready=False)
         view.refresh_diagnostics, view.after = Mock(), Mock()
         view._poll()

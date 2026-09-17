@@ -6,6 +6,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from decimal import Decimal
 from threading import Event
 from urllib.parse import urlencode
 
@@ -102,7 +103,7 @@ class ProviderAPIClient:
                 if expected is not None and (not expected.isdigit() or int(expected) != len(raw)):
                     raise ProviderAPIError(ErrorCategory.INCOMPLETE_RESPONSE, status)
                 try:
-                    data = json.loads(raw.decode("utf-8-sig"))
+                    data = json.loads(raw.decode("utf-8-sig"), parse_float=Decimal)
                 except UnicodeDecodeError:
                     raise ProviderAPIError(ErrorCategory.MALFORMED_RESPONSE, status) from None
                 except json.JSONDecodeError:
