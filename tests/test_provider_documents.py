@@ -483,10 +483,14 @@ class DocumentsViewTests(unittest.TestCase):
                 self.rows[iid] = values
             def selection(self):
                 return self.selected
+            def selection_set(self, children):
+                self.selected = list(children)
+            def focus_set(self):
+                pass
         view.tree = Tree()
         view._render_job = view._filter_job = None
         view._rows, view._sort_reverse = [], {}
-        view.details, view.count, view._status = Mock(), Mock(), Mock()
+        view.details, view.count, view.selection_info, view._status = Mock(), Mock(), Mock(), Mock()
         view.filters = {name: Mock() for name in ("series", "number", "invoice_type", "mark")}
         for entry in view.filters.values():
             entry.get.return_value = ""
@@ -554,6 +558,50 @@ class DocumentsViewTests(unittest.TestCase):
             view.open_url()
         browser.assert_not_called()
         view._status.assert_called_once()
+
+    def test_multiple_selection_shows_and_copies_all_selected_json(self):
+        view = self.view(4)
+        view.tree.selected = ["0", "2"]
+        view.clipboard_clear, view.clipboard_append = Mock(), Mock()
+        view.show_details()
+        shown = json.loads(view.details.insert.call_args.args[1])
+        self.assertEqual([r["number"] for r in shown], ["0", "2"])
+        self.assertIn("Επιλεγμένα: 2", view.selection_info.configure.call_args.kwargs["text"])
+        view.copy_details()
+        self.assertEqual(json.loads(view.clipboard_append.call_args.args[0]), shown)
+        view.copy_selected()
+        self.assertEqual(len(view.clipboard_append.call_args.args[0].splitlines()), 2)
+
+    def test_select_all_waits_for_every_render_batch(self):
+        view = self.view(501)
+        self.assertEqual(view.select_all(), "break")
+        self.assertFalse(view.tree.selection())
+        while view.jobs:
+            key = next(iter(view.jobs))
+            callback = view.jobs.pop(key)
+            callback()
+        self.assertEqual(len(view.tree.selection()), 501)
+        self.assertIn("Προεπισκόπηση 20 από 501", view.details.insert.call_args.args[1])
+        view.clipboard_clear, view.clipboard_append = Mock(), Mock()
+        view.copy_details()
+        self.assertEqual(len(json.loads(view.clipboard_append.call_args.args[0])), 501)
+
+    def test_clear_cancels_pending_select_all(self):
+        view = self.view(501)
+        view.select_all()
+        view.clear()
+        self.assertFalse(view._select_all_pending)
+        self.assertFalse(view.tree.selection())
+
+    def test_new_mouse_selection_overrides_pending_select_all(self):
+        view = self.view(501)
+        view.select_all()
+        view._cancel_pending_selection()
+        view.tree.selected = ["1"]
+        while view.jobs:
+            key = next(iter(view.jobs))
+            view.jobs.pop(key)()
+        self.assertEqual(view.tree.selection(), ["1"])
 
 
 if __name__ == "__main__":

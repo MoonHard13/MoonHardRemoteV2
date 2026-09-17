@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentsView(ctk.CTkFrame):
+    MAX_DETAIL_ROWS = 20
     COLUMNS = (("dateIssued", "Ημερομηνία", 165), ("series", "Σειρά", 95),
                ("number", "Αριθμός", 95), ("invoiceType", "Τύπος", 80),
                ("counterPartyVAT", "ΑΦΜ αντισυμβαλλομένου", 165),
@@ -27,6 +28,7 @@ class DocumentsView(ctk.CTkFrame):
         self.dataset = None
         self._rows = []
         self._render_job = self._filter_job = None
+        self._select_all_pending = False
         self._sort_reverse = {}
         self._status = status
         self.grid_columnconfigure(0, weight=1)
@@ -78,13 +80,18 @@ class DocumentsView(ctk.CTkFrame):
         horizontal.grid(row=1, column=0, sticky="ew")
         self.tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
         self.tree.bind("<<TreeviewSelect>>", lambda _: self.show_details())
+        self.tree.bind("<Control-a>", lambda _: self.select_all())
+        self.tree.bind("<ButtonPress-1>", self._cancel_pending_selection, add="+")
         actions = ctk.CTkFrame(self, fg_color="transparent")
         actions.grid(row=4, column=0, sticky="ew", pady=4)
         for column, (label, action) in enumerate((("Άνοιγμα URL · Ctrl+O", self.open_url),
                 ("Αντιγραφή · Ctrl+C", self.copy_selected),
-                ("Εξαγωγή JSON · Ctrl+E", self.export))):
+                ("Εξαγωγή JSON · Ctrl+E", self.export), ("Επιλογή όλων · Ctrl+A", self.select_all))):
             ctk.CTkButton(actions, text=label, command=action, width=170,
                 **secondary_button_style()).grid(row=0, column=column, padx=3)
+        self.selection_info = ctk.CTkLabel(actions, text="", anchor="w", font=FONTS.small,
+            justify="left", wraplength=740)
+        self.selection_info.grid(row=1, column=0, columnspan=4, sticky="ew", padx=4, pady=4)
         self.details = ctk.CTkTextbox(self, height=150, wrap="word", font=FONTS.small)
         self.details.grid(row=5, column=0, sticky="ew", pady=4)
         self.details.configure(state="disabled")
@@ -142,6 +149,7 @@ class DocumentsView(ctk.CTkFrame):
         logger.info("Ταξινόμηση πίνακα παραστατικών. column=%s", name)
 
     def _render(self):
+        self._select_all_pending = False
         if self._render_job is not None:
             self.after_cancel(self._render_job)
             self._render_job = None
@@ -158,18 +166,48 @@ class DocumentsView(ctk.CTkFrame):
                     row.get(name) if row.get(name) is not None else "—" for name, _, _ in self.COLUMNS])
             if position + 200 < len(self._rows):
                 self._render_job = self.after(10, lambda: batch(position + 200))
+            elif self._select_all_pending:
+                self._select_all_pending = False
+                self.select_all()
         batch()
+
+    def select_all(self):
+        self.tree.focus_set()
+        # Περιμένουμε όλες τις παρτίδες, ώστε το Ctrl+A να μη διαλέγει μόνο τις πρώτες 200 γραμμές.
+        if self._render_job is not None:
+            self._select_all_pending = True
+            self._status("Η επιλογή όλων θα ολοκληρωθεί μόλις φορτωθεί ο πίνακας.")
+        else:
+            self.tree.selection_set(self.tree.get_children())
+            self.show_details()
+            logger.info("Επιλογή όλων των ορατών παραστατικών. records=%s", len(self._rows))
+        return "break"
+
+    def _cancel_pending_selection(self, event=None):
+        # Μια νέα επιλογή με το ποντίκι υπερισχύει του αιτήματος επιλογής όλων.
+        self._select_all_pending = False
+
+    def selected_rows(self):
+        return [self._rows[int(iid)] for iid in self.tree.selection()]
 
     def selected(self):
         selected = self.tree.selection()
         return self._rows[int(selected[0])] if selected else None
 
     def show_details(self):
-        row = self.selected()
+        rows = self.selected_rows()
+        self.selection_info.configure(text=f"Επιλεγμένα: {len(rows)} · Ctrl+κλικ: μεμονωμένα · "
+            "Shift+κλικ: εύρος · Ctrl+Shift+C: αντιγραφή JSON επιλεγμένων")
+        logger.debug("Προβολή επιλογής παραστατικών. records=%s", len(rows))
+        preview = rows[:self.MAX_DETAIL_ROWS]
+        value = preview[0] if len(rows) == 1 else preview
+        text = json.dumps(value, ensure_ascii=False, indent=2) if rows else (
+            "Επιλέξτε παραστατικά για λεπτομέρειες. Τα μη διαθέσιμα πεδία εμφανίζονται ως null.")
+        if len(rows) > self.MAX_DETAIL_ROWS:
+            text = f"Προεπισκόπηση {self.MAX_DETAIL_ROWS} από {len(rows)} επιλεγμένα. Ctrl+Shift+C: αντιγραφή όλων.\n\n" + text
         self.details.configure(state="normal")
         self.details.delete("1.0", "end")
-        self.details.insert("1.0", json.dumps(row, ensure_ascii=False, indent=2) if row else
-            "Επιλέξτε παραστατικό για λεπτομέρειες. Τα μη διαθέσιμα πεδία εμφανίζονται ως null.")
+        self.details.insert("1.0", text)
         self.details.configure(state="disabled")
 
     def open_url(self):
@@ -186,18 +224,19 @@ class DocumentsView(ctk.CTkFrame):
         logger.info("Ζητήθηκε άνοιγμα URL παραστατικού.")
 
     def copy_selected(self):
-        rows = [self._rows[int(iid)] for iid in self.tree.selection()]
+        rows = self.selected_rows()
         if rows:
             self.clipboard_clear()
             self.clipboard_append("\n".join("\t".join(str(row.get(name) or "") for name, _, _ in self.COLUMNS) for row in rows))
             logger.info("Αντιγραφή επιλεγμένων παραστατικών. records=%s", len(rows))
 
     def copy_details(self):
-        row = self.selected()
-        if row:
+        rows = self.selected_rows()
+        if rows:
             self.clipboard_clear()
-            self.clipboard_append(json.dumps(row, ensure_ascii=False, indent=2))
-            logger.info("Αντιγραφή λεπτομερειών παραστατικού.")
+            self.clipboard_append(json.dumps(rows[0] if len(rows) == 1 else rows, ensure_ascii=False, indent=2))
+            self._status(f"Αντιγράφηκε JSON για {len(rows)} επιλεγμένα παραστατικά.")
+            logger.info("Αντιγραφή λεπτομερειών παραστατικών. records=%s", len(rows))
 
     def export(self):
         if not self.dataset:
