@@ -285,7 +285,7 @@ class SQLReaderTests(unittest.TestCase):
     def test_no_response_table_preserves_untransmitted_documents(self):
         schema=self.schema(False); schema['TblSnMyDATA_Response']=set()
         query,_,warnings=self.query(schema=schema)
-        self.assertIn('SELECT NULL AS mark',query)
+        self.assertIn('SELECT CAST(NULL AS nvarchar(500)) AS mark',query)
         self.assertNotIn('dbo.TblSnMyDATA_Response AS md',query)
         self.assertTrue(any('σύνδεση' in warning for warning in warnings))
 
@@ -518,6 +518,67 @@ class IssueDateTests(unittest.TestCase):
         self.assertNotIn('WHERE base.SalesPWDate',query)
         self.assertIn('MyDATA_ResponseInvoiceDate',query)
         self.assertEqual(query.count('?'),len(params))
+
+
+class SQLFallbackAndDiagnosticsTests(unittest.TestCase):
+    def test_missing_date_field_is_text_null_for_try_convert(self):
+        fixture = SQLReaderTests()
+        schema = fixture.schema()
+        self.assertNotIn('mydata_responseinvoicedate', schema['TblSnMyDATA_Response'])
+        query, _, _ = fixture.query(schema=schema)
+        self.assertIn('CAST(NULL AS nvarchar(500)) AS invoice_date', query)
+        self.assertNotRegex(query, r'(?<!\))\bNULL AS invoice_date')
+
+    def test_missing_mark_field_does_not_promote_success_mark_to_int(self):
+        fixture = SQLReaderTests()
+        schema = fixture.schema()
+        schema['TblSnMyDATA_Response'].remove('mydata_responseinvoicemark')
+        query, _, _ = fixture.query(schema=schema)
+        self.assertIn("COALESCE(CAST(NULL AS nvarchar(500)), NULLIF(LTRIM(RTRIM(suc.mark)), N''))", query)
+        self.assertNotIn('COALESCE(NULL,', query)
+
+    def test_no_response_relation_keeps_all_text_nulls_typed(self):
+        fixture = SQLReaderTests()
+        schema = fixture.schema(False)
+        schema['TblSnMyDATA_Response'] = set()
+        for source in ('pos', 'sales'):
+            query, params, _ = fixture.query(source=source, schema=schema)
+            for name in ('mark', 'uid', 'invoiceType', 'invoice_date', 'response_status'):
+                self.assertIn(f'CAST(NULL AS nvarchar(500)) AS {name}', query)
+            self.assertEqual(query.count('?'), len(params))
+
+    def test_diagnostics_extract_codes_without_exception_text(self):
+        error = RuntimeError('42000', '[SQL Server]password=private-fixture; SQL text (529) (SQLExecDirectW)')
+        self.assertEqual(Reader.sql_error_details(error), ('42000', 529, 'unsupported_conversion'))
+        error = RuntimeError('42S22', "Invalid column name 'private-fixture' (207)")
+        self.assertEqual(Reader.sql_error_details(error), ('42S22', 207, 'invalid_column'))
+        self.assertEqual(Reader.sql_error_details(RuntimeError('07002', 'private-fixture')), ('07002', '-', 'parameter_count'))
+        self.assertEqual(Reader.sql_error_details(RuntimeError('password=private-fixture', 'server=private-fixture (1433)')),
+            ('-', '-', 'unknown'))
+
+    def test_failed_execute_logs_scope_stage_and_safe_codes_and_closes_resources(self):
+        class ProgrammingError(Exception):
+            pass
+        settings, provider, connection, cursor = Mock(), Mock(), Mock(), Mock()
+        settings.read_appsettings_production.return_value = {'bo_connections': [{'ID': 1, 'DatabaseConnection': 'PRIVATE'}]}
+        provider._to_odbc_connection_string.return_value = 'ODBC'
+        odbc.connect.side_effect = None
+        odbc.connect.return_value = connection
+        connection.cursor.return_value = cursor
+        cursor.fetchmany.return_value = [('012345678',)]
+        cursor.execute.side_effect = [None, ProgrammingError('42000', 'password=private-fixture (529) (SQLExecDirectW)')]
+        reader = Reader(settings, provider)
+        with patch.object(reader, 'metadata', return_value=SQLReaderTests().schema()), \
+                self.assertLogs(reader_module.logger, level='WARNING') as logs:
+            result = reader.read(dict(issuer_vat='EL012345678', date_from='20260917', date_to='20260917', source='pos', bo_connection_id=1))
+        self.assertFalse(result['success'])
+        message = ' '.join(logs.output)
+        for expected in ('exception_type=ProgrammingError', 'source=pos', 'stage=erp_query', 'sqlstate=42000', 'native_code=529'):
+            self.assertIn(expected, message)
+        self.assertNotIn('private-fixture', message + json.dumps(result))
+        self.assertNotIn('012345678', message)
+        connection.close.assert_called_once()
+        cursor.close.assert_called_once()
 
 
 if __name__ == '__main__':

@@ -108,7 +108,7 @@ class ReconciliationReader:
         warnings = []
         if relation and "mydata_responseoid" in md:
             def field(name):
-                return f"NULLIF(LTRIM(RTRIM(CAST(md.[{name}] AS nvarchar(500)))), N'')" if name.lower() in md else "NULL"
+                return f"NULLIF(LTRIM(RTRIM(CAST(md.[{name}] AS nvarchar(500)))), N'')" if name.lower() in md else "CAST(NULL AS nvarchar(500))"
             mark = field("MyDATA_ResponseInvoiceMARK")
             success_sql = ""
             if success_available:
@@ -128,7 +128,10 @@ class ReconciliationReader:
                 FROM dbo.TblSnMyDATA_Response AS md {success_sql} WHERE {relation}
                 ORDER BY CASE WHEN {mark} IS NULL THEN 1 ELSE 0 END, md.MyDATA_ResponseOID DESC) AS response"""
         else:
-            response_sql = "OUTER APPLY (SELECT NULL AS mark, NULL AS uid, NULL AS invoiceType, NULL AS invoice_date, NULL AS response_status) AS response"
+            # Το σκέτο NULL έχει τύπο int και δεν μετατρέπεται σε datetime2 από TRY_CONVERT.
+            empty_text = "CAST(NULL AS nvarchar(500))"
+            response_sql = (f"OUTER APPLY (SELECT {empty_text} AS mark, {empty_text} AS uid, "
+                f"{empty_text} AS invoiceType, {empty_text} AS invoice_date, {empty_text} AS response_status) AS response")
             warnings.append(f"{source}: δεν τεκμηριώνεται σύνδεση παραστατικού με MyDATA_Response.")
         if source == "pos":
             warnings.append("POS: δεν έχει τεκμηριωθεί πηγή συνολικής αξίας/ΦΠΑ· τα ποσά δεν συγκρίνονται.")
@@ -146,21 +149,47 @@ class ReconciliationReader:
             FROM ({base_sql}) AS doc {response_sql} {outer_where} ORDER BY doc.page_oid DESC"""
         return query, params, warnings
 
+    @staticmethod
+    def sql_error_details(exc):
+        """Εξάγει μόνο κωδικούς· ποτέ μήνυμα SQL, credentials ή περιεχόμενο εγγραφών."""
+        args = getattr(exc, "args", ())
+        state = args[0] if args and isinstance(args[0], str) and re.fullmatch(r"[A-Z0-9]{5}", args[0]) else "-"
+        reasons = {102: "syntax", 195: "unsupported_function", 207: "invalid_column",
+            208: "missing_object", 229: "select_permission", 245: "conversion",
+            468: "collation", 529: "unsupported_conversion", 8115: "overflow", 8180: "statement_preparation"}
+        codes = []
+        for arg in args:
+            if isinstance(arg, str):
+                for value in re.findall(r"\(([0-9]{1,6})\)", arg[:10000]):
+                    code = int(value)
+                    if code in reasons and code not in codes:
+                        codes.append(code)
+        native = codes[0] if codes else "-"
+        reason = reasons.get(native, "parameter_count" if state == "07002" else "unknown")
+        return state, native, reason
+
     def read(self, payload):
+        stage, source = "validation", "unknown"
         try:
             start, end, issuer, before = self.validate(payload)
+            source = payload["source"]
+            stage = "settings"
             settings = self.settings.read_appsettings_production()
             matches = [r for r in settings.get("bo_connections", []) if str(r.get("ID")) == str(payload["bo_connection_id"])]
             if len(matches) != 1 or not matches[0].get("DatabaseConnection"):
                 raise ValueError
+            stage = "connection"
             odbc = self.provider._to_odbc_connection_string(matches[0]["DatabaseConnection"])
             with closing(pyodbc.connect(odbc, timeout=15)) as connection:
                 connection.timeout = 30
                 with closing(connection.cursor()) as cursor:
+                    stage = "metadata"
                     schema = self.metadata(cursor)
                     if "companyafm" not in schema["TblSnCompany"]:
                         raise ValueError
+                    stage = "companies_query"
                     cursor.execute("SELECT CompanyAFM FROM dbo.TblSnCompany")
+                    stage = "companies_fetch"
                     companies = [ProviderDiagnosticContextReader.normalize_vat(r[0]) for r in cursor.fetchmany(2001)]
                     if not companies or len(companies) > 2000 or issuer not in companies:
                         raise ValueError
@@ -172,11 +201,15 @@ class ReconciliationReader:
                     single_company = set(companies) == {issuer}
                     if not single_company and "companyoid" not in schema["TblSnCompany"]:
                         raise ValueError
+                    stage = "query_build"
                     query, params, notes = self.build_query(schema, source, start, end, issuer, single_company, before)
+                    stage = "erp_query"
                     cursor.execute(query, params)
+                    stage = "erp_fetch"
                     names = [c[0] for c in cursor.description]
                     rows = cursor.fetchmany(self.PAGE_SIZE + 1)
                     records = []
+                    stage = "row_projection"
                     for row in rows[:self.PAGE_SIZE]:
                         record = dict(zip(names, row))
                         record["page_oid"] = int(record["page_oid"])
@@ -190,7 +223,9 @@ class ReconciliationReader:
             logger.info("Ανάγνωση ERP για σύγκριση. source=%s records=%s has_more=%s", source, len(records), more)
             return self.result(records, more, records[-1]["page_oid"] if more else None, warnings + notes)
         except Exception as exc:
-            logger.warning("Αποτυχία ανάγνωσης ERP για σύγκριση. exception_type=%s", type(exc).__name__)
+            state, native, reason = self.sql_error_details(exc)
+            logger.warning("Αποτυχία ανάγνωσης ERP για σύγκριση. exception_type=%s source=%s stage=%s "
+                "sqlstate=%s native_code=%s reason=%s", type(exc).__name__, source, stage, state, native, reason)
             return {"success": False, "error": "Δεν ήταν δυνατή η ανάγνωση ERP. Ελέγξτε σχήμα, σύνδεση εταιρείας και δικαιώματα SELECT.",
                     "records": [], "has_more": False, "next_before_oid": None, "coverage_complete": False, "warnings": []}
 
