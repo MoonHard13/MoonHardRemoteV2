@@ -12,6 +12,7 @@ import time
 import types
 import unittest
 import urllib.error
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event
@@ -25,7 +26,7 @@ from app.provider_diagnostic.api_client import NoRedirectHandler, ProviderAPICli
 from app.provider_diagnostic.context import CustomerContextAdapter
 from app.provider_diagnostic.diagnostics import APIDiagnosticStore
 from app.provider_diagnostic.errors import ErrorCategory, ProviderAPIError
-from app.provider_diagnostic.models import APIDiagnostic, VerifiedProviderCredentials
+from app.provider_diagnostic.models import APIDiagnostic, VerifiedProviderCredentials, ProviderEndpoint
 from app.provider_diagnostic.security import SecretRedactor, SecretRedactingFormatter, SECRET_REDACTOR
 from app.provider_diagnostic.service import ProviderDiagnosticService
 from app.provider_diagnostic.tasks import BackgroundTask
@@ -43,7 +44,7 @@ class Response(io.BytesIO):
 
 
 def binding(client="client-one", bo=1):
-    return VerifiedProviderCredentials(client, bo, "EL123456789", "fixture-key-only", "test-fixture")
+    return VerifiedProviderCredentials(client, bo, "EL123456789", "fixture-key-only", "test-fixture", "https://einvoice.impact.gr")
 
 
 class ContextTests(unittest.TestCase):
@@ -95,7 +96,7 @@ class ContextTests(unittest.TestCase):
     def test_masked_or_header_injection_key_is_rejected(self):
         for key in ("***", "", "test\r\nAPIKey: another"):
             with self.assertRaises(ValueError):
-                VerifiedProviderCredentials("client-one", 1, "EL123456789", key, "fixture")
+                VerifiedProviderCredentials("client-one", 1, "EL123456789", key, "fixture", "https://einvoice.impact.gr")
         self.assertNotIn("fixture-key-only", repr(binding()))
 
 
@@ -203,6 +204,31 @@ class APIClientTests(unittest.TestCase):
     def test_redirect_handler_never_forwards_key(self):
         self.assertIsNone(NoRedirectHandler().redirect_request(None, None, 302, "", {}, "https://another-host"))
 
+    def test_uat_request_and_diagnostics_use_the_configured_host(self):
+        credentials = replace(binding(), provider_base_url="https://einvoiceapiuat.impact.gr/")
+        client = ProviderAPIClient(credentials, self.store, opener=self.opener)
+        self.opener.open.return_value = Response()
+        client.get_documents_page("20260901", "20260917")
+        request = self.opener.open.call_args.args[0]
+        self.assertTrue(request.full_url.startswith("https://einvoiceapiuat.impact.gr/"))
+        self.assertNotIn("https://einvoice.impact.gr", request.full_url)
+        self.assertEqual(request.get_header("Apikey"), "fixture-key-only")
+        self.assertTrue(self.store.entries()[0].endpoint.startswith("https://einvoiceapiuat.impact.gr/"))
+
+    def test_provider_urls_reject_untrusted_targets_before_network(self):
+        for url in ("http://einvoiceapiuat.impact.gr/", "https://einvoiceapiuat.impact.gr.evil.invalid/",
+                    "https://einvoiceapiuat.impact.gr:8443/", "https://user@einvoiceapiuat.impact.gr/",
+                    "https://einvoiceapiuat.impact.gr/?key=value", "https://einvoiceapiuat.impact.gr/other"):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                replace(binding(), provider_base_url=url)
+        self.opener.open.assert_not_called()
+
+    def test_provider_url_normalization_and_environment(self):
+        self.assertEqual(ProviderEndpoint.normalize("https://einvoiceapiuat.impact.gr/api/"),
+                         "https://einvoiceapiuat.impact.gr")
+        self.assertEqual(ProviderEndpoint.environment("https://einvoiceapiuat.impact.gr/"), "UAT")
+        self.assertEqual(ProviderEndpoint.environment("https://einvoiceapi.impact.gr/"), "PRODUCTION")
+
 
 class DiagnosticsAndSecurityTests(unittest.TestCase):
     def test_store_is_bounded_filterable_and_close_blocks_late_writes(self):
@@ -298,7 +324,7 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
                     request = json.loads(self.send.call_args.args[0])
                     yield json.dumps({**request, "type": "provider_diagnostic_context_result",
                         "success": True, "companies": [{"issuer_vat": "EL012345678", "company_name": "Εταιρεία Α"}],
-                        "sql_verified": True})
+                        "sql_verified": True, "provider_base_url": "https://einvoice.impact.gr"})
                 return replies()
 
         config = types.SimpleNamespace(dashboard_token="token-fixture", dashboard_websocket_url="wss://fixture.invalid")
@@ -331,7 +357,7 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
                         request = json.loads(self.send.call_args.args[0])
                         self.requests.append(request)
                         reply = {**request, "type": "provider_diagnostic_context_result", "success": True,
-                                 "companies": companies, "sql_verified": True}
+                                 "companies": companies, "sql_verified": True, "provider_base_url": "https://einvoice.impact.gr"}
                         if request.get("issuer_vat"):
                             reply["api_key"] = "cli-private-fixture"
                         yield json.dumps(reply)
@@ -410,6 +436,30 @@ class UILogicTests(unittest.TestCase):
         self.assertIsNone(callbacks["<Control-c>"](event))
         view.copy_selected.assert_not_called()
 
+    def test_gui_single_vat_is_selected_without_user_action(self):
+        from app.provider_diagnostic.session import ProviderContextSession
+        for vats in (("EL012345678",), ("EL012345678", "EL987654321")):
+            view = self.module.ProviderDiagnosticTab.__new__(self.module.ProviderDiagnosticTab)
+            context = CustomerContextAdapter(lambda: {"client_code": "client-one", "ws_connected": True},
+                lambda: {"ID": 1}, lambda: 1, lambda _: {}).snapshot()
+            view.session = ProviderContextSession()
+            request = view.session.request(context)
+            view._closed = False
+            view.service = Mock()
+            view.service.context.snapshot.return_value = context
+            view.company, view.status, view.cancel_button = Mock(), Mock(), Mock()
+            view._task = Mock()
+            view._task.busy = False
+            view.refresh_context = Mock()
+            view._request_provider_context = Mock()
+            view.handle_context_result({**request, "success": True,
+                "companies": [{"issuer_vat": vat, "company_name": "Εταιρεία"} for vat in vats],
+                "provider_base_url": "https://einvoiceapiuat.impact.gr", "sql_verified": True})
+            if len(vats) == 1:
+                view._request_provider_context.assert_called_once_with(vats[0])
+            else:
+                view._request_provider_context.assert_not_called()
+
     def test_stale_background_result_does_not_update_new_context_status(self):
         view = self.module.ProviderDiagnosticTab.__new__(self.module.ProviderDiagnosticTab)
         view._closed = False
@@ -429,4 +479,3 @@ class UILogicTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

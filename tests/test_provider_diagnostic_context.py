@@ -47,7 +47,8 @@ class CompanyReaderTests(unittest.TestCase):
         self.settings, self.provider, self.connection, self.cursor = Mock(), Mock(), Mock(), Mock()
         self.settings.read_appsettings_production.return_value = {"bo_connections": [
             {"ID": 2, "subscriptionKey": "WRONG-KEY", "DatabaseConnection": "WRONG-DB"},
-            {"ID": 1, "subscriptionKey": "fixture-key", "DatabaseConnection": "RIGHT-DB"}]}
+            {"ID": 1, "subscriptionKey": "fixture-key", "DatabaseConnection": "RIGHT-DB"}],
+            "provider_connections": [{"ID": 1, "BaseURL": "https://einvoice.impact.gr/"}]}
         self.provider._to_odbc_connection_string.return_value = "ODBC"
         odbc.connect.return_value = self.connection
         self.connection.cursor.return_value = self.cursor
@@ -112,16 +113,45 @@ class CompanyReaderTests(unittest.TestCase):
         self.assertTrue(result["sql_verified"])
         self.assertNotIn("api_key", result)
 
+    def test_uat_and_production_follow_provider_configuration(self):
+        for host in ("einvoiceapiuat.impact.gr", "einvoiceapi.impact.gr", "einvoice.impact.gr"):
+            with self.subTest(host=host):
+                self.cursor.fetchall.side_effect = [[("CompanyAFM",)], [("012345678", "", "")]]
+                self.settings.read_appsettings_production.return_value["provider_connections"] = [
+                    {"ID": 1, "BaseURL": f"https://{host}/"}]
+                result = self.reader.read(1, "EL012345678")
+                self.assertTrue(result["success"])
+                self.assertEqual(result["provider_base_url"], f"https://{host}")
+
+    def test_explicit_provider_mapping_does_not_pick_first_or_matching_bo_id(self):
+        data = self.settings.read_appsettings_production.return_value
+        data["bo_connections"][1]["ProviderConnectionID"] = 7
+        data["provider_connections"] = [
+            {"ID": 1, "BaseURL": "https://einvoiceapi.impact.gr/"},
+            {"ID": 7, "BaseURL": "https://einvoiceapiuat.impact.gr/"}]
+        result = self.reader.read(1, "EL012345678")
+        self.assertEqual(result["provider_base_url"], "https://einvoiceapiuat.impact.gr")
+
+    def test_missing_ambiguous_or_untrusted_provider_never_releases_key(self):
+        for providers in ([], [{"ID": 1, "BaseURL": "https://untrusted.invalid/"}],
+                          [{"ID": 1, "BaseURL": "https://einvoiceapi.impact.gr/"},
+                           {"ID": 2, "BaseURL": "https://einvoiceapiuat.impact.gr/"}]):
+            self.settings.read_appsettings_production.return_value["provider_connections"] = providers
+            result = self.reader.read(1, "EL012345678")
+            self.assertFalse(result["success"])
+            self.assertNotIn("api_key", result)
+        odbc.connect.assert_not_called()
+
 
 class SessionTests(unittest.TestCase):
     def setUp(self):
         self.session = ProviderContextSession()
         request = self.session.request(context())
-        self.session.accept({**request, "success": True, "companies": COMPANIES, "sql_verified": True}, context())
+        self.session.accept({**request, "success": True, "companies": COMPANIES, "sql_verified": True, "provider_base_url": "https://einvoice.impact.gr"}, context())
 
     def install(self):
         request = self.session.request(context(), COMPANIES[0]["issuer_vat"])
-        return request, {**request, "success": True, "companies": COMPANIES, "api_key": "fixture-key", "sql_verified": True}
+        return request, {**request, "success": True, "companies": COMPANIES, "api_key": "fixture-key", "sql_verified": True, "provider_base_url": "https://einvoice.impact.gr"}
 
     def test_multiple_companies_have_no_implicit_selection_or_key(self):
         self.assertEqual(len(self.session.companies), 2)
@@ -165,6 +195,17 @@ class SessionTests(unittest.TestCase):
             self.assertTrue(self.session.expire_pending())
         self.assertFalse(self.session.accept(response, context()))
 
+    def test_missing_or_untrusted_base_url_cannot_bind_credentials(self):
+        for value in ("", "https://untrusted.invalid", "http://einvoiceapiuat.impact.gr"):
+            _, response = self.install()
+            self.session.accept({**response, "provider_base_url": value}, context())
+            self.assertIsNone(self.session.resolve(context()))
+
+    def test_uat_credentials_expose_the_actual_environment(self):
+        _, response = self.install()
+        self.session.accept({**response, "provider_base_url": "https://einvoiceapiuat.impact.gr/"}, context())
+        self.assertEqual(self.session.resolve(context()).provider_base_url, "https://einvoiceapiuat.impact.gr")
+
 
 class DiagnosticRouterTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -182,6 +223,7 @@ class DiagnosticRouterTests(unittest.IsolatedAsyncioTestCase):
         await self.router.request(self.dashboard, self.request)
         response = {**self.request, "type": "provider_diagnostic_context_result", "success": True,
                     "api_key": "fixture-key", "companies": COMPANIES,
+                    "provider_base_url": "https://einvoiceapiuat.impact.gr",
                     "DatabaseConnection": "private", "raw_json": {"password": "private"}}
         await self.router.result("OTHER", response)
         self.manager.send_to_dashboard.assert_not_awaited()
@@ -190,6 +232,7 @@ class DiagnosticRouterTests(unittest.IsolatedAsyncioTestCase):
         destination, result = self.manager.send_to_dashboard.call_args.args
         self.assertIs(destination, self.dashboard)
         self.assertEqual(result["api_key"], "fixture-key")
+        self.assertEqual(result["provider_base_url"], "https://einvoiceapiuat.impact.gr")
         self.assertNotIn("private", json.dumps(result))
         self.assertFalse(self.router.pending)
 

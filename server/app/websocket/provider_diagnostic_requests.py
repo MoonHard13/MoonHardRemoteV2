@@ -36,5 +36,5 @@ class ProviderDiagnosticRequestRouter(TransmittedRequestRouter):
     async def result(self, client_code, data):
         # Η επιτρεπόμενη λίστα αποκλείει SQL credentials και raw appsettings.
         allowed = ("type", "request_id", "bo_connection_id", "success", "error", "companies",
-                   "issuer_vat", "api_key", "invalid_afm_count", "sql_verified")
+                   "issuer_vat", "api_key", "invalid_afm_count", "sql_verified", "provider_base_url")
         await super().result(client_code, {key: data[key] for key in allowed if key in data})
