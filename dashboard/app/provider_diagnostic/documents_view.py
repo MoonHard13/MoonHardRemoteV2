@@ -136,7 +136,7 @@ class DocumentsView(ctk.CTkFrame):
                 f"Διάστημα: {self.dataset.date_from}–{self.dataset.date_to} · "
                 f"Σελίδες: {self.dataset.pages} · Από API: {self.dataset.fetched_records if self.dataset.fetched_records is not None else len(self.dataset.records)} · "
                 f"Εκτός διαστήματος: {self.dataset.excluded_by_date} · Ανάκτηση: {self.dataset.loaded_at}\n"
-                f"{self.dataset.warning}")
+                f"{self.dataset.warning or self.dataset.completion_note}")
         logger.info("Φιλτράρισμα παραστατικών. visible=%s", len(self._rows))
 
     def reset_filters(self):
@@ -258,6 +258,9 @@ class DocumentsView(ctk.CTkFrame):
                 json.dump({"date_from": self.dataset.date_from, "date_to": self.dataset.date_to,
                     "loaded_at": self.dataset.loaded_at, "summary": self.dataset.summary(),
                     "complete": self.dataset.complete, "warning": self.dataset.warning,
+                    "completion_inferred": self.dataset.completion_inferred,
+                    "completion_verified": self.dataset.completion_verified,
+                    "completion_note": self.dataset.completion_note,
                     "records": self._rows}, stream, ensure_ascii=False, indent=2)
             self._status(f"Εξαγωγή ολοκληρώθηκε. Παραστατικά: {len(self._rows)}")
             logger.info("Εξαγωγή παραστατικών ολοκληρώθηκε. records=%s", len(self._rows))

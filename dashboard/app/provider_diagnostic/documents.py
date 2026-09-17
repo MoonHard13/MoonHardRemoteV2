@@ -90,6 +90,24 @@ class DocumentDataset:
     termination: str = "next_page_absent"
     api_date_from: str = ""
     api_date_to: str = ""
+    last_page_records: int = 0
+
+    @property
+    def completion_inferred(self):
+        return self.termination == "short_page_404"
+
+    @property
+    def completion_verified(self):
+        return self.complete and not self.completion_inferred
+
+    @property
+    def completion_note(self):
+        if self.completion_inferred:
+            return (f"Τέλος βάσει σελιδοποίησης: τελευταία σελίδα {self.last_page_records}/"
+                f"{DocumentLoader.PAGE_SIZE} εγγραφές, επόμενη HTTP 404.")
+        if self.termination == "provider_page_limit":
+            return "Ολοκληρώθηκε· ο Provider δήλωσε υπέρβαση των διαθέσιμων σελίδων."
+        return ""
 
     @property
     def warning(self):
@@ -102,10 +120,8 @@ class DocumentDataset:
 
     @property
     def status_text(self):
-        completed = ("Ολοκληρώθηκε· ο Provider δήλωσε υπέρβαση των διαθέσιμων σελίδων."
-            if self.termination == "provider_page_limit" else "Ολοκληρώθηκε.")
         return (f"Ανάκτηση: {len(self.records)} παραστατικά στο διάστημα · {self.pages} σελίδες. "
-                + (self.warning or completed))
+                + (self.warning or self.completion_note or "Ολοκληρώθηκε."))
 
     def filtered(self, series="", number="", invoice_type="", mark=""):
         filters = [(name, value.strip() if name in ("invoiceType", "mark") else value.strip().casefold())
@@ -139,10 +155,14 @@ class DocumentDataset:
                 "excluded_by_date": self.excluded_by_date, "invalid_date_count": self.invalid_date_count,
                 "complete": self.complete, "termination": self.termination,
                 "api_date_from": self.api_date_from or self.date_from,
-                "api_date_to": self.api_date_to or self.date_to}
+                "api_date_to": self.api_date_to or self.date_to,
+                "completion_inferred": self.completion_inferred,
+                "completion_verified": self.completion_verified,
+                "last_page_records": self.last_page_records}
 
 
 class DocumentLoader:
+    PAGE_SIZE = 100
     MAX_PAGES = 1000
     MAX_RECORDS = 100000
     MAX_BYTES = 128 * 1024 * 1024
@@ -193,6 +213,7 @@ class DocumentLoader:
         records, hashes, size, page_number = [], set(), 0, 1
         fetched = excluded = invalid_dates = successful_pages = 0
         complete, termination = True, "next_page_absent"
+        last_page_records = 0
         logger.info("Έναρξη ανάκτησης παραστατικών. requested_from=%s requested_to=%s api_from=%s api_to=%s",
             start, end, request_start, request_end)
         while True:
@@ -201,11 +222,16 @@ class DocumentLoader:
             try:
                 page = self.client.get_documents_page(request_start, request_end, page_number, cancel)
             except ProviderAPIError as exc:
-                # Το HTTP status μόνο του δεν αποδεικνύει το τέλος της λίστας.
+                # Χρησιμοποιούμε το μέγεθος της raw σελίδας, πριν από το φίλτρο ημερομηνίας.
                 if exc.category not in (ErrorCategory.NOT_FOUND, ErrorCategory.END_OF_LIST) or not successful_pages:
                     raise
                 complete = exc.category == ErrorCategory.END_OF_LIST
-                termination = "provider_page_limit" if complete else "next_page_404"
+                if complete:
+                    termination = "provider_page_limit"
+                elif exc.status == 404 and last_page_records < self.PAGE_SIZE:
+                    complete, termination = True, "short_page_404"
+                else:
+                    termination = "next_page_404"
                 logger.log(logging.INFO if complete else logging.WARNING,
                     "Τερματισμός σελιδοποίησης. page=%s successful_pages=%s reason=%s",
                     page_number, successful_pages, termination)
@@ -231,6 +257,7 @@ class DocumentLoader:
                 else:
                     excluded += 1
             successful_pages += 1
+            last_page_records = len(page.documents)
             if progress:
                 progress({"pages": successful_pages, "records": len(records), "fetched_records": fetched})
             logger.info("Ανάκτηση σελίδας παραστατικών. page=%s records=%s", page_number, len(page.documents))
@@ -244,4 +271,4 @@ class DocumentLoader:
         logger.info("Ανάκτηση ολοκληρώθηκε. pages=%s records=%s fetched=%s complete=%s", successful_pages, len(records), fetched, complete)
         return DocumentDataset(tuple(records), start, end, successful_pages,
             datetime.now(timezone.utc).isoformat(timespec="seconds"), fetched, excluded, invalid_dates,
-            complete, termination, request_start, request_end)
+            complete, termination, request_start, request_end, last_page_records)

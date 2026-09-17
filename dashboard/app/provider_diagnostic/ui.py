@@ -294,7 +294,7 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             f"Τύποι: {', '.join(f'{name}: {count}' for name, count in sorted(summary['invoice_types'].items())) or 'Δεν υπάρχουν'}\n"
             f"Χωρίς διαθέσιμη αξία: {summary['missing_amounts']} · Χωρίς διαθέσιμο ΦΠΑ: {summary['missing_vat']}\n"
             f"Ανακτήθηκαν από API: {summary['fetched_records']} · Εκτός διαστήματος: {dataset.excluded_by_date}\n"
-            f"Τελευταία ανάκτηση: {dataset.loaded_at}\n{dataset.warning}"))
+            f"Τελευταία ανάκτηση: {dataset.loaded_at}\n{dataset.warning or dataset.completion_note}"))
 
     def cancel(self) -> None:
         if self.session.pending:

@@ -74,6 +74,42 @@ class LoaderTests(unittest.TestCase):
         self.assertIn("404", result.warning)
         self.assertEqual(result.summary()["complete"], False)
 
+    def test_observed_49_records_then_404_is_inferred_end_not_explicit_confirmation(self):
+        self.client.get_documents_page.side_effect = [DocumentPage([row(str(n)) for n in range(49)], "2"),
+            ProviderAPIError(ErrorCategory.NOT_FOUND, 404)]
+        result = self.load()
+        self.assertEqual((len(result.records), result.pages, result.last_page_records), (49, 1, 49))
+        self.assertTrue(result.complete)
+        self.assertTrue(result.completion_inferred)
+        self.assertFalse(result.completion_verified)
+        self.assertEqual(result.termination, "short_page_404")
+        self.assertEqual(result.warning, "")
+        self.assertIn("49/100", result.status_text)
+        self.assertFalse(result.summary()["completion_verified"])
+
+    def test_full_raw_page_with_only_two_matching_dates_does_not_infer_end(self):
+        rows = [row(str(n), dateIssued="2026-09-17" if n < 2 else "2026-08-01") for n in range(100)]
+        self.client.get_documents_page.side_effect = [DocumentPage(rows, "2"),
+            ProviderAPIError(ErrorCategory.NOT_FOUND, 404)]
+        result = self.load()
+        self.assertEqual((len(result.records), result.last_page_records), (2, 100))
+        self.assertFalse(result.complete)
+        self.assertFalse(result.completion_inferred)
+        self.assertIn("πληρότητα", result.warning)
+
+    def test_full_pages_then_short_page_and_404_use_last_raw_page(self):
+        self.client.get_documents_page.side_effect = [DocumentPage([row(str(n)) for n in range(100)], "2"),
+            DocumentPage([row(str(n + 100)) for n in range(49)], "3"),
+            ProviderAPIError(ErrorCategory.NOT_FOUND, 404)]
+        result = self.load()
+        self.assertEqual((len(result.records), result.pages, result.last_page_records), (149, 2, 49))
+        self.assertTrue(result.completion_inferred)
+
+    def test_not_found_without_http_404_status_does_not_infer_end(self):
+        self.client.get_documents_page.side_effect = [DocumentPage([row()], "2"),
+            ProviderAPIError(ErrorCategory.NOT_FOUND)]
+        self.assertFalse(self.load().complete)
+
     def test_dates_change_results_even_when_provider_returns_identical_rows(self):
         self.client.get_documents_page.return_value = DocumentPage([
             row("start", dateIssued="2026-09-16T00:00:00+03:00"),
@@ -112,7 +148,8 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual((second.date_from, second.date_to), ("20260917", "20260917"))
         self.assertEqual((second.summary()["api_date_from"], second.summary()["api_date_to"]),
             ("20260916", "20260918"))
-        self.assertFalse(second.complete)
+        self.assertTrue(second.complete)
+        self.assertTrue(second.completion_inferred)
 
     def test_padded_window_is_used_on_every_page_and_header_validation(self):
         self.client.get_documents_page.side_effect = [DocumentPage([row()], self.next_url()),
@@ -248,7 +285,9 @@ class LoaderTests(unittest.TestCase):
             urllib.error.HTTPError("https://einvoice.impact.gr", 404, "", {}, None)]
         result = DocumentLoader(ProviderAPIClient(credentials, store, opener=opener)).load(
             "20260901", "20260917", credentials.issuer_vat, self.cancel)
-        self.assertFalse(result.complete)
+        self.assertTrue(result.complete)
+        self.assertTrue(result.completion_inferred)
+        self.assertIn("Τέλος βάσει σελιδοποίησης", result.status_text)
         self.assertEqual([d.http_status for d in store.entries()], [200, 404])
         self.assertFalse(store.entries()[-1].success)
 
@@ -267,6 +306,7 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual(result.termination, "provider_page_limit")
         self.assertEqual((len(result.records), result.pages), (1, 1))
         self.assertEqual(result.warning, "")
+        self.assertTrue(result.completion_verified)
         self.assertIn("Provider", result.status_text)
         self.assertEqual(store.entries()[-1].http_status, 404)
         self.assertEqual(store.entries()[-1].error_category, "end_of_list")
@@ -418,6 +458,15 @@ class PhaseTwoUITests(unittest.TestCase):
         self.assertIn("Εκτός διαστήματος: 1", overview)
         self.assertIn("404", overview)
         self.assertNotIn("πλήρης", overview)
+
+    def test_inferred_end_is_visible_in_status_and_overview(self):
+        view = self.view()
+        dataset = DocumentDataset((DocumentFields.project(row()),), "20260901", "20260917", 1, "now",
+            termination="short_page_404", last_page_records=49)
+        view._task.poll.return_value = (dataset, None)
+        view._poll()
+        self.assertIn("49/100", view.status.configure.call_args.kwargs["text"])
+        self.assertIn("Τέλος βάσει σελιδοποίησης", view.document_totals.configure.call_args.kwargs["text"])
 
     def test_shortcut_closures_keep_their_own_section_rules(self):
         view = self.view()
