@@ -11,6 +11,18 @@ class ProviderContextSession:
 
     KEY_TTL_SECONDS = 600
     REQUEST_TIMEOUT_SECONDS = 80
+    ERROR_MESSAGES = {
+        "provider_connections_missing": "Δεν βρέθηκαν ProviderConnections στα appsettings του Client.",
+        "provider_reference_missing": "Το ProviderConnectionID του BOConnection δεν αντιστοιχεί σε μία μοναδική ProviderConnection.",
+        "provider_reference_ambiguous": "Υπάρχουν αντικρουόμενα ProviderConnectionID στο επιλεγμένο BOConnection.",
+        "provider_endpoints_ambiguous": "Βρέθηκαν διαφορετικά BaseURL. Απαιτείται ρητή αντιστοίχιση ProviderConnectionID.",
+        "provider_url_invalid": "Το BaseURL δεν είναι έγκυρο HTTPS endpoint IMPACT. Ελέγξτε host, port και διαδρομή.",
+        "context_read_failed": "Απέτυχε η ανάγνωση στοιχείων από τον Client. Ελέγξτε BOConnection, βάση και δικαιώματα SELECT.",
+        "bo_connection_missing": "Το επιλεγμένο BOConnection δεν είναι διαθέσιμο ή δεν είναι μοναδικό.",
+        "issuer_vat_missing": "Δεν βρέθηκε ΑΦΜ 9 ψηφίων στο TblSnCompany.CompanyAFM.",
+        "issuer_vat_unknown": "Το επιλεγμένο ΑΦΜ δεν υπάρχει στην επιλεγμένη βάση.",
+        "subscription_key_invalid": "Το subscriptionKey του επιλεγμένου BOConnection δεν είναι διαθέσιμο ή έγκυρο.",
+    }
 
     def __init__(self):
         self._lock = RLock()
@@ -115,7 +127,9 @@ class ProviderContextSession:
                     raise ValueError
                 if payload.get("success") is not True:
                     # Τα ελεγχόμενα Client errors δεν περιέχουν raw ODBC ή Provider responses.
-                    self.message = "Απέτυχε η ανάκτηση. Ελέγξτε σύνδεση, ΑΦΜ και subscriptionKey του BOConnection."
+                    code = payload.get("error_code")
+                    self.message = self.ERROR_MESSAGES.get(code if isinstance(code, str) else "",
+                        "Απέτυχε η ανάκτηση. Ελέγξτε σύνδεση, έκδοση Client/server, ΑΦΜ και subscriptionKey του BOConnection.")
                     return True
                 self.provider_base_url = ProviderEndpoint.normalize(payload.get("provider_base_url", ""))
                 if pending[2]:
