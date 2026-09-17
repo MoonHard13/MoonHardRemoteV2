@@ -15,7 +15,7 @@ class DiagnosticContext:
     client_connected: bool
     issuer_vat: str = ""
     provider_ready: bool = False
-    provider_reason: str = "Δεν έχει επιβεβαιωθεί η πηγή APIKey και ΑΦΜ εκδότη."
+    provider_reason: str = "Ανακτήστε εταιρείες από τον Client και επιλέξτε ΑΦΜ εκδότη."
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -23,7 +23,7 @@ class DiagnosticContext:
 
 @dataclass(frozen=True)
 class VerifiedProviderCredentials:
-    """Σημείο ενσωμάτωσης για μελλοντική, επιβεβαιωμένη πηγή credentials."""
+    """Προσωρινό subscriptionKey του επιλεγμένου BOConnection και ΑΦΜ εταιρείας."""
 
     client_code: str
     bo_connection_id: int
@@ -32,11 +32,12 @@ class VerifiedProviderCredentials:
     source: str = field(repr=False)
 
     def __post_init__(self) -> None:
-        # Δεν εξάγουμε APIKey από masked appsettings ή subscriptionKey.
+        # Δεχόμαστε μόνο πραγματικό κλειδί από επιβεβαιωμένη πηγή, ποτέ masked appsettings.
         if (not self.client_code or type(self.bo_connection_id) is not int
                 or self.bo_connection_id < 1 or not self.source.strip()
                 or not re.fullmatch(r"[A-Z]{2}[A-Z0-9]{2,20}", self.issuer_vat)
-                or not self.api_key.strip() or "*" in self.api_key
+                or not isinstance(self.api_key, str) or not self.api_key.strip()
+                or len(self.api_key) > 4096 or "*" in self.api_key
                 or any(ord(char) < 32 or ord(char) == 127 for char in self.api_key)):
             raise ValueError("Μη έγκυρα ή ανεπιβεβαίωτα στοιχεία Provider.")
 

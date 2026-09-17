@@ -15,6 +15,7 @@ from app.views.manage.updates_tab import UpdatesTab
 from app.views.manage.senario_prosorinon_tab import SenarioProsorinonTab
 from app.provider_diagnostic.context import CustomerContextAdapter
 from app.provider_diagnostic.service import ProviderDiagnosticService
+from app.provider_diagnostic.session import ProviderContextSession
 from app.provider_diagnostic.ui import ProviderDiagnosticTab
 
 
@@ -886,9 +887,12 @@ class ClientManageWindow(ctk.CTkToplevel):
             get_bo_id=lambda: self.selected_bo_connection_id,
             parse_connection=self._parse_connection_string,
         )
+        session = ProviderContextSession()
         self.provider_diagnostic_tab_view = ProviderDiagnosticTab(
             self.provider_diagnostic_tab,
-            service=ProviderDiagnosticService(adapter),
+            service=ProviderDiagnosticService(adapter, session.resolve),
+            session=session,
+            request_context=self.on_provider_request_callback,
             is_active=lambda: self.tabs.get() == "Provider Diagnostic Center",
         )
         self.provider_diagnostic_tab_view.grid(row=0, column=0, sticky="nsew")
@@ -897,6 +901,10 @@ class ClientManageWindow(ctk.CTkToplevel):
         """Ακολουθεί ενημερώσεις πελάτη και αλλαγές υπάρχοντος BOConnection."""
         if hasattr(self, "provider_diagnostic_tab_view"):
             self.provider_diagnostic_tab_view.refresh_context()
+
+    def handle_provider_diagnostic_context_result(self, payload: dict) -> None:
+        """Παραδίδει τα προσωρινά στοιχεία μόνο στην αντίστοιχη diagnostic συνεδρία."""
+        self.provider_diagnostic_tab_view.handle_context_result(payload)
 
     def handle_provider_transmitted_result(self, payload: dict) -> None:
         """Προωθεί τα διαβιβασμένα στο ανεξάρτητο Provider component."""
@@ -1006,3 +1014,4 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         if hasattr(self, "updates_tab_view"):
             self.updates_tab_view.handle_update_apply_result(payload)
+

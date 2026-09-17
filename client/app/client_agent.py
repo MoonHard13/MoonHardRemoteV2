@@ -18,6 +18,7 @@ from app.appsettings_reader import AppSettingsReader
 from app.sql_executor import SqlExecutor
 from app.provider.provider_service import ProviderService
 from app.provider.transmitted_invoices import TransmittedInvoicesService
+from app.provider.diagnostic_context import ProviderDiagnosticContextReader
 from app.windows_services import WindowsServicesReader
 from app.process_reader import ProcessReader
 from app.client_update import ClientUpdateChecker
@@ -318,7 +319,7 @@ class MoonHardClientAgent:
             "aws_version": program_versions.get("aws_version"),
             # Δηλώνει ρητά ποια προαιρετικά remote protocols γνωρίζει ο client.
             # Έτσι ο server δεν αφήνει νέο αίτημα να περιμένει σε παλιό client.
-            "capabilities": ["database_backup_v1"],
+            "capabilities": ["database_backup_v1", "provider_diagnostic_v1"],
         }
 
         if not client_token_registered:
@@ -334,7 +335,7 @@ class MoonHardClientAgent:
         while True:
             message = await websocket.recv()
             payload = json.loads(message)
-            if str(payload.get("type", "")).startswith("provider_transmitted_"):
+            if str(payload.get("type", "")).startswith(("provider_transmitted_", "provider_diagnostic_")):
                 logger.info("Αίτημα διαβιβασμένων: %s", payload.get("type"))
             else:
                 logger.info("Μήνυμα από server: %s", message)
@@ -364,6 +365,9 @@ class MoonHardClientAgent:
             elif message_type == "senario_prosorinon_run":
                 await self._handle_senario_prosorinon_run(websocket, payload)
                 
+            elif message_type == "provider_diagnostic_context":
+                await self._handle_provider_diagnostic_context(websocket, payload)
+
             elif message_type in ("provider_transmitted_search", "provider_transmitted_types"):
                 await self._handle_provider_transmitted(websocket, payload)
 
@@ -1354,6 +1358,15 @@ class MoonHardClientAgent:
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))
         
+    async def _handle_provider_diagnostic_context(self, websocket, payload: dict) -> None:
+        """Ανακτά προσωρινά Provider στοιχεία χωρίς μεταβολή των safe appsettings."""
+        reader = ProviderDiagnosticContextReader(self.appsettings_reader, self.provider_service)
+        result = await asyncio.to_thread(reader.read, payload.get("bo_connection_id"),
+                                         payload.get("issuer_vat", ""))
+        await websocket.send(json.dumps({**result, "type": "provider_diagnostic_context_result",
+            "request_id": payload.get("request_id", ""), "client_code": self.identity["client_code"],
+            "bo_connection_id": payload.get("bo_connection_id")}, ensure_ascii=False))
+
     async def _handle_provider_transmitted(self, websocket, payload: dict) -> None:
         """Εκτελεί ανάγνωση διαβιβασμένων αποκλειστικά στην επιλεγμένη τοπική βάση."""
         message_type = payload.get("type")
@@ -1925,3 +1938,4 @@ class MoonHardClientAgent:
             }
 
         await websocket.send(json.dumps(result_message, ensure_ascii=False))
+

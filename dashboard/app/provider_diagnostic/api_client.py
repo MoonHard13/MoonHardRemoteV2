@@ -12,7 +12,6 @@ from urllib.parse import urlencode
 from app.provider_diagnostic.diagnostics import APIDiagnosticStore
 from app.provider_diagnostic.errors import ErrorCategory, ProviderAPIError
 from app.provider_diagnostic.models import APIDiagnostic, DocumentPage, VerifiedProviderCredentials
-from app.provider_diagnostic.security import SECRET_REDACTOR
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -39,7 +38,8 @@ class ProviderAPIClient:
         self.max_attempts = max_attempts
         self._opener = opener or urllib.request.build_opener(
             NoRedirectHandler(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
-        SECRET_REDACTOR.register(credentials.api_key)
+        # Δεν κρατάμε δεύτερο αντίγραφο του κλειδιού στον καθολικό redactor.
+        # Όλες οι εξαιρέσεις και τα diagnostics χρησιμοποιούν ελεγχόμενα μηνύματα.
 
     @staticmethod
     def _date(value: str) -> str:

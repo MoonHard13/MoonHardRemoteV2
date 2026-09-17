@@ -9,6 +9,7 @@ from app.provider_diagnostic.diagnostics import APIDiagnosticStore
 from app.provider_diagnostic.service import ProviderDiagnosticService
 from app.provider_diagnostic.sections import SECTIONS
 from app.provider_diagnostic.tasks import BackgroundTask
+from app.provider_diagnostic.session import ProviderContextSession
 from app.ui.theme import COLORS, FONTS, apply_treeview_style, card_style, secondary_button_style
 
 
@@ -23,9 +24,15 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
                "Records", "Result", "Error Category", "Message")
 
     def __init__(self, parent, service: ProviderDiagnosticService,
-                 is_active: Callable[[], bool]) -> None:
+                 is_active: Callable[[], bool],
+                 session: ProviderContextSession | None = None,
+                 request_context: Callable[[dict], object] | None = None) -> None:
         super().__init__(parent, fg_color="transparent")
         self.service = service
+        self.session = session or ProviderContextSession()
+        self._request_context = request_context
+        self._company_labels = {}
+        self._last_ready = False
         self._is_active = is_active
         self._task = BackgroundTask()
         self._closed = False
@@ -47,7 +54,7 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
         self.section = ctk.CTkOptionMenu(toolbar, values=list(self.SECTIONS),
                                          command=self._show_section, width=200)
         self.section.grid(row=0, column=0, padx=10, pady=10, sticky="w")
-        ctk.CTkButton(toolbar, text="Context · F5", command=self.refresh_context,
+        ctk.CTkButton(toolbar, text="Εταιρείες · F5", command=self.load_companies,
                       width=120, **secondary_button_style()).grid(row=0, column=1, padx=5)
         self.probe_button = ctk.CTkButton(toolbar, text="Έλεγχος Provider · Ctrl+Enter",
                                           command=self.probe, width=220, **secondary_button_style())
@@ -60,16 +67,24 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
         self.status.grid(row=1, column=0, padx=12, pady=(0, 8), sticky="ew")
         self.overview = ctk.CTkScrollableFrame(self, fg_color=COLORS.surface)
         self.overview.grid_columnconfigure(0, weight=1)
+        company_bar = ctk.CTkFrame(self.overview, fg_color="transparent")
+        company_bar.grid(row=0, column=0, padx=16, pady=10, sticky="ew")
+        company_bar.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(company_bar, text="Εταιρεία / ΑΦΜ · Alt+A").grid(row=0, column=0, padx=(0, 10))
+        self.company = ctk.CTkComboBox(company_bar, values=["Ανακτήστε εταιρείες με F5"],
+                                     state="disabled", command=self._select_company, width=440)
+        self.company.grid(row=0, column=1, sticky="ew")
+        self.company.bind("<Return>", lambda _: self._select_company(self.company.get()))
         self.context_text = ctk.CTkLabel(self.overview, text="", anchor="w", justify="left",
                                          font=FONTS.body, wraplength=740)
-        self.context_text.grid(row=0, column=0, padx=16, pady=16, sticky="ew")
+        self.context_text.grid(row=1, column=0, padx=16, pady=16, sticky="ew")
         self.last_request = ctk.CTkLabel(self.overview, text="Δεν έχει γίνει Provider API call.",
                                          anchor="w", justify="left", font=FONTS.body)
-        self.last_request.grid(row=1, column=0, padx=16, pady=8, sticky="ew")
+        self.last_request.grid(row=2, column=0, padx=16, pady=8, sticky="ew")
         ctk.CTkLabel(self.overview, text="Οι μετρητές παραστατικών και reconciliation θα ενεργοποιηθούν\n"
                      "όταν φορτώνονται πραγματικά δεδομένα στις επόμενες φάσεις.",
                      justify="left", anchor="w", font=FONTS.body, text_color=COLORS.text_secondary,
-                     wraplength=740).grid(row=2, column=0, padx=16, pady=16, sticky="ew")
+                     wraplength=740).grid(row=3, column=0, padx=16, pady=16, sticky="ew")
         self.planned = ctk.CTkFrame(self, **card_style())
         self.planned.grid_columnconfigure(0, weight=1)
         self.planned_text = ctk.CTkLabel(self.planned, text="", font=FONTS.body,
@@ -134,24 +149,95 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
         if self._closed:
             return
         context = self.service.snapshot()
-        scope = (context.client_code, context.bo_connection_id, context.database_server, context.database_name)
+        scope = (*self.session.scope(context), self.session.issuer_vat, self.session.generation)
         if self._scope is not None and scope != self._scope:
             self._task.cancel()
+            if scope[:4] != self._scope[:4]:
+                self.session.clear()
+                context = self.service.snapshot()
+                scope = (*self.session.scope(context), self.session.issuer_vat, self.session.generation)
+                self._update_company_options()
             # Το προηγούμενο worker κρατά το προηγούμενο store, ποτέ το νέο customer dataset.
             self.service.diagnostics.close()
             self.service.diagnostics = APIDiagnosticStore()
+        if not context.client_connected:
+            self._task.cancel()
+            self.session.clear()
+            self._update_company_options()
+            context = self.service.snapshot()
+            scope = (*self.session.scope(context), self.session.issuer_vat, self.session.generation)
         self._scope, self._context = scope, context
+        self._last_ready = context.provider_ready
         erp = "Client συνδεδεμένος · SQL σύνδεση δεν έχει ελεγχθεί" if context.client_connected else "Client εκτός σύνδεσης · SQL σύνδεση δεν έχει ελεγχθεί"
-        provider = "Έτοιμος για χειροκίνητο έλεγχο" if context.provider_ready else context.provider_reason
+        if self.session.sql_verified:
+            erp = "Επιτυχής ανάγνωση TblSnCompany στην επιλεγμένη βάση"
+        provider = "Έτοιμος για χειροκίνητο έλεγχο" if context.provider_ready else self.session.message
         self.context_text.configure(text=(f"Πελάτης/εγκατάσταση: {context.display_name}\n"
             f"Client: {context.client_code}\nBOConnection: {context.bo_connection_id or 'Μη διαθέσιμο'}\n"
             f"Server: {context.database_server or 'Μη διαθέσιμο'}\nDatabase: {context.database_name or 'Μη διαθέσιμο'}\n"
-            f"ΑΦΜ εκδότη: {context.issuer_vat or 'Δεν έχει εντοπιστεί επιβεβαιωμένη πηγή'}\n"
+            f"ΑΦΜ εκδότη: {context.issuer_vat or self.session.issuer_vat or 'Επιλέξτε εταιρεία'}\n"
             f"ERP: {erp}\nProvider: {provider}"))
         self.probe_button.configure(state="normal" if context.provider_ready and not self._task.busy else "disabled")
         self.status.configure(text="Phase 1 · Χρήση του υπάρχοντος customer/BO context · Διαγνωστικά μόνο για πραγματικές κλήσεις")
         self.refresh_diagnostics()
         logger.info("Ενημέρωση context Provider Diagnostic Center.")
+
+    def _update_company_options(self) -> None:
+        self._company_labels = {
+            f"{row['issuer_vat'][2:]} · {row['company_name'] or 'Εταιρεία'}": row["issuer_vat"]
+            for row in self.session.companies
+        }
+        values = list(self._company_labels) or ["Ανακτήστε εταιρείες με F5"]
+        self.company.configure(values=values, state="readonly" if self._company_labels else "disabled")
+        selected = next((label for label, vat in self._company_labels.items()
+                         if vat == self.session.issuer_vat), "Επιλέξτε εταιρεία / ΑΦΜ")
+        self.company.set(selected if self._company_labels else values[0])
+
+    def load_companies(self) -> None:
+        self._request_provider_context("")
+
+    def _select_company(self, label) -> None:
+        vat = self._company_labels.get(label)
+        if vat:
+            self._request_provider_context(vat)
+
+    def _request_provider_context(self, issuer_vat) -> None:
+        if self._closed or not self._request_context:
+            return
+        self._task.cancel()
+        try:
+            payload = self.session.request(self.service.context.snapshot(), issuer_vat)
+            sent = self._request_context(payload)
+            if sent is False:
+                self.session.cancel("Δεν είναι διαθέσιμη η σύνδεση Dashboard–server.")
+        except ValueError as exc:
+            self.session.cancel(str(exc))
+        self._update_company_options()
+        self.refresh_context()
+        self.status.configure(text=self.session.message)
+        self.cancel_button.configure(state="normal" if self.session.pending or self._task.busy else "disabled")
+        logger.info("Αίτημα ανάκτησης εταιρειών/Provider context.")
+
+    def handle_context_result(self, payload) -> None:
+        if self._closed or not self.session.accept(payload, self.service.context.snapshot()):
+            return
+        self._update_company_options()
+        self.refresh_context()
+        if len(self.session.companies) == 1 and not self.session.issuer_vat and payload.get("success") is True:
+            self._select_company(next(iter(self._company_labels)))
+        else:
+            self.status.configure(text=self.session.message + (
+                f" Παραλείφθηκαν εγγραφές χωρίς ΑΦΜ 9 ψηφίων: {self.session.invalid_afm_count}."
+                if self.session.invalid_afm_count else ""))
+            self.cancel_button.configure(state="normal" if self._task.busy else "disabled")
+        logger.info("Επεξεργασία Provider context ολοκληρώθηκε.")
+
+    def _focus_company(self) -> None:
+        self._show_section("Overview")
+        self.company.focus_set()
+
+    def _focus_section(self) -> None:
+        self.section.focus_set()
 
     def probe(self) -> None:
         self.refresh_context()
@@ -167,6 +253,11 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             logger.info("Έναρξη χειροκίνητου Provider diagnostic request.")
 
     def cancel(self) -> None:
+        if self.session.pending:
+            self.session.cancel()
+            self.refresh_context()
+            self.status.configure(text=self.session.message)
+            self.cancel_button.configure(state="disabled")
         if self._task.busy:
             self._task.cancel()
             self.status.configure(text="Ζητήθηκε ακύρωση· το ενεργό socket έχει πεπερασμένο timeout.")
@@ -175,6 +266,12 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
     def _poll(self) -> None:
         if self._closed:
             return
+        if self.session.expire_pending():
+            self.refresh_context()
+            self.status.configure(text=self.session.message)
+            self.cancel_button.configure(state="disabled")
+        if self._last_ready and not self.service.snapshot().provider_ready:
+            self.refresh_context()
         result = self._task.poll()
         if result is not None:
             value, error = result
@@ -248,7 +345,8 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
 
     def _bind_shortcuts(self) -> None:
         top = self.winfo_toplevel()
-        for sequence, operation in (("<F5>", self.refresh_context), ("<Control-Return>", self.probe),
+        for sequence, operation in (("<F5>", self.load_companies), ("<Alt-a>", self._focus_company),
+                ("<Alt-s>", self._focus_section), ("<Control-Return>", self.probe),
                 ("<Escape>", self.cancel), ("<Control-f>", self._search),
                 ("<Control-c>", self.copy_selected), ("<Control-e>", self.export)):
             def handler(event, action=operation):
@@ -263,6 +361,7 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
     def destroy(self) -> None:
         self._closed = True
         self._task.close()
+        self.session.clear()
         self.service.close()
         if self._job is not None:
             self.after_cancel(self._job)

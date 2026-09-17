@@ -1,92 +1,69 @@
-# Provider Diagnostic Center — Έλεγχος project και Phase 1
+# Provider Diagnostic Center — Έλεγχος και ενσωμάτωση Phase 1
 
-## Βάση ελέγχου
+## 1. Δημιουργία tabs
 
-Repository: https://github.com/MoonHard13/MoonHardRemoteV2
+Το dashboard/app/views/client_manage_window.py, ClientManageWindow._build_ui(), δημιουργεί τα Manage tabs. Το Provider Diagnostic Center προστίθεται αμέσως μετά το Provider.
 
-Ελέγχθηκε το `main`, commit `6491d991acefe72b46edbfff383577d176445779`.
+## 2. Κλάσεις ενσωμάτωσης
 
-## 1. Πού δημιουργούνται τα tabs
+Το ClientManageWindow συνδέει CustomerContextAdapter, ProviderContextSession, ProviderDiagnosticService και ProviderDiagnosticTab. Το νέο UI χρησιμοποιεί το υπάρχον CustomTkinter theme.
 
-Τα tabs διαχείρισης ενός πελάτη δημιουργούνται στο `dashboard/app/views/client_manage_window.py`, στην `ClientManageWindow._build_ui()`. Το Provider δεν είναι tab της αρχικής λίστας πελατών: βρίσκεται μέσα στο Manage window. Το νέο Provider Diagnostic Center προστίθεται ακριβώς μετά το Provider στην ίδια σειρά tabs. Η υφιστάμενη σειρά των άλλων tabs διατηρείται.
+## 3. Επιλεγμένος πελάτης
 
-## 2. Ποια κλάση αλλάζει
-
-Η `ClientManageWindow` δημιουργεί το νέο container και ένα ανεξάρτητο `ProviderDiagnosticTab`. Το υπάρχον `ProviderTab` και οι λειτουργίες του διατηρούνται.
-
-## 3. Πώς κρατιέται ο πελάτης
-
-Η `MoonHardDashboardApp._open_manage_window(client)` περνά το `client` dict στο παράθυρο. Το `self.client_code` προσδιορίζει την εγκατάσταση. Το dashboard κρατά `manage_windows` ανά client code. Το `update_client_data()` ενημερώνει το ανοιχτό παράθυρο.
-
-Το ήδη επιλεγμένο BOConnection κρατιέται στο `selected_bo_connection_id`. Ο νέος adapter διαβάζει αυτό το context μέσω callbacks και απορρίπτει fallback σε άλλη βάση. Δεν δημιουργείται customer ή BO selector μέσα στο Diagnostic Center.
+Το MoonHardDashboardApp περνά το client dict και χρησιμοποιεί client_code για το Manage window. Το adapter επαναχρησιμοποιεί την υπάρχουσα επιλογή BOConnection. Δεν προστίθεται δεύτερη επιλογή πελάτη ή βάσης.
 
 ## 4. ΑΦΜ εκδότη
 
-Δεν βρέθηκε επιβεβαιωμένο πεδίο ΑΦΜ εκδότη στο customer model, στην αποθήκευση client ή στα γνωστά appsettings. Το φίλτρο AFM του παλιού Provider αφορά αναζήτηση παραστατικών, όχι verified issuer identity. Δεν χρησιμοποιείται ως ΑΦΜ εταιρείας. Απαιτείται επιβεβαίωση της πραγματικής πηγής πριν από live requests.
+Επιβεβαιωμένη πηγή από τον χρήστη: dbo.TblSnCompany.CompanyAFM στην επιλεγμένη βάση. Ο Client ανακτά διαφορετικά ΑΦΜ και διαθέσιμη CompanyName/CompanyCode. Η τεκμηρίωση του συνημμένου περιγράφει CompanyAFM ως κείμενο και CompanyName ως επίσημη επωνυμία. Αρχικά μηδενικά διατηρούνται. Προαιρετικά EL/GR κανονικοποιούνται σε EL. Τα ΑΦΜ πρέπει να έχουν 9 ψηφία μετά την αφαίρεση προθέματος. Δεν εκτελείται πιστοποίηση ενεργότητας ή checksum.
+
+Μία μοναδική εταιρεία επιλέγεται αυτόματα. Πολλά ΑΦΜ απαιτούν ρητή επιλογή. Διπλότυπα ΑΦΜ συγχωνεύονται. Καμία κλήση Provider δεν επιλέγει αυθαίρετα την πρώτη γραμμή.
 
 ## 5. Provider credentials
 
-Η `AppSettingsReader.read_appsettings_production()` διαβάζει πραγματικά δεδομένα μόνο στον Client. Η `read_appsettings_for_server()` αποκρύπτει SQL credentials, `ClientAuth`, `ClientAuthFO` και `subscriptionKey`. Από τα ProviderConnections προωθούνται μόνο `ID`, `BaseURL`, `OfflineURL`.
+Επιβεβαιωμένη αντιστοίχιση από τον χρήστη: S1Ecos APIKey = subscriptionKey του επιλεγμένου BOConnection. Το κλειδί ανακτάται από πραγματικά τοπικά appsettings στον Client, αφού το επιλεγμένο ΑΦΜ επιβεβαιωθεί ξανά στη βάση. Δεν χρησιμοποιείται masked τιμή και δεν γίνεται fallback σε άλλη σύνδεση.
 
-Η `ClientRepository` αποθηκεύει και επιστρέφει safe/masked appsettings. Δεν υπάρχει αποδεδειγμένη αντιστοίχιση των παραπάνω πεδίων στο S1Ecos `APIKey`. Επίσης το BaseURL μπορεί να αφορά άλλο επίπεδο της υφιστάμενης εγκατάστασης· δεν μετατρέπεται αυθαίρετα σε diagnostic API URL.
-
-Η Phase 1 παρέχει typed `VerifiedProviderCredentials` και resolver integration point. Δεν παρέχει UI εισαγωγής νέων credentials ούτε θεωρεί το subscriptionKey Provider APIKey. Ο resolver δεν συνδέεται με guessed field. Μέχρι την επιβεβαίωση πηγής/ασφαλούς διάθεσης, ο live έλεγχος είναι απενεργοποιημένος.
+Τα γενικά appsettings προς Dashboard/server παραμένουν masked. Το κλειδί βρίσκεται προσωρινά στη συνεδρία Dashboard, λήγει σε 10 λεπτά και αφαιρείται σε αλλαγή βάσης, αποσύνδεση και κλείσιμο. Δεν καταγράφεται σε exports, logs ή αποθηκευμένες ρυθμίσεις. Ένας ήδη ενεργός HTTPS worker κρατά τα στοιχεία μέχρι να ολοκληρωθεί/λήξει.
 
 ## 6. Επικοινωνία Dashboard–Client
 
-Το `DashboardWebSocketClient` χρησιμοποιεί worker thread με asyncio loop. Το `server/app/routes/websocket_routes.py` δρομολογεί αιτήματα προς τον Client. Το `client/app/client_agent.py` εκτελεί τοπικές εργασίες. Για τα διαβιβασμένα υπάρχει `TransmittedRequestRouter`, με request ID, client/BO correlation, timeout και απάντηση μόνο στο dashboard που έκανε το αίτημα.
+Νέο αίτημα provider_diagnostic_context και απάντηση provider_diagnostic_context_result. Χρησιμοποιούνται η υπάρχουσα αυθεντικοποίηση WebSocket και request UUID. Ο νέος server router επαναχρησιμοποιεί την αποκλειστική δρομολόγηση των διαβιβασμένων και προωθεί μόνο επιτρεπόμενα πεδία. Το κλειδί αποστέλλεται αποκλειστικά στο Dashboard που το ζήτησε, χωρίς broadcast ή αποθήκευση στη βάση server. Ο Client δηλώνει provider_diagnostic_v1. Απαιτείται WSS για την ανάκτηση κλειδιού.
 
-## 7. ERP / SQL Server
+## 7. Πρόσβαση ERP
 
-Ο Client διαβάζει το πραγματικό connection string του επιλεγμένου BOConnection από τα τοπικά appsettings. Οι `ProviderService` και `SqlExecutor` χρησιμοποιούν pyodbc. Το Dashboard δεν χρειάζεται SQL password. Η σύνδεση WebSocket του Client δεν θεωρείται επιτυχής SQL σύνδεση.
+Ο Client εκτελεί μόνο SELECT από τον dbo.TblSnCompany, χρησιμοποιώντας τον υπάρχοντα ODBC connection converter. Timeout σύνδεσης 15 s και SQL 30 s, με ρητό κλείσιμο cursor/connection. CompanyName/CompanyCode είναι προαιρετικά. Πάνω από 2.000 εγγραφές απορρίπτονται για να μη χρησιμοποιηθεί μερική λίστα. SQL και ανάγνωση appsettings εκτελούνται εκτός asyncio loop.
 
 ## 8. Επαναχρησιμοποίηση
 
-- Το υφιστάμενο client/BO context και connection-string parser.
-- Το theme, Treeview styling και rotating logging του Dashboard.
-- Η υφιστάμενη WebSocket αυθεντικοποίηση για CLI ανάγνωση context.
-- Στις επόμενες φάσεις: `client/app/provider/transmitted_invoices.py`, `provider_models.py`, `provider_service.py`, `server/app/websocket/transmitted_requests.py` και το existing transmitted UI pattern.
+Client/customer context, επιλογή BOConnection, WebSocket callbacks, theme/Treeview styling, rotating logs, resource_path και PyInstaller entry point. Οι υπάρχουσες λειτουργίες Provider, SQL, Database και Backup διατηρούνται. Το schema-aware TransmittedInvoicesService θα χρησιμοποιηθεί στο reconciliation επόμενης φάσης.
 
-Το `TransmittedInvoicesService.search()` ανιχνεύει ήδη την ύπαρξη `TblSnMyDATA_ResponseSuccess` και υποστηρίζει μόνο `TblSnMyDATA_Response` όταν η πρώτη λείπει. Δεν αντιγράφεται δεύτερος schema-specific SQL μηχανισμός στη Phase 1.
+## 9. Scope Phase 1
 
-## 9. Ακριβές scope Phase 1
+Overview, επιλογή εταιρείας/ΑΦΜ, ασφαλής προσωρινή ανάκτηση κλειδιού, HTTPS client, ελεγχόμενα errors, bounded API Diagnostics, worker/Queue, ακύρωση και CLI. Το probe ανακτά μόνο την πρώτη σελίδα σημερινών outgoing documents απευθείας από Dashboard. Δεν αποτελεί πλήρη φόρτωση περιόδου, αποστολή παραστατικών ή background polling. Οι επόμενες ενότητες εμφανίζουν σαφή φάση υλοποίησης.
 
-- Νέο Manage tab δίπλα στο Provider.
-- Overview με πραγματικό διαθέσιμο context, ειλικρινή κατάσταση readiness και τελευταία πραγματική API κλήση.
-- API Diagnostics στη RAM, έως 1.000 attempts ανά context, filters, sorting, copy και export.
-- API client με documented HTTPS GET, TLS verification, blocked redirects, timeouts, bounded responses, ελεγχόμενα retries και ακύρωση.
-- Κεντρικά ασφαλή errors και redacting log formatter.
-- Worker thread και Queue: καμία Tk ενέργεια από τον worker.
-- CLI για context, ενότητες και exported diagnostics.
-- Σαφώς προγραμματισμένες επόμενες ενότητες και QR Tools σε αναμονή πλήρους schema.
+Αλλαγές βάσης, ΑΦΜ ή ανανέωση συνεδρίας ακυρώνουν παλιούς ελέγχους και απομονώνουν το ιστορικό. Request UUID και generation εμποδίζουν καθυστερημένα αποτελέσματα να ενημερώσουν νέο context.
 
-Δεν υλοποιούνται ακόμη documents dataset, pagination traversal, reconciliation ή advanced diagnostics. Ο χειροκίνητος Provider probe είναι μία ανάγνωση της πρώτης σελίδας σημερινών outgoing documents και απαιτεί verified resolver. Δεν αποτελεί πλήρη μέτρηση περιόδου ή background monitor.
+## 10. Υπάρχοντα αρχεία που αλλάζουν
 
-## 10. Υπάρχοντα αρχεία που τροποποιούνται
-
-- `dashboard/app/views/client_manage_window.py`: tab, component και context update hooks.
-- `dashboard/app/logger_config.py`: ασφαλής formatter, μαζί με tracebacks.
-- `dashboard/app/main.py`: diagnostic CLI entry point και GUI import μετά το CLI dispatch.
-
-Δεν απαιτούνται αλλαγές Client/server, migration, νέα βάση ή νέα dependency.
+- dashboard/app/views/client_manage_window.py: tab και hooks.
+- dashboard/app/dashboard_app.py: routing απάντησης και WSS έλεγχος.
+- dashboard/app/main.py και logger_config.py: CLI και redacting formatter.
+- client/app/client_agent.py: request handler και capability.
+- server/app/routes/websocket_routes.py: αποκλειστικό routing και logging μόνο message type.
+- server/app/websocket/transmitted_requests.py: επεκτάσιμη επιτρεπόμενη λίστα request πεδίων.
+- tests/test_backup_feature.py: ο έλεγχος capability δέχεται την προσθήκη νέας capability.
 
 ## 11. Νέα αρχεία
 
-Το package `dashboard/app/provider_diagnostic/` περιέχει `__init__.py`, `api_client.py`, `cli.py`, `context.py`, `diagnostics.py`, `errors.py`, `models.py`, `sections.py`, `security.py`, `service.py`, `tasks.py`, `ui.py`.
+Package dashboard/app/provider_diagnostic με api_client, cli, context, diagnostics, errors, models, security, service, session, sections, tasks και ui. Client reader: client/app/provider/diagnostic_context.py. Server router: server/app/websocket/provider_diagnostic_requests.py. Προστίθενται tests και scripts/build_dashboard_exe.ps1. Δεν προστίθενται dependencies ή database migrations.
 
-Προστίθενται επίσης `tests/test_provider_diagnostic.py`, `scripts/build_dashboard_exe.ps1`, αυτό το σημείωμα και το `docs/PROVIDER_DIAGNOSTIC_MANUAL_EL.md`.
+## Provider contract
 
-## Τεκμηρίωση Provider
+Επίσημη τεκμηρίωση: https://developers.s1ecos.com/retrieving-a-document-869812m0
 
-- Authentication: https://developers.s1ecos.com/api-authentication-3187997f0
-- Document retrieval: https://developers.s1ecos.com/retrieving-a-document-869812m0
+Το υλοποιημένο GET είναι https://einvoice.impact.gr/api/invoice/getdocuments/{IssuerVatNumber}/{PageNumber}/?From=YYYYMMDD&dateTo=YYYYMMDD με header APIKey. Το response είναι JSON array και διαθέτει NextPage header. TLS επαληθεύεται, redirects αποκλείονται, απαντήσεις περιορίζονται σε 8 MiB και έως 3 attempts. Η τεκμηρίωση περιέχει και εναλλακτική αναφορά To/example route· δεν υλοποιείται guessed pagination traversal στη Phase 1.
 
-Η τρέχουσα public τεκμηρίωση δείχνει `getdocuments/{IssuerVatNumber}/{PageNumber}/?From=...&dateTo=...`, APIKey header, country prefix, JSON array και `NextPage` response header. Σε επόμενη παράγραφο χρησιμοποιεί `To` και διαφορετικό example route· αυτή η ασυνέπεια χρειάζεται επιβεβαίωση πριν από επέκταση pagination/incremental refresh στη Phase 2.
+## Επαλήθευση και εγκατάσταση
 
-## Εκκρεμή integration στοιχεία
+Αυτοματοποιημένες δοκιμές με mocks ελέγχουν HTTP errors/retries, εταιρείες, αρχικά μηδενικά, απομόνωση πελάτη/βάσης/ΑΦΜ, αποκλειστική δρομολόγηση και CLI. Δεν έγιναν πραγματικά SQL/Provider requests ούτε οπτικός έλεγχος ή Windows EXE UAT από το Linux περιβάλλον.
 
-Χρειάζονται μόνο ονόματα πεδίων/διαδρομές προέλευσης ή ανωνυμοποιημένο configuration sample που τεκμηριώνει την πηγή issuer VAT και APIKey. Δεν χρειάζεται κοινοποίηση πραγματικών secrets. Αν το APIKey βρίσκεται αποκλειστικά στον Client, πρέπει να επιλεγεί ασφαλής, προσωρινή διάθεσή του στο Dashboard ή διαφορετική αρχιτεκτονική, με διατήρηση της υπάρχουσας απόκρυψης στην αποθήκευση appsettings.
-
-## Όρια επαλήθευσης
-
-Οι automated δοκιμές χρησιμοποιούν fixtures και mocks. Δεν έγιναν πραγματικά Provider requests ή SQL queries. Το περιβάλλον ελέγχου είναι Linux και δεν έχει CustomTkinter, PyInstaller ή Windows runtime. Δεν επιβεβαιώθηκαν οπτικό layout, πραγματικό Windows EXE build ή λειτουργία EXE σε ξεχωριστό Windows περιβάλλον. Απαιτούνται πριν από merge/διανομή.
+Ενημερώστε server, Client και Dashboard για τη νέα δυνατότητα. Εκτελέστε τα υπάρχοντα Windows build scripts και ελέγξτε τα EXE σε ξεχωριστό Windows PC χωρίς Python πριν από διανομή. Δεν δημοσιεύεται νέο client manifest ή installer χωρίς αυτόν τον έλεγχο.

@@ -33,7 +33,8 @@ class CustomerContextAdapter:
     @staticmethod
     def bind(context: DiagnosticContext, credentials: VerifiedProviderCredentials) -> DiagnosticContext:
         if (credentials.client_code != context.client_code
-                or credentials.bo_connection_id != context.bo_connection_id):
+                or credentials.bo_connection_id != context.bo_connection_id
+                or (context.issuer_vat and credentials.issuer_vat != context.issuer_vat)):
             raise ValueError("Τα στοιχεία Provider δεν αντιστοιχούν στον επιλεγμένο πελάτη/βάση.")
         return replace(context, issuer_vat=credentials.issuer_vat,
                        provider_ready=True, provider_reason="")

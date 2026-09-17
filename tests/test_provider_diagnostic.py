@@ -295,6 +295,10 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
                 async def replies():
                     for reply in messages:
                         yield json.dumps(reply)
+                    request = json.loads(self.send.call_args.args[0])
+                    yield json.dumps({**request, "type": "provider_diagnostic_context_result",
+                        "success": True, "companies": [{"issuer_vat": "EL012345678", "company_name": "Εταιρεία Α"}],
+                        "sql_verified": True})
                 return replies()
 
         config = types.SimpleNamespace(dashboard_token="token-fixture", dashboard_websocket_url="wss://fixture.invalid")
@@ -302,7 +306,67 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
             result = await self.cli.ProviderDiagnosticCLI().context(config, "client-one", 1)
         self.assertEqual(result["database_name"], "InitialTest")
         self.assertFalse(result["provider_ready"])
+        self.assertEqual(result["companies"][0]["issuer_vat"], "EL012345678")
         self.assertNotIn("secret-fixture", json.dumps(result))
+
+    async def _company_cli(self, companies, chosen="", probe=True):
+        class WebSocket:
+            def __init__(self):
+                self.send = AsyncMock()
+                self.recv = AsyncMock(return_value=json.dumps({"type": "dashboard_connected"}))
+                self.requests = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            def __aiter__(self):
+                async def replies():
+                    yield json.dumps({"type": "clients_list", "clients": [{"client_code": "client-one", "ws_connected": True}]})
+                    yield json.dumps({"type": "client_appsettings_result", "client_code": "client-one", "success": True,
+                                      "appsettings": {"bo_connections": [{"ID": 1, "DatabaseName": "InitialTest"}]}})
+                    for _ in range(2):
+                        request = json.loads(self.send.call_args.args[0])
+                        self.requests.append(request)
+                        reply = {**request, "type": "provider_diagnostic_context_result", "success": True,
+                                 "companies": companies, "sql_verified": True}
+                        if request.get("issuer_vat"):
+                            reply["api_key"] = "cli-private-fixture"
+                        yield json.dumps(reply)
+                return replies()
+
+        websocket = WebSocket()
+        config = types.SimpleNamespace(dashboard_token="token-fixture", dashboard_websocket_url="wss://fixture.invalid")
+        with patch.object(self.cli.websockets, "connect", return_value=websocket), \
+                patch.object(self.cli.ProviderDiagnosticService, "probe", return_value={"records": 2}) as request:
+            result = await self.cli.ProviderDiagnosticCLI().context(config, "client-one", 1, chosen, probe)
+        return result, websocket.requests, request
+
+    async def test_cli_many_vats_requires_explicit_selection_and_makes_no_provider_call(self):
+        companies = [{"issuer_vat": "EL012345678"}, {"issuer_vat": "EL987654321"}]
+        result, requests, probe = await self._company_cli(companies)
+        self.assertFalse(result["success"])
+        self.assertEqual(len(requests), 1)
+        self.assertIn("--issuer-vat", result["error"])
+        probe.assert_not_called()
+
+    async def test_cli_explicit_company_uses_correct_vat_and_never_exports_key(self):
+        companies = [{"issuer_vat": "EL012345678"}, {"issuer_vat": "EL987654321"}]
+        result, requests, probe = await self._company_cli(companies, "987654321")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["issuer_vat"], "EL987654321")
+        self.assertEqual(requests[-1]["issuer_vat"], "EL987654321")
+        self.assertNotIn("cli-private-fixture", json.dumps(result))
+        probe.assert_called_once()
+
+    async def test_cli_single_company_is_automatically_selected(self):
+        result, requests, probe = await self._company_cli([{"issuer_vat": "EL012345678"}])
+        self.assertTrue(result["success"])
+        self.assertEqual(result["issuer_vat"], "EL012345678")
+        self.assertEqual(len(requests), 2)
+        probe.assert_called_once()
 
     def test_cli_filters_an_explicit_export(self):
         args = types.SimpleNamespace(diagnostics_file=Mock(), outcome="Errors", endpoint="getdocuments", status="401")
@@ -329,7 +393,7 @@ class UILogicTests(unittest.TestCase):
         view.winfo_toplevel = Mock(return_value=top)
         view._bindings = []
         view._is_active = Mock(return_value=False)
-        for method in ("refresh_context", "probe", "cancel", "_search", "copy_selected", "export"):
+        for method in ("refresh_context", "load_companies", "_focus_company", "_focus_section", "probe", "cancel", "_search", "copy_selected", "export"):
             setattr(view, method, Mock())
         view.tree = Mock()
         view.tree.winfo_toplevel.return_value = top
@@ -349,6 +413,9 @@ class UILogicTests(unittest.TestCase):
     def test_stale_background_result_does_not_update_new_context_status(self):
         view = self.module.ProviderDiagnosticTab.__new__(self.module.ProviderDiagnosticTab)
         view._closed = False
+        view.session = Mock()
+        view.session.expire_pending.return_value = False
+        view._last_ready = False
         view._scope, view._running_scope = ("client", 2), ("client", 1)
         view._task = Mock()
         view._task.poll.return_value = ({"records": 1}, None)
@@ -362,3 +429,4 @@ class UILogicTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
