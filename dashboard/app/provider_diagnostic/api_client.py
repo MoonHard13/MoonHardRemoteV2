@@ -69,7 +69,8 @@ class ProviderAPIClient:
             request = urllib.request.Request(url, method="GET", headers={
                 "APIKey": self._credentials.api_key, "Accept": "application/json",
                 "User-Agent": "MoonHardRemoteV2-ProviderDiagnostic/1.0"})
-            result, error, retryable = self._attempt(request, cancel)
+            result, error, retryable = self._attempt(request, cancel,
+                f"GetDocumentsPage page={page} From={start} dateTo={end}")
             if error is None:
                 return result
             if not retryable or attempt + 1 == self.max_attempts:
@@ -78,7 +79,7 @@ class ProviderAPIClient:
                 raise ProviderAPIError(ErrorCategory.CANCELLED)
         raise ProviderAPIError(ErrorCategory.CONNECTION)
 
-    def _attempt(self, request, cancel: Event) -> tuple[DocumentPage | None, ProviderAPIError | None, bool]:
+    def _attempt(self, request, cancel: Event, operation: str) -> tuple[DocumentPage | None, ProviderAPIError | None, bool]:
         started = time.perf_counter()
         timestamp = datetime.now(timezone.utc)
         status, records, result, error, retryable = None, 0, None, None, False
@@ -142,7 +143,7 @@ class ProviderAPIClient:
         if cancel.is_set():
             error, retryable, result = ProviderAPIError(ErrorCategory.CANCELLED, status), False, None
         self.diagnostics.add(APIDiagnostic(
-            timestamp, self.endpoint, "GetDocumentsPage", int((time.perf_counter() - started) * 1000),
+            timestamp, self.endpoint, operation, int((time.perf_counter() - started) * 1000),
             status, records, error is None, error.category.value if error else "",
             error.message if error else ""))
         return result, error, retryable

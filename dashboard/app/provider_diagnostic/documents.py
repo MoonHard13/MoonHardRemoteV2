@@ -24,6 +24,21 @@ class DocumentFields:
                           "einvoiceportaluat.impact.gr", "einvoiceapp.softonecloud.com"))
 
     @staticmethod
+    def issued_date(value):
+        # Η ημερομηνία έκδοσης κρατά την ημέρα του εκδότη, χωρίς μετατροπή ζώνης ώρας.
+        if not isinstance(value, str) or len(value) > 100:
+            return None
+        try:
+            value = value.strip()
+            if len(value) == 8 and value.isascii() and value.isdigit():
+                return datetime.strptime(value, "%Y%m%d").strftime("%Y%m%d")
+            if len(value) < 10 or value[4] != "-" or value[7] != "-":
+                return None
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%Y%m%d")
+        except ValueError:
+            return None
+
+    @staticmethod
     def amount(value):
         if isinstance(value, bool) or value is None or len(str(value)) > 50:
             return None
@@ -68,6 +83,25 @@ class DocumentDataset:
     date_to: str
     pages: int
     loaded_at: str
+    fetched_records: int | None = None
+    excluded_by_date: int = 0
+    invalid_date_count: int = 0
+    complete: bool = True
+    termination: str = "next_page_absent"
+
+    @property
+    def warning(self):
+        warnings = []
+        if not self.complete:
+            warnings.append("Η επόμενη σελίδα επέστρεψε HTTP 404· η πληρότητα της ανάκτησης δεν επιβεβαιώθηκε.")
+        if self.invalid_date_count:
+            warnings.append(f"Εξαιρέθηκαν {self.invalid_date_count} παραστατικά χωρίς έγκυρη ημερομηνία έκδοσης.")
+        return " ".join(warnings)
+
+    @property
+    def status_text(self):
+        return (f"Ανάκτηση: {len(self.records)} παραστατικά στο διάστημα · {self.pages} σελίδες. "
+                + (self.warning or "Ολοκληρώθηκε."))
 
     def filtered(self, series="", number="", invoice_type="", mark=""):
         filters = [(name, value.strip() if name in ("invoiceType", "mark") else value.strip().casefold())
@@ -96,7 +130,10 @@ class DocumentDataset:
             types[name] = types.get(name, 0) + 1
         return {"records": len(self.records), "pages": self.pages, "total_amount": str(total),
                 "total_vat": str(vat), "with_mark": with_mark, "without_mark": len(self.records) - with_mark,
-                "missing_amounts": missing_amounts, "missing_vat": missing_vat, "invoice_types": types}
+                "missing_amounts": missing_amounts, "missing_vat": missing_vat, "invoice_types": types,
+                "fetched_records": self.fetched_records if self.fetched_records is not None else len(self.records),
+                "excluded_by_date": self.excluded_by_date, "invalid_date_count": self.invalid_date_count,
+                "complete": self.complete, "termination": self.termination}
 
 
 class DocumentLoader:
@@ -138,14 +175,25 @@ class DocumentLoader:
         if start > end:
             raise ProviderAPIError(ErrorCategory.VALIDATION)
         records, hashes, size, page_number = [], set(), 0, 1
+        fetched = excluded = invalid_dates = successful_pages = 0
+        complete, termination = True, "next_page_absent"
         logger.info("Έναρξη πλήρους ανάκτησης παραστατικών.")
         while True:
             if cancel.is_set():
                 raise ProviderAPIError(ErrorCategory.CANCELLED)
-            page = self.client.get_documents_page(start, end, page_number, cancel)
+            try:
+                page = self.client.get_documents_page(start, end, page_number, cancel)
+            except ProviderAPIError as exc:
+                # Μόνο 404 μετά από έγκυρο NextPage κρατά τα διαθέσιμα στοιχεία με προειδοποίηση.
+                if exc.category != ErrorCategory.NOT_FOUND or not successful_pages:
+                    raise
+                complete, termination = False, "next_page_404"
+                logger.warning("Η επόμενη σελίδα επέστρεψε 404. page=%s successful_pages=%s", page_number, successful_pages)
+                break
             encoded = json.dumps(page.documents, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
             size += len(encoded)
-            if size > self.MAX_BYTES or len(records) + len(page.documents) > self.MAX_RECORDS:
+            fetched += len(page.documents)
+            if size > self.MAX_BYTES or fetched > self.MAX_RECORDS:
                 raise ProviderAPIError(ErrorCategory.DATA_LIMIT)
             if page.documents:
                 fingerprint = hashlib.sha256(encoded).digest()
@@ -155,9 +203,16 @@ class DocumentLoader:
             for row in page.documents:
                 if cancel.is_set():
                     raise ProviderAPIError(ErrorCategory.CANCELLED)
-                records.append(DocumentFields.project(row))
+                issued = DocumentFields.issued_date(row.get("dateIssued"))
+                if issued is None:
+                    invalid_dates += 1
+                elif start <= issued <= end:
+                    records.append(DocumentFields.project(row))
+                else:
+                    excluded += 1
+            successful_pages += 1
             if progress:
-                progress({"pages": page_number, "records": len(records)})
+                progress({"pages": successful_pages, "records": len(records), "fetched_records": fetched})
             logger.info("Ανάκτηση σελίδας παραστατικών. page=%s records=%s", page_number, len(page.documents))
             if not page.next_page:
                 break
@@ -166,5 +221,6 @@ class DocumentLoader:
             page_number = self._next_page(page.next_page, page_number, issuer, start, end)
         if cancel.is_set():
             raise ProviderAPIError(ErrorCategory.CANCELLED)
-        logger.info("Πλήρης ανάκτηση ολοκληρώθηκε. pages=%s records=%s", page_number, len(records))
-        return DocumentDataset(tuple(records), start, end, page_number, datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        logger.info("Ανάκτηση ολοκληρώθηκε. pages=%s records=%s fetched=%s complete=%s", successful_pages, len(records), fetched, complete)
+        return DocumentDataset(tuple(records), start, end, successful_pages,
+            datetime.now(timezone.utc).isoformat(timespec="seconds"), fetched, excluded, invalid_dates, complete, termination)

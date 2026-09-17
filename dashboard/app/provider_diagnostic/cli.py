@@ -154,6 +154,7 @@ class ProviderDiagnosticCLI:
                         return {**result, **verified.to_dict(), "success": True,
                             "date_from": dataset.date_from, "date_to": dataset.date_to,
                             "loaded_at": dataset.loaded_at, "summary": dataset.summary(),
+                            "complete": dataset.complete, "warning": dataset.warning,
                             "visible_records": len(rows), "documents": rows,
                             "diagnostics": [row.to_dict() for row in service.diagnostics.entries()]}
                     response = await asyncio.to_thread(service.probe, verified, cancel)
@@ -213,7 +214,9 @@ class ProviderDiagnosticCLI:
             else:
                 print(text)
             logger.info("CLI Provider Diagnostic Center ολοκληρώθηκε.")
-            return 1 if isinstance(result, dict) and result.get("success") is False else 0
+            if isinstance(result, dict) and result.get("success") is False:
+                return 1
+            return 2 if isinstance(result, dict) and result.get("complete") is False else 0
         except KeyboardInterrupt:
             logger.info("Ακύρωση CLI Provider Diagnostic Center.")
             return 130
