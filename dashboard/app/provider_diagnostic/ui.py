@@ -293,7 +293,8 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             f"Με MARK: {summary['with_mark']} · Χωρίς MARK: {summary['without_mark']}\n"
             f"Τύποι: {', '.join(f'{name}: {count}' for name, count in sorted(summary['invoice_types'].items())) or 'Δεν υπάρχουν'}\n"
             f"Χωρίς διαθέσιμη αξία: {summary['missing_amounts']} · Χωρίς διαθέσιμο ΦΠΑ: {summary['missing_vat']}\n"
-            f"Τελευταία πλήρης ανάκτηση: {dataset.loaded_at}"))
+            f"Ανακτήθηκαν από API: {summary['fetched_records']} · Εκτός διαστήματος: {dataset.excluded_by_date}\n"
+            f"Τελευταία ανάκτηση: {dataset.loaded_at}\n{dataset.warning}"))
 
     def cancel(self) -> None:
         if self.session.pending:
@@ -317,7 +318,8 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
             self.refresh_context()
         progress = self._task.poll_progress()
         if isinstance(progress, dict) and not self._task.cancel_event.is_set() and getattr(self, "_running_scope", None) == self._scope:
-            self.status.configure(text=f"Ανάκτηση: {progress['pages']} σελίδες · {progress['records']} παραστατικά…")
+            self.status.configure(text=f"Ανάκτηση: {progress['pages']} σελίδες · {progress['records']} στο διάστημα · "
+                f"{progress.get('fetched_records', progress['records'])} από API…")
         result = self._task.poll()
         if result is not None:
             value, error = result
@@ -326,7 +328,7 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
                     self.status.configure(text=error.message)
                 elif getattr(self, "_running_kind", "probe") == "documents":
                     self._install_documents(value)
-                    self.status.configure(text=f"Πλήρης ανάκτηση: {len(value.records)} παραστατικά · {value.pages} σελίδες.")
+                    self.status.configure(text=value.status_text)
                 else:
                     self.status.configure(text=f"Έλεγχος ολοκληρώθηκε. Records πρώτης σελίδας: {value['records']}")
             self.probe_button.configure(state="normal" if self._context.provider_ready else "disabled")

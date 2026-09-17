@@ -359,7 +359,7 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["companies"][0]["issuer_vat"], "EL012345678")
         self.assertNotIn("secret-fixture", json.dumps(result))
 
-    async def _company_cli(self, companies, chosen="", probe=True, documents=None):
+    async def _company_cli(self, companies, chosen="", probe=True, documents=None, complete=True):
         class WebSocket:
             def __init__(self):
                 self.send = AsyncMock()
@@ -393,7 +393,8 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
         dataset = DocumentDataset(tuple(DocumentFields.project({"series": "AA", "number": number,
             "mark": "123", "invoiceType": "11.1", "totalAmount": 0.1, "totalVatAmount": 0.02,
             "url": "https://einvoice.impact.gr/v/fixture"}) for number in ("1", "2")),
-            "20260901", "20260917", 2, "now")
+            "20260901", "20260917", 2, "now", complete=complete,
+            termination="next_page_absent" if complete else "next_page_404")
         with patch.object(self.cli.websockets, "connect", return_value=websocket), \
                 patch.object(self.cli.ProviderDiagnosticService, "probe", return_value={"records": 2}) as request, \
                 patch.object(self.cli.ProviderDiagnosticService, "documents", return_value=dataset) as document_request:
@@ -419,6 +420,14 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
             result, _, _ = await self._company_cli([{"issuer_vat": "EL012345678"}], probe=False, documents=options)
         self.assertTrue(result["success"])
         browser.assert_called_once_with("https://einvoice.impact.gr/v/fixture", new=2)
+
+    async def test_cli_partial_documents_are_available_with_explicit_warning(self):
+        result, _, _ = await self._company_cli([{"issuer_vat": "EL012345678"}], probe=False,
+            documents={"date_from": "20260901", "date_to": "20260917"}, complete=False)
+        self.assertFalse(result["complete"])
+        self.assertFalse(result["summary"]["complete"])
+        self.assertEqual(len(result["documents"]), 2)
+        self.assertIn("404", result["warning"])
 
     async def test_cli_documents_requires_selection_when_multiple_vats_exist(self):
         result, requests, operation = await self._company_cli(

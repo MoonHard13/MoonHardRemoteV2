@@ -59,7 +59,8 @@ class DocumentsView(ctk.CTkFrame):
             self.filters[name] = entry
         ctk.CTkButton(filters, text="Καθαρισμός · Ctrl+R", command=self.reset_filters,
             width=150, **secondary_button_style()).grid(row=0, column=4, padx=4)
-        self.count = ctk.CTkLabel(self, text="Δεν έχουν ανακτηθεί παραστατικά.", anchor="w", font=FONTS.small)
+        self.count = ctk.CTkLabel(self, text="Δεν έχουν ανακτηθεί παραστατικά.", anchor="w",
+            justify="left", wraplength=740, font=FONTS.small)
         self.count.grid(row=2, column=0, sticky="ew", padx=4, pady=4)
         table = ctk.CTkFrame(self, fg_color="transparent")
         table.grid(row=3, column=0, sticky="nsew")
@@ -119,7 +120,9 @@ class DocumentsView(ctk.CTkFrame):
         if self.dataset:
             self.count.configure(text=f"Ορατά: {len(self._rows)} / {len(self.dataset.records)} · "
                 f"Διάστημα: {self.dataset.date_from}–{self.dataset.date_to} · "
-                f"Σελίδες: {self.dataset.pages} · Ανάκτηση: {self.dataset.loaded_at}")
+                f"Σελίδες: {self.dataset.pages} · Από API: {self.dataset.fetched_records if self.dataset.fetched_records is not None else len(self.dataset.records)} · "
+                f"Εκτός διαστήματος: {self.dataset.excluded_by_date} · Ανάκτηση: {self.dataset.loaded_at}\n"
+                f"{self.dataset.warning}")
         logger.info("Φιλτράρισμα παραστατικών. visible=%s", len(self._rows))
 
     def reset_filters(self):
@@ -207,7 +210,9 @@ class DocumentsView(ctk.CTkFrame):
         try:
             with open(path, "w", encoding="utf-8") as stream:
                 json.dump({"date_from": self.dataset.date_from, "date_to": self.dataset.date_to,
-                    "loaded_at": self.dataset.loaded_at, "records": self._rows}, stream, ensure_ascii=False, indent=2)
+                    "loaded_at": self.dataset.loaded_at, "summary": self.dataset.summary(),
+                    "complete": self.dataset.complete, "warning": self.dataset.warning,
+                    "records": self._rows}, stream, ensure_ascii=False, indent=2)
             self._status(f"Εξαγωγή ολοκληρώθηκε. Παραστατικά: {len(self._rows)}")
             logger.info("Εξαγωγή παραστατικών ολοκληρώθηκε. records=%s", len(self._rows))
         except OSError:

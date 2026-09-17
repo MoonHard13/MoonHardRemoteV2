@@ -11,6 +11,7 @@ import urllib.error
 from pathlib import Path
 from threading import Event
 import time
+import tempfile
 from unittest.mock import Mock, patch
 
 
@@ -27,7 +28,7 @@ from app.provider_diagnostic.tasks import BackgroundTask
 
 def row(number="1", **kwargs):
     return {"series": "ΑΑ", "number": number, "invoiceType": "11.1", "mark": "123",
-            "totalAmount": 0.1, "totalVatAmount": 0.02, **kwargs}
+            "totalAmount": 0.1, "totalVatAmount": 0.02, "dateIssued": "2026-09-17T12:00:00", **kwargs}
 
 
 class LoaderTests(unittest.TestCase):
@@ -53,12 +54,64 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual(dataset.pages, 3)
         self.assertEqual([r["number"] for r in dataset.records], ["1", "2", "3"])
         self.assertEqual([call.args[2] for call in self.client.get_documents_page.call_args_list], [1, 2, 3])
-        self.assertEqual(progress.call_args.args[0], {"pages": 3, "records": 3})
+        self.assertEqual(progress.call_args.args[0], {"pages": 3, "records": 3, "fetched_records": 3})
 
     def test_one_hundred_records_without_header_does_not_guess_another_page(self):
         self.client.get_documents_page.return_value = DocumentPage([row(str(n)) for n in range(100)])
         self.assertEqual(len(self.load().records), 100)
         self.client.get_documents_page.assert_called_once()
+
+    def test_eleven_pages_then_404_keep_filtered_data_without_claiming_completeness(self):
+        pages = [DocumentPage([row(str(p * 100 + n), dateIssued=(
+            "2026-09-16T00:00:00" if n % 2 else "2026-08-31T23:59:59")) for n in range(100)], str(p + 2))
+            for p in range(11)]
+        self.client.get_documents_page.side_effect = pages + [ProviderAPIError(ErrorCategory.NOT_FOUND, 404)]
+        result = self.load()
+        self.assertEqual((len(result.records), result.fetched_records, result.pages), (550, 1100, 11))
+        self.assertEqual(result.excluded_by_date, 550)
+        self.assertFalse(result.complete)
+        self.assertEqual(result.termination, "next_page_404")
+        self.assertIn("404", result.warning)
+        self.assertEqual(result.summary()["complete"], False)
+
+    def test_dates_change_results_even_when_provider_returns_identical_rows(self):
+        self.client.get_documents_page.return_value = DocumentPage([
+            row("start", dateIssued="2026-09-16T00:00:00+03:00"),
+            row("end", dateIssued="2026-09-17T23:59:59.999999+03:00"),
+            row("outside", dateIssued="2026-09-18"),
+            row("compact", dateIssued="20260917"),
+            row("missing", dateIssued=None), row("invalid", dateIssued="2026-09-31")])
+        result = self.loader.load("20260916", "20260917", "EL012345678", self.cancel)
+        self.assertEqual([r["number"] for r in result.records], ["start", "end", "compact"])
+        self.assertEqual((result.excluded_by_date, result.invalid_date_count), (1, 2))
+        self.assertIn("2", result.warning)
+        result = self.loader.load("20260918", "20260918", "EL012345678", self.cancel)
+        self.assertEqual([r["number"] for r in result.records], ["outside"])
+        result = self.loader.load("20260101", "20260101", "EL012345678", self.cancel)
+        self.assertEqual(len(result.records), 0)
+
+    def test_first_page_404_remains_an_error(self):
+        self.client.get_documents_page.side_effect = ProviderAPIError(ErrorCategory.NOT_FOUND, 404)
+        with self.assertRaises(ProviderAPIError) as error:
+            self.load()
+        self.assertEqual(error.exception.category, ErrorCategory.NOT_FOUND)
+
+    def test_filtered_out_rows_still_count_towards_record_limit(self):
+        self.client.get_documents_page.return_value = DocumentPage([row(dateIssued="2026-01-01")])
+        with patch.object(self.loader, "MAX_RECORDS", 0), self.assertRaises(ProviderAPIError) as error:
+            self.load()
+        self.assertEqual(error.exception.category, ErrorCategory.DATA_LIMIT)
+
+    def test_cancellation_during_terminal_404_discards_data(self):
+        def fetch(start, end, page, cancel):
+            if page == 1:
+                return DocumentPage([row()], "2")
+            cancel.set()
+            raise ProviderAPIError(ErrorCategory.NOT_FOUND, 404)
+        self.client.get_documents_page.side_effect = fetch
+        with self.assertRaises(ProviderAPIError) as error:
+            self.load()
+        self.assertEqual(error.exception.category, ErrorCategory.CANCELLED)
 
     def test_empty_result_is_a_complete_dataset(self):
         self.client.get_documents_page.return_value = DocumentPage([])
@@ -141,6 +194,24 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual(dataset.pages, 2)
         self.assertEqual([d.http_status for d in store.entries()], [200, 200])
         self.assertTrue(all(d.records == 1 for d in store.entries()))
+        self.assertEqual([d.operation for d in store.entries()], [
+            "GetDocumentsPage page=1 From=20260901 dateTo=20260917",
+            "GetDocumentsPage page=2 From=20260901 dateTo=20260917"])
+
+    def test_real_terminal_404_remains_a_failed_diagnostic(self):
+        class Response(io.BytesIO):
+            headers = {"NextPage": "2"}
+            def getcode(self):
+                return 200
+        store, opener = APIDiagnosticStore(), Mock()
+        credentials = VerifiedProviderCredentials("CLIENT", 1, "EL012345678", "fixture-key", "test", "https://einvoiceapi.impact.gr")
+        opener.open.side_effect = [Response(json.dumps([row()]).encode()),
+            urllib.error.HTTPError("https://einvoice.impact.gr", 404, "", {}, None)]
+        result = DocumentLoader(ProviderAPIClient(credentials, store, opener=opener)).load(
+            "20260901", "20260917", credentials.issuer_vat, self.cancel)
+        self.assertFalse(result.complete)
+        self.assertEqual([d.http_status for d in store.entries()], [200, 404])
+        self.assertFalse(store.entries()[-1].success)
 
     def test_json_amount_precision_survives_loading_and_summary(self):
         class Response(io.BytesIO):
@@ -148,7 +219,7 @@ class LoaderTests(unittest.TestCase):
             def getcode(self):
                 return 200
         opener, store = Mock(), APIDiagnosticStore()
-        opener.open.return_value = Response(b'[{"totalAmount":123456789012345.12,"totalVatAmount":0.01}]')
+        opener.open.return_value = Response(b'[{"dateIssued":"2026-09-17","totalAmount":123456789012345.12,"totalVatAmount":0.01}]')
         credentials = VerifiedProviderCredentials("CLIENT", 1, "EL012345678", "fixture-key", "test", "https://einvoiceapi.impact.gr")
         client = ProviderAPIClient(credentials, store, opener=opener)
         result = DocumentLoader(client).load("20260901", "20260917", credentials.issuer_vat, self.cancel)
@@ -276,6 +347,19 @@ class PhaseTwoUITests(unittest.TestCase):
             view._poll()
             view.documents_view.set_dataset.assert_not_called()
 
+    def test_terminal_404_installs_available_data_and_warns_in_status_and_overview(self):
+        view = self.view()
+        dataset = DocumentDataset((DocumentFields.project(row()),), "20260901", "20260917", 1, "now",
+            fetched_records=2, excluded_by_date=1, complete=False, termination="next_page_404")
+        view._task.poll.return_value = (dataset, None)
+        view._poll()
+        view.documents_view.set_dataset.assert_called_once_with(dataset)
+        self.assertIn("πληρότητα", view.status.configure.call_args.kwargs["text"])
+        overview = view.document_totals.configure.call_args.kwargs["text"]
+        self.assertIn("Εκτός διαστήματος: 1", overview)
+        self.assertIn("404", overview)
+        self.assertNotIn("πλήρης", overview)
+
     def test_shortcut_closures_keep_their_own_section_rules(self):
         view = self.view()
         top, callbacks = Mock(), {}
@@ -373,6 +457,23 @@ class DocumentsViewTests(unittest.TestCase):
         self.assertFalse(view.jobs)
         self.assertFalse(view.tree.rows)
         self.assertIsNone(view.dataset)
+
+    def test_export_preserves_filter_and_incomplete_metadata(self):
+        view = self.view(2)
+        view.dataset = DocumentDataset(view.dataset.records, "20260901", "20260917", 1, "now",
+            fetched_records=100, excluded_by_date=98, complete=False, termination="next_page_404")
+        view.filters["number"].get.return_value = "1"
+        view.apply_filters()
+        view.winfo_toplevel = Mock()
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "documents.json"
+            with patch.object(self.module.filedialog, "asksaveasfilename", return_value=str(path)):
+                view.export()
+            result = json.loads(path.read_text())
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["summary"]["fetched_records"], 100)
+        self.assertIn("404", result["warning"])
+        self.assertEqual([r["number"] for r in result["records"]], ["1"])
 
     def test_filter_sort_and_selected_details_keep_the_correct_record(self):
         view = self.view(20)
