@@ -145,8 +145,9 @@ class CompanyReaderTests(unittest.TestCase):
              {"ProviderConnectionID": 99}, "provider_reference_missing"),
             ([{"ID": 1, "BaseURL": "https://einvoice.impact.gr"}],
              {"ProviderConnectionID": 1, "providerconnectionid": 2}, "provider_reference_ambiguous"),
+            ([{"ID": 0, "BaseURL": "https://beta-myaccount.epsilonnet.gr/"}], {}, "provider_reference_missing"),
             ([{"ID": 1, "BaseURL": "https://einvoiceapi.impact.gr"},
-              {"ID": 2, "BaseURL": "https://einvoiceapiuat.impact.gr"}], {}, "provider_endpoints_ambiguous"),
+              {"ID": 1, "BaseURL": "https://einvoiceapiuat.impact.gr"}], {}, "provider_reference_missing"),
             ([{"ID": 1, "BaseURL": "https://einvoiceapiuat.impact.gr:bad/"}], {}, "provider_url_invalid"),
         )
         data = self.settings.read_appsettings_production.return_value
@@ -159,6 +160,24 @@ class CompanyReaderTests(unittest.TestCase):
                 self.assertNotIn("api_key", result)
         odbc.connect.assert_not_called()
 
+    def test_mixed_epsilon_and_impact_configuration_uses_id_one_for_each_environment(self):
+        data = self.settings.read_appsettings_production.return_value
+        for host in ("einvoiceapiuat.impact.gr", "einvoiceapi.impact.gr"):
+            for reverse in (False, True):
+                with self.subTest(host=host, reverse=reverse):
+                    data["bo_connections"][1]["ID"] = 8
+                    data["provider_connections"] = [
+                        {"ID": 0, "BaseURL": "https://beta-myaccount.epsilonnet.gr/",
+                         "OfflineURL": "https://beta-epsilondigital-registry.epsilonnet.gr/"},
+                        {"ID": "1", "BaseURL": f"https://{host}/", "OfflineURL": ""}]
+                    if reverse:
+                        data["provider_connections"].reverse()
+                    self.cursor.fetchall.side_effect = [[("CompanyAFM",)], [("012345678", "", "")]]
+                    result = self.reader.read(8, "EL012345678")
+                    self.assertTrue(result["success"])
+                    self.assertEqual(result["provider_base_url"], f"https://{host}")
+                    self.assertEqual(result["api_key"], "fixture-key")
+
     def test_padded_provider_url_is_normalized(self):
         self.settings.read_appsettings_production.return_value["provider_connections"][0]["BaseURL"] = " https://einvoiceapiuat.impact.gr/ \n"
         self.assertEqual(self.reader.read(1)["provider_base_url"], "https://einvoiceapiuat.impact.gr")
@@ -166,7 +185,7 @@ class CompanyReaderTests(unittest.TestCase):
     def test_missing_ambiguous_or_untrusted_provider_never_releases_key(self):
         for providers in ([], [{"ID": 1, "BaseURL": "https://untrusted.invalid/"}],
                           [{"ID": 1, "BaseURL": "https://einvoiceapi.impact.gr/"},
-                           {"ID": 2, "BaseURL": "https://einvoiceapiuat.impact.gr/"}]):
+                           {"ID": 1, "BaseURL": "https://einvoiceapiuat.impact.gr/"}]):
             self.settings.read_appsettings_production.return_value["provider_connections"] = providers
             result = self.reader.read(1, "EL012345678")
             self.assertFalse(result["success"])

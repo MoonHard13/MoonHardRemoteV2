@@ -21,6 +21,7 @@ class ProviderDiagnosticContextReader:
     """Ανακτά εταιρείες από τη σωστή βάση και το τοπικό subscriptionKey."""
 
     MAX_COMPANIES = 2000
+    IMPACT_PROVIDER_CONNECTION_ID = 1
     PROVIDER_HOSTS = frozenset(("einvoice.impact.gr", "einvoiceapi.impact.gr", "einvoiceapiuat.impact.gr"))
 
     @classmethod
@@ -43,22 +44,21 @@ class ProviderDiagnosticContextReader:
         return f"https://{parts.hostname}"
 
     def _provider_base_url(self, data, selected):
-        """Χρησιμοποιεί ρητή αντιστοίχιση Provider ή ένα μοναδικό διαθέσιμο endpoint."""
+        """Χρησιμοποιεί ρητή αντιστοίχιση ή την επιβεβαιωμένη σύνδεση IMPACT ID 1."""
         providers = [row for row in data.get("provider_connections", []) if isinstance(row, dict)]
+        if not providers:
+            raise ProviderConfigurationError("provider_connections_missing")
         references = {str(value) for key, value in selected.items()
                       if str(key).lower() == "providerconnectionid" and value is not None}
         if len(references) > 1:
             raise ProviderConfigurationError("provider_reference_ambiguous")
-        if references:
-            providers = [row for row in providers if str(row.get("ID")) in references]
-            if len(providers) != 1:
-                raise ProviderConfigurationError("provider_reference_missing")
-        if not providers:
-            raise ProviderConfigurationError("provider_connections_missing")
-        endpoints = {self._normalize_base_url(row.get("BaseURL")) for row in providers}
-        if len(endpoints) != 1:
-            raise ProviderConfigurationError("provider_endpoints_ambiguous")
-        return endpoints.pop()
+        if not references:
+            references = {str(self.IMPACT_PROVIDER_CONNECTION_ID)}
+        # Επιλέγουμε πρώτα τη σύνδεση· εγγραφές άλλων παρόχων δεν ελέγχονται ως IMPACT.
+        providers = [row for row in providers if str(row.get("ID")) in references]
+        if len(providers) != 1:
+            raise ProviderConfigurationError("provider_reference_missing")
+        return self._normalize_base_url(providers[0].get("BaseURL"))
 
     def __init__(self, appsettings_reader, provider_service):
         self._settings = appsettings_reader
