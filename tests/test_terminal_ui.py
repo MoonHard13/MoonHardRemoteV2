@@ -44,7 +44,7 @@ class TerminalUITests(unittest.TestCase):
             'exit_code':0, 'current_directory':'C:\\Users\\support', **fields})
 
     def test_terminal_uses_available_height(self):
-        self.assertGreater(self.box.winfo_height(), 550)
+        self.assertGreater(self.box.winfo_height(), self.tab.winfo_height() * .6)
         self.assertFalse(hasattr(self.tab, 'command_entry'))
 
     def test_insert_in_history_moves_to_active_command(self):

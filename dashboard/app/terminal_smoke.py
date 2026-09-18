@@ -34,7 +34,7 @@ class TerminalSmokeTest:
             box.text.insert('1.0', 'whoami')
             assert box.command() == 'whoami'
             assert box.text.get('1.0', 'input_start') == prefix
-            assert box.winfo_height() > 550
+            assert box.winfo_height() > tab.winfo_height() * .6
             tab.send_terminal_command()
             assert sent[-1]['type'] == 'terminal_session_command'
             assert not box.accept_input
