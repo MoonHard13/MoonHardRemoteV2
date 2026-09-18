@@ -437,6 +437,8 @@ class WebSocketRoutes:
                 message_type = str(data.get("type", ""))
                 if message_type.startswith("provider_transmitted_"):
                     logger.info("Client transmitted-documents message. type=%s", message_type)
+                elif message_type.startswith("sql_"):
+                    logger.info("Client SQL response. type=%s request_id=%s", message_type, data.get("request_id"))
                 elif message_type == DatabaseRequestRouter.PROGRESS_TYPE:
                     logger.debug(
                         "Client database progress. request_id=%s current=%s total=%s",
@@ -953,6 +955,8 @@ class WebSocketRoutes:
 
                 if data.get("type") in TerminalRequestRouter.REQUEST_TYPES or data.get("type") == "terminal_autocomplete":
                     logger.info("Αίτημα Terminal. type=%s session_id=%s", data.get("type"), data.get("session_id"))
+                elif str(data.get("type", "")).startswith("sql_"):
+                    logger.info("Dashboard SQL request. type=%s request_id=%s", data.get("type"), data.get("request_id"))
                 elif str(data.get("type", "")).startswith("provider_transmitted_"):
                     logger.info("Dashboard transmitted-documents request. type=%s", data.get("type"))
                 else:
