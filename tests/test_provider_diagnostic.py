@@ -13,7 +13,7 @@ import types
 import unittest
 import urllib.error
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from threading import Event
 from unittest.mock import AsyncMock, Mock, patch
@@ -26,7 +26,7 @@ from app.provider_diagnostic.api_client import NoRedirectHandler, ProviderAPICli
 from app.provider_diagnostic.context import CustomerContextAdapter
 from app.provider_diagnostic.diagnostics import APIDiagnosticStore
 from app.provider_diagnostic.errors import ErrorCategory, ProviderAPIError
-from app.provider_diagnostic.models import APIDiagnostic, VerifiedProviderCredentials, ProviderEndpoint
+from app.provider_diagnostic.models import APIDiagnostic, DocumentPage, VerifiedProviderCredentials, ProviderEndpoint
 from app.provider_diagnostic.security import SecretRedactor, SecretRedactingFormatter, SECRET_REDACTOR
 from app.provider_diagnostic.service import ProviderDiagnosticService
 from app.provider_diagnostic.tasks import BackgroundTask
@@ -413,7 +413,7 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["companies"][0]["issuer_vat"], "EL012345678")
         self.assertNotIn("secret-fixture", json.dumps(result))
 
-    async def _company_cli(self, companies, chosen="", probe=True, documents=None, complete=True, termination=None):
+    async def _company_cli(self, companies, chosen="", probe=True, documents=None, complete=True, termination=None, probe_response=None):
         class WebSocket:
             def __init__(self):
                 self.send = AsyncMock()
@@ -450,7 +450,7 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
             "20260901", "20260917", 2, "now", complete=complete,
             termination=termination or ("next_page_absent" if complete else "next_page_404"), last_page_records=2)
         with patch.object(self.cli.websockets, "connect", return_value=websocket), \
-                patch.object(self.cli.ProviderDiagnosticService, "probe", return_value={"records": 2}) as request, \
+                patch.object(self.cli.ProviderDiagnosticService, "probe", return_value=probe_response or {"records": 2}) as request, \
                 patch.object(self.cli.ProviderDiagnosticService, "documents", return_value=dataset) as document_request:
             result = await self.cli.ProviderDiagnosticCLI().context(config, "client-one", 1, chosen, probe, documents)
         return result, websocket.requests, document_request if documents is not None else request
@@ -524,6 +524,15 @@ class CLITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(requests), 2)
         probe.assert_called_once()
 
+    async def test_cli_preserves_probe_scope_and_first_page_counts(self):
+        probe = {"records": 50, "today_records_on_page": 0, "api_date_from": "20260917",
+            "api_date_to": "20260919", "list_complete": False,
+            "message": "Πρόσβαση Provider επιβεβαιώθηκε. Δεν αποτελεί πλήρη λίστα."}
+        result, _, _ = await self._company_cli([{"issuer_vat": "EL012345678"}], probe_response=probe)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["probe"], probe)
+        self.assertNotIn("cli-private-fixture", json.dumps(result))
+
     def test_cli_filters_an_explicit_export(self):
         args = types.SimpleNamespace(diagnostics_file=Mock(), outcome="Errors", endpoint="getdocuments", status="401")
         args.diagnostics_file.stat.return_value.st_size = 100
@@ -591,6 +600,26 @@ class UILogicTests(unittest.TestCase):
             else:
                 view._request_provider_context.assert_not_called()
 
+    def test_probe_status_displays_access_and_first_page_scope_message(self):
+        view = self.module.ProviderDiagnosticTab.__new__(self.module.ProviderDiagnosticTab)
+        view._closed = False
+        view.session = Mock()
+        view.session.expire_pending.return_value = False
+        view._last_ready = False
+        view._scope = view._running_scope = ("client", 1)
+        view._running_kind = "probe"
+        view._task = Mock()
+        view._task.poll_progress.return_value = None
+        message = "Πρόσβαση Provider επιβεβαιώθηκε. Σημερινά στην πρώτη σελίδα: 0. Δεν αποτελεί πλήρη λίστα."
+        view._task.poll.return_value = ({"records": 50, "message": message}, None)
+        view.status, view.probe_button, view.cancel_button = Mock(), Mock(), Mock()
+        view.documents_view = Mock()
+        view._context = types.SimpleNamespace(provider_ready=True)
+        view.refresh_diagnostics, view.after = Mock(), Mock()
+        view._poll()
+        view.status.configure.assert_called_once_with(text=message)
+        view.documents_view.set_dataset.assert_not_called()
+
     def test_stale_background_result_does_not_update_new_context_status(self):
         view = self.module.ProviderDiagnosticTab.__new__(self.module.ProviderDiagnosticTab)
         view._closed = False
@@ -607,6 +636,84 @@ class UILogicTests(unittest.TestCase):
         view._poll()
         view.status.configure.assert_not_called()
         view.refresh_diagnostics.assert_called_once()
+
+
+class ProviderProbeWindowTests(unittest.TestCase):
+    def setUp(self):
+        adapter = CustomerContextAdapter(lambda: {"client_code": "client-one", "ws_connected": True},
+            lambda: {"ID": 1, "DatabaseName": "DB"}, lambda: 1, lambda _: {})
+        self.service = ProviderDiagnosticService(adapter, lambda _: binding())
+
+    def probe(self, documents, today=date(2026, 9, 18)):
+        with patch("app.provider_diagnostic.service.date") as clock, \
+                patch("app.provider_diagnostic.service.ProviderAPIClient") as factory:
+            clock.today.return_value = today
+            page = DocumentPage(documents, "2")
+            factory.return_value.get_documents_page.return_value = page
+            cancel = Event()
+            result = self.service.probe(self.service.snapshot(), cancel)
+        return result, factory, cancel
+
+    def test_today_probe_uses_same_padded_window_as_documents(self):
+        rows = [{"dateIssued": "2026-09-17T23:59:59"}, {"dateIssued": "2026-09-18T00:00:00"},
+            {"dateIssued": "2026-09-18T23:59:59+03:00"}, {"dateIssued": "2026-09-19T00:00:00"},
+            {"dateIssued": "bad-date"}]
+        result, factory, cancel = self.probe(rows)
+        factory.return_value.get_documents_page.assert_called_once_with("20260917", "20260919", cancel=cancel)
+        self.assertEqual((result["records"], result["today_records_on_page"], result["invalid_date_count"]), (5, 2, 1))
+        self.assertFalse(result["list_complete"])
+        self.assertIn("Δεν αποτελεί πλήρη λίστα", result["message"])
+        self.assertNotIn("fixture-key-only", json.dumps(result))
+
+    def test_successful_access_with_previous_day_rows_does_not_claim_no_invoices_today(self):
+        result, _, _ = self.probe([{"dateIssued": "2026-09-17"}])
+        self.assertEqual(result["today_records_on_page"], 0)
+        self.assertIn("Πρόσβαση Provider επιβεβαιώθηκε", result["message"])
+        self.assertFalse(result["list_complete"])
+        self.assertNotIn("Δεν υπάρχουν", result["message"])
+
+    def test_year_boundary_window_uses_previous_year(self):
+        result, factory, cancel = self.probe([], date(2026, 1, 1))
+        factory.return_value.get_documents_page.assert_called_once_with("20251231", "20260102", cancel=cancel)
+        self.assertEqual(result["records"], 0)
+        self.assertFalse(result["list_complete"])
+
+    def test_first_page_404_remains_failure_and_never_becomes_empty_success(self):
+        with patch("app.provider_diagnostic.service.ProviderAPIClient") as factory:
+            factory.return_value.get_documents_page.side_effect = ProviderAPIError(ErrorCategory.NOT_FOUND, 404)
+            with self.assertRaises(ProviderAPIError) as error:
+                self.service.probe(self.service.snapshot(), Event())
+        self.assertEqual(error.exception.category, ErrorCategory.NOT_FOUND)
+        self.assertEqual(error.exception.status, 404)
+        self.assertIn("δεν επιβεβαιώνει κενή λίστα", error.exception.message)
+        factory.return_value.get_documents_page.assert_called_once()
+
+    def test_cancel_after_response_drops_probe_counts(self):
+        cancel = Event()
+        def response(*args, **kwargs):
+            cancel.set()
+            return DocumentPage([{"dateIssued": "2026-09-18"}])
+        with patch("app.provider_diagnostic.service.ProviderAPIClient") as factory:
+            factory.return_value.get_documents_page.side_effect = response
+            with self.assertRaises(ProviderAPIError) as error:
+                self.service.probe(self.service.snapshot(), cancel)
+        self.assertEqual(error.exception.category, ErrorCategory.CANCELLED)
+
+    def test_real_http_request_and_diagnostic_use_padded_dates(self):
+        opener = Mock()
+        opener.open.return_value = Response(json.dumps([{"dateIssued": "2026-09-18T00:00:00"}]).encode())
+        def client(credentials, diagnostics):
+            return ProviderAPIClient(credentials, diagnostics, opener=opener)
+        with patch("app.provider_diagnostic.service.date") as clock, \
+                patch("app.provider_diagnostic.service.ProviderAPIClient", side_effect=client):
+            clock.today.return_value = date(2026, 9, 18)
+            result = self.service.probe(self.service.snapshot(), Event())
+        request = opener.open.call_args.args[0]
+        self.assertTrue(request.full_url.endswith("/1/?From=20260917&dateTo=20260919"))
+        self.assertEqual(self.service.diagnostics.entries()[0].operation,
+            "GetDocumentsPage page=1 From=20260917 dateTo=20260919")
+        self.assertEqual(result["today_records_on_page"], 1)
+        self.assertEqual(opener.open.call_count, 1)
 
 
 if __name__ == "__main__":

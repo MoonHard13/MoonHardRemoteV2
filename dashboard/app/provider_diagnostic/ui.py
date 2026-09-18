@@ -270,7 +270,7 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
         if self._task.start(lambda cancel: self.service.probe(context, cancel, diagnostics)):
             self._running_kind = "probe"
             self._running_scope = self._scope
-            self.status.configure(text="Ανάγνωση πρώτης σελίδας σημερινών παραστατικών…")
+            self.status.configure(text="Έλεγχος πρόσβασης Provider με ευρύτερο διάστημα ημερομηνιών…")
             self.probe_button.configure(state="disabled")
             self.cancel_button.configure(state="normal")
             logger.info("Έναρξη χειροκίνητου Provider diagnostic request.")
@@ -379,7 +379,7 @@ class ProviderDiagnosticTab(ctk.CTkFrame):
                             + "\n" + "\n".join(value.erp_warnings))
                     self.status.configure(text=f"Σύγκριση ολοκληρώθηκε. ERP: {value.erp_records} · Provider: {value.provider_records}")
                 else:
-                    self.status.configure(text=f"Έλεγχος ολοκληρώθηκε. Records πρώτης σελίδας: {value['records']}")
+                    self.status.configure(text=value.get("message") or f"Έλεγχος ολοκληρώθηκε. Records πρώτης σελίδας: {value['records']}")
             self.probe_button.configure(state="normal" if self._context.provider_ready else "disabled")
             self.documents_view.load_button.configure(state="normal" if self._context.provider_ready else "disabled")
             if hasattr(self, "reconciliation_view"):

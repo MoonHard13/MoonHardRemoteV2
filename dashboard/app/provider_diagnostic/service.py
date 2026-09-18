@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from datetime import date
 from threading import Event
@@ -7,9 +8,12 @@ from app.provider_diagnostic.context import CustomerContextAdapter
 from app.provider_diagnostic.diagnostics import APIDiagnosticStore
 from app.provider_diagnostic.errors import ErrorCategory, ProviderAPIError
 from app.provider_diagnostic.models import DiagnosticContext, VerifiedProviderCredentials
-from app.provider_diagnostic.documents import DocumentLoader
+from app.provider_diagnostic.documents import DocumentFields, DocumentLoader
 from app.provider_diagnostic.erp_data import ERPLoader
 from app.provider_diagnostic.reconciliation import ReconciliationEngine
+
+
+logger = logging.getLogger(__name__)
 
 
 class ProviderDiagnosticService:
@@ -47,9 +51,24 @@ class ProviderDiagnosticService:
               diagnostics: APIDiagnosticStore | None = None) -> dict:
         credentials = self.credentials(context)
         today = date.today().strftime("%Y%m%d")
-        # Ο έλεγχος χρησιμοποιεί πραγματική ανάγνωση μίας σελίδας, χωρίς health polling.
-        page = ProviderAPIClient(credentials, diagnostics or self.diagnostics).get_documents_page(today, today, cancel=cancel)
-        return {"records": len(page.documents), "scope": "Πρώτη σελίδα σημερινών εξερχόμενων παραστατικών"}
+        # Ίδιο ευρύτερο παράθυρο με Documents· τα σημερινά μετρώνται από το dateIssued.
+        start, end = DocumentLoader._request_window(today, today)
+        page = ProviderAPIClient(credentials, diagnostics or self.diagnostics).get_documents_page(start, end, cancel=cancel)
+        if cancel.is_set():
+            raise ProviderAPIError(ErrorCategory.CANCELLED)
+        issued = [DocumentFields.issued_date(row.get("dateIssued")) for row in page.documents]
+        matching = sum(day == today for day in issued)
+        invalid = sum(day is None for day in issued)
+        message = (f"Πρόσβαση Provider επιβεβαιώθηκε. Πρώτη σελίδα API: {len(page.documents)} εγγραφές · "
+            f"Σημερινά στην πρώτη σελίδα: {matching}. Δεν αποτελεί πλήρη λίστα σημερινών παραστατικών.")
+        if invalid:
+            message += f" Χωρίς έγκυρη ημερομηνία: {invalid}."
+        logger.info("Έλεγχος πρόσβασης Provider ολοκληρώθηκε. fetched=%s matching_today=%s invalid_dates=%s",
+            len(page.documents), matching, invalid)
+        return {"records": len(page.documents), "today_records_on_page": matching,
+            "invalid_date_count": invalid, "date_from": today, "date_to": today,
+            "api_date_from": start, "api_date_to": end, "list_complete": False,
+            "scope": "Έλεγχος πρόσβασης Provider · πρώτη σελίδα ευρύτερου διαστήματος", "message": message}
 
     def close(self) -> None:
         self.diagnostics.close()
