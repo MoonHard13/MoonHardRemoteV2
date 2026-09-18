@@ -3,7 +3,7 @@ from typing import Callable, Any
 import customtkinter as ctk
 
 from app.appsettings_presenter import AppSettingsPresenter
-from app.ui.theme import COLORS, FONTS, SPACING, card_style
+from app.ui.theme import COLORS, SPACING
 from app.views.manage.provider_tab import ProviderTab
 from app.views.manage.overview_tab import OverviewTab
 from app.views.manage.terminal_tab import TerminalTab
@@ -105,9 +105,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         """
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
-
-        self._build_header()
+        self.grid_rowconfigure(0, weight=1)
 
         self.tabs = ctk.CTkTabview(
             self,
@@ -121,10 +119,10 @@ class ClientManageWindow(ctk.CTkToplevel):
             text_color=COLORS.text_primary
         )
         self.tabs.grid(
-            row=1,
+            row=0,
             column=0,
             padx=SPACING.window_padding,
-            pady=(0, SPACING.window_padding),
+            pady=(8, SPACING.window_padding),
             sticky="nsew"
         )
 
@@ -171,60 +169,6 @@ class ClientManageWindow(ctk.CTkToplevel):
         self._build_updates_tab()
         self._build_senario_prosorinon_tab()
         
-    def _build_header(self) -> None:
-        """
-        Δημιουργεί την κεφαλίδα του παραθύρου.
-        """
-
-        display_name = self.client.get("display_name") or self.client.get("pc_name") or "-"
-        pc_name = self.client.get("pc_name", "-")
-        username = self.client.get("username", "-")
-        status = self.client.get("status", "-")
-        app_version = self.client.get("app_version", "-")
-        amv_version = self.client.get("amv_version") or "-"
-        bo_version = self.client.get("bo_version") or "-"
-        etp_version = self.client.get("etp_version") or "-"
-        aws_version = self.client.get("aws_version") or "-"
-        group_name = self.client.get("group_name") or "Ungrouped"
-        
-        header = ctk.CTkFrame(self, **card_style())
-        header.grid(
-            row=0,
-            column=0,
-            padx=SPACING.window_padding,
-            pady=SPACING.window_padding,
-            sticky="ew"
-        )
-        header.grid_columnconfigure(0, weight=1)
-
-        self.header_title_label = ctk.CTkLabel(
-            header,
-            text=display_name,
-            font=FONTS.title,
-            text_color=COLORS.text_primary
-        )
-        self.header_title_label.grid(row=0, column=0, padx=18, pady=(14, 4), sticky="w")
-
-        self.header_info_label = ctk.CTkLabel(
-            header,
-            text=(
-                f"PC: {pc_name} | "
-                f"User: {username} | "
-                f"Status: {status} | "
-                f"MoonHard: {app_version} | "
-                f"AMV: {amv_version} | "
-                f"BO: {bo_version} | "
-                f"ETP: {etp_version} | "
-                f"AWS: {aws_version} | "
-                f"Group: {group_name} | "
-                f"Code: {self.client_code}"
-            ),
-            font=FONTS.body,
-            text_color=COLORS.text_secondary,
-            anchor="w"
-        )
-        self.header_info_label.grid(row=1, column=0, padx=18, pady=(0, 14), sticky="w")
-
     def update_client_data(self, client: dict) -> None:
         """
         Ενημερώνει άμεσα τα στοιχεία του ανοιχτού Manage window.
@@ -235,40 +179,9 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         self.client = client
 
-        display_name = self.client.get("display_name") or self.client.get("pc_name") or "-"
-        pc_name = self.client.get("pc_name", "-")
-        username = self.client.get("username", "-")
+        display_name = self.client.get("display_name") or self.client.get("pc_name") or "—"
         status = self.client.get("status", "-")
-        app_version = self.client.get("app_version", "-")
-        ws_connected = self.client.get("ws_connected", False)
-        group_name = self.client.get("group_name") or "Ungrouped"
-        amv_version = self.client.get("amv_version") or "-"
-        bo_version = self.client.get("bo_version") or "-"
-        etp_version = self.client.get("etp_version") or "-"
-        aws_version = self.client.get("aws_version") or "-"
-
         self.title(f"Manage Client - {display_name}")
-
-        if hasattr(self, "header_title_label"):
-            self.header_title_label.configure(text=display_name)
-
-        if hasattr(self, "header_info_label"):
-            connection_text = "CONNECTED" if ws_connected else "NOT CONNECTED"
-
-            self.header_info_label.configure(
-                text=(
-                    f"PC: {pc_name} | "
-                    f"User: {username} | "
-                    f"Status: {status} / {connection_text} | "
-                    f"MoonHard: {app_version} | "
-                    f"AMV: {amv_version} | "
-                    f"BO: {bo_version} | "
-                    f"ETP: {etp_version} | "
-                    f"AWS: {aws_version} | "
-                    f"Group: {group_name} | "
-                    f"Code: {self.client_code}"
-                )
-            )
 
         if hasattr(self, "sql_tab_view"):
             self.sql_tab_view.set_online(status == "online")

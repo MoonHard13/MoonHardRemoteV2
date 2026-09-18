@@ -45,6 +45,14 @@ def main() -> None:
         from app.backup_cli import main as backup_main
         raise SystemExit(backup_main(sys.argv[2:]))
 
+    if len(sys.argv) == 3 and sys.argv[1] == "--overview-self-test":
+        from app.overview_smoke import OverviewSmokeTest
+        raise SystemExit(OverviewSmokeTest.run(sys.argv[2]))
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--overview":
+        from app.overview_cli import main as overview_main
+        raise SystemExit(overview_main(sys.argv[2:]))
+
     config = DashboardConfig()
     DashboardLoggerConfig.setup_logging(config.log_dir)
 
