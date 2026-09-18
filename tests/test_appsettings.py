@@ -60,6 +60,7 @@ class PresenterTests(unittest.TestCase):
     def test_safe_data_is_idempotent_and_does_not_mutate_input(self):
         data = sample_data()
         safe = Presenter.safe_data(data)
+        self.assertIs(safe['bo_connections'][0]['HasDatabasePassword'], True)
         self.assertEqual(Presenter.safe_data(safe), safe)
         self.assertEqual(data['bo_connections'][0]['ClientAuth'], 'PRIVATE_AUTH')
 
@@ -156,6 +157,7 @@ class AppSettingsUITests(unittest.TestCase):
         self.assertTrue(self.tab.details_box.winfo_ismapped())
         self.assertFalse(self.tab.content.winfo_ismapped())
         self.tab.set_text('Δεν υπάρχουν δεδομένα')
+        self.assertNotIn('Provider', self.tab.path_entry.get())
         self.assertEqual(self.tab.details_box.get('1.0', 'end-1c'), '')
         self.assertEqual(self.tab.copy_button.cget('state'), 'disabled')
         self.assertFalse(self.tab.detail_cards)

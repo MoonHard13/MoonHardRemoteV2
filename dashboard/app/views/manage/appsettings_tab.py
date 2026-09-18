@@ -232,6 +232,8 @@ class AppSettingsTab(ctk.CTkFrame):
 
     def _apply_layout(self) -> None:
         """Χρησιμοποιεί δύο στήλες σε μεγάλα παράθυρα και μία σε μικρότερα."""
+        if self._layout_job:
+            self.after_cancel(self._layout_job)
         self._layout_job = None
         layout = (self.winfo_width() >= 1050, self.winfo_width() >= 900)
         if layout == self._wide:
@@ -325,6 +327,7 @@ class AppSettingsTab(ctk.CTkFrame):
         """Καθαρίζει παλιές κάρτες όταν η φόρτωση αποτύχει ή δεν υπάρχει αποτέλεσμα."""
         self._data = {}
         self._json = ""
+        self._set_entry(self.path_entry, "Δεν υπάρχουν διαθέσιμα στοιχεία αρχείου")
         self.copy_button.configure(state="disabled")
         self.set_bo_values([])
         self.badge.configure(text="Δεν υπάρχουν διαθέσιμα δεδομένα", text_color=COLORS.warning,

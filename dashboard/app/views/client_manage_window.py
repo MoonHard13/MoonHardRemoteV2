@@ -2,6 +2,7 @@ from typing import Callable, Any
 
 import customtkinter as ctk
 
+from app.appsettings_presenter import AppSettingsPresenter
 from app.ui.theme import COLORS, FONTS, SPACING, card_style
 from app.views.manage.provider_tab import ProviderTab
 from app.views.manage.overview_tab import OverviewTab
@@ -489,7 +490,7 @@ class ClientManageWindow(ctk.CTkToplevel):
             self.appsettings_tab_view.set_status("Αποτυχία φόρτωσης AppSettings.")
             return
 
-        self.appsettings_data = payload.get("appsettings") or {}
+        self.appsettings_data = AppSettingsPresenter.safe_data(payload.get("appsettings") or {})
         self.bo_connections = [item for item in self.appsettings_data.get("bo_connections", [])
                                if isinstance(item, dict)] if self.appsettings_data.get("file_found") else []
         available = {str(item.get("ID")) for item in self.bo_connections}
