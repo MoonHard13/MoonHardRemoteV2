@@ -16,8 +16,7 @@ class OverviewSmokeTest:
         """Δεν συνδέεται σε Server και δεν αλλάζει πραγματικό Client."""
         root=window=None
         try:
-            # Ο πραγματικός Dashboard parent είναι ορατός. Ο κρυφός parent
-            # στα Windows κρατά παλιές διαστάσεις στις θυγατρικές καρτέλες.
+            # Ο πραγματικός Dashboard parent είναι ορατός.
             ctk.set_appearance_mode('dark');root=ctk.CTk();root.geometry('1350x900')
             root.after(350,root.quit);root.mainloop()
             client={'client_code':'SMOKE','display_name':'InitialTest','pc_name':'PC-01','username':'operator',
@@ -27,9 +26,12 @@ class OverviewSmokeTest:
             renames=[]
             window=ClientManageWindow(root,client,on_rename_callback=lambda code,name:renames.append((code,name)))
             # Το Windows Toplevel εμφανίζεται ασύγχρονα. Περιμένουμε τον
-            # πραγματικό βρόχο Tk και τις αρχικές αλλαγές titlebar/theme,
-            # που επαναφέρουν τη γεωμετρία, πριν κάνουμε resize και μέτρηση.
+            # πραγματικό βρόχο Tk και τις αρχικές αλλαγές titlebar/theme
+            # πριν κάνουμε resize και μέτρηση.
             window.after(350,root.quit);root.mainloop();root.update()
+            # Το CI desktop μπορεί να είναι μόλις 1024 pixels. Ορίζουμε
+            # ρητά τα όρια της δοκιμής για να ελεγχθεί και η μεγάλη διάταξη.
+            window.maxsize(2000,1500);window.minsize(1350,900)
             window.deiconify();window.geometry('1350x900');window.after(150,root.quit);root.mainloop()
             tab=window.overview_tab_view;tab._apply_layout();root.update()
             assert not hasattr(window,'header_title_label') and not hasattr(window,'header_info_label')
@@ -55,6 +57,7 @@ class OverviewSmokeTest:
             def confirm():
                 dialog.entry.insert(0,'RESET');dialog._confirm()
             window.after(150,confirm);assert dialog.get_input()=='RESET'
+            window.minsize(900,600)
             window.geometry('900x600');window.after(150,root.quit);root.mainloop()
             root.update();tab._apply_layout();root.update()
             assert int(tab.right_stack.grid_info()['column'])==0
