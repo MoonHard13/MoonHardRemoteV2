@@ -10,6 +10,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from app.sql_workspace import SqlFiles, SqlResultData
+from app.sql_transfer import SqlResultAssembler
 from app.ui.theme import COLORS, FONTS, card_style, primary_button_style, secondary_button_style, danger_button_style
 from app.views.manage.sql_editor import SqlEditor
 from app.views.manage.sql_results import SqlResults
@@ -29,6 +30,7 @@ class SqlTab(ctk.CTkFrame):
         self.on_sql_execute_callback = on_sql_execute_callback
         self.on_bo_selected_callback = on_bo_selected_callback
         self.selected_bo_connection_id = None
+        self._assembler = SqlResultAssembler()
         self.current_sql_request_id = ''
         self._active_bo_id = None
         self._active_kind = ''
@@ -84,7 +86,7 @@ class SqlTab(ctk.CTkFrame):
         self.save_button = ctk.CTkButton(self.actions, text='Save .sql', width=90, height=32,
                                         command=self.save_sql_file, **secondary_button_style())
         self.save_button.grid(row=0, column=2, padx=(0, 10))
-        ctk.CTkLabel(self.actions, text='Timeout (s)', font=FONTS.small,
+        ctk.CTkLabel(self.actions, text='Timeout (s) · 0 = ∞', font=FONTS.small,
                      text_color=COLORS.text_secondary).grid(row=0, column=3, padx=(0, 5))
         self.timeout_entry = ctk.CTkEntry(self.actions, width=56, height=32)
         self.timeout_entry.insert(0, '120')
@@ -181,6 +183,7 @@ class SqlTab(ctk.CTkFrame):
             return
         if not online and self.busy:
             self.results_panel.set_messages('Η σύνδεση διακόπηκε πριν ληφθεί τελικό αποτέλεσμα. Η κατάσταση της απομακρυσμένης εκτέλεσης είναι άγνωστη.', append=True)
+            self._assembler.reset()
             self.current_sql_request_id = ''
             self._active_kind = ''
         self._online = online
@@ -193,6 +196,7 @@ class SqlTab(ctk.CTkFrame):
         if not self.on_sql_execute_callback:
             self.results_panel.set_messages('Δεν υπάρχει διαθέσιμη σύνδεση για αποστολή SQL.')
             return
+        self._assembler.reset()
         self.current_sql_request_id = str(uuid.uuid4())
         self._active_bo_id = self.selected_bo_connection_id
         self._active_kind = kind
@@ -225,10 +229,10 @@ class SqlTab(ctk.CTkFrame):
             return
         try:
             timeout = int(self.timeout_entry.get())
-            if not 1 <= timeout <= 3600:
+            if not 0 <= timeout <= 3600:
                 raise ValueError
         except ValueError:
-            self.results_panel.set_messages('Το timeout πρέπει να είναι ακέραιος από 1 έως 3600 δευτερόλεπτα.')
+            self.results_panel.set_messages('Το timeout πρέπει να είναι ακέραιος από 0 έως 3600 δευτερόλεπτα (0 = χωρίς όριο).')
             return
         self._begin('sql_execute', timeout, sql)
 
@@ -265,6 +269,7 @@ class SqlTab(ctk.CTkFrame):
 
     def _finish(self, success: bool, detail: str = ''):
         """Επαναφέρει τα χειριστήρια μόνο μετά από τελικό αποτέλεσμα ή αποτυχία αποστολής."""
+        self._assembler.reset()
         self.current_sql_request_id = ''
         self._active_kind = ''
         self._stop_requested = False
@@ -275,6 +280,16 @@ class SqlTab(ctk.CTkFrame):
     def handle_sql_result(self, payload: dict):
         """Προβάλλει πίνακες και πραγματικά batch errors χωρίς να χάνει τα μερικά αποτελέσματα."""
         if not self._accept(payload, 'sql_execute'):
+            return
+        try:
+            payload = self._assembler.feed(payload)
+        except (ValueError, TypeError, KeyError):
+            self._assembler.reset()
+            self.results_panel.set_messages('Αποτυχία παραλαβής πλήρους αποτελέσματος. Δεν εμφανίζονται μερικά δεδομένα.')
+            self._finish(False)
+            return
+        if payload is None:
+            self.status_label.configure(text='Receiving results…', text_color=COLORS.info)
             return
         self.results_panel.render(payload)
         rows = sum(len(item.get('rows') or []) for item in self.results_panel.datasets.values())

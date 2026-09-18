@@ -65,6 +65,8 @@ class SqlDataTests(unittest.TestCase):
         args.result_set = 2
         with self.assertRaises(ValueError):SqlCLI.render(sample_result(), args)
         args.timeout = 0
+        self.assertEqual(SqlCLI.payload(args)['timeout'], 0)
+        args.timeout = -1
         with self.assertRaises(ValueError):SqlCLI.payload(args)
 
     def test_cli_protocol_and_cancel_stay_on_same_socket(self):
@@ -185,11 +187,11 @@ class SqlUITests(unittest.TestCase):
     def test_result_tables_duplicate_headers_copy_and_limits(self):
         self.tab.execute_sql();self.reply()
         panel=self.tab.results_panel;name=panel.selector.get();tree=panel.tables[name][1]
-        self.assertEqual(len(tree['columns']),3)
+        self.assertEqual(len(tree.headers()),3)
         self.assertIn('Περιορισμένα',panel.caption.cget('text'))
         panel.copy_all()
         self.assertIn('Αθήνα',self.root.clipboard_get())
-        tree.selection_set('0');panel.copy_selected()
+        tree.select_row(0);panel.copy_selected()
         self.assertNotIn('tab',self.root.clipboard_get())
         panel.selector.set('Messages');panel.show('Messages')
         self.assertEqual(panel.export_button.cget('state'),'disabled')
@@ -202,6 +204,49 @@ class SqlUITests(unittest.TestCase):
         self.assertIn('499',self.root.clipboard_get())
         self.tab.results_panel.clear();self.root.update()
         self.assertFalse(self.tab.results_panel.tables)
+
+    def test_grid_selects_cells_and_is_readonly(self):
+        self.tab.execute_sql();self.reply()
+        panel = self.tab.results_panel
+        sheet = panel.tables[panel.selector.get()][1]
+        sheet.select_cell(0, 1)
+        panel.copy_selected()
+        self.assertEqual(self.root.clipboard_get().strip(), 'comma,value')
+        sheet.deselect('all')
+        sheet.create_selection_box(0, 1, 2, 3)
+        panel.copy_selected()
+        copied = list(csv.reader(io.StringIO(self.root.clipboard_get()), delimiter='\t'))
+        self.assertEqual(copied, [['comma,value', 'NULL'], ['tab\tvalue', 'line\nvalue']])
+        sheet.select_cell(0, 0);sheet.MT.focus_force();self.root.update()
+        sheet.MT.event_generate('<Right>');self.root.update()
+        self.assertEqual(sheet.get_currently_selected().column, 1)
+        before = [list(row) for row in sheet.get_sheet_data()]
+        self.root.clipboard_clear();self.root.clipboard_append('REPLACE')
+        sheet.MT.event_generate('<Control-v>');sheet.MT.event_generate('<Delete>');self.root.update()
+        self.assertEqual(sheet.get_sheet_data(), before)
+
+    def test_large_grid_and_transfer_wait_until_complete_with_zero_timeout(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('sql_ui_transport', ROOT / 'client/app/sql_transport.py')
+        module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        self.tab.timeout_entry.delete(0, 'end');self.tab.timeout_entry.insert(0, '0')
+        self.tab.execute_sql()
+        self.assertEqual(self.sent[0]['timeout'], 0)
+        rows = [[i, 'Αθήνα' * 100] for i in range(1501)]
+        payload = sample_result(self.tab.current_sql_request_id, batches=[{'batch_index': 1,
+            'result_sets': [{'columns': ['ID', 'Value'], 'rows': rows}]}])
+        packets = list(module.SqlResultTransport.messages(payload))
+        for packet in packets[:-1]:
+            self.tab.handle_sql_result(json.loads(packet))
+            self.assertTrue(self.tab.busy)
+            self.assertFalse(self.tab.results_panel.datasets)
+        self.tab.handle_sql_result(json.loads(packets[-1]));self.root.update()
+        self.assertFalse(self.tab.busy)
+        panel = self.tab.results_panel;sheet = panel.tables[panel.selector.get()][1]
+        self.assertEqual(len(sheet.get_sheet_data()), 1501)
+        sheet.see(row=1500, column=0);sheet.select_cell(1500, 0);self.root.update()
+        panel.copy_selected()
+        self.assertEqual(self.root.clipboard_get().strip(), '1500')
 
     def test_offline_missing_connection_and_invalid_timeout_do_not_send(self):
         self.tab.set_online(False);self.tab.execute_sql()

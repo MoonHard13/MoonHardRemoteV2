@@ -27,6 +27,7 @@ class SqlSmokeTest:
             tab.sql_editor.delete('1.0','end')
             tab.sql_editor.insert('1.0',"SELECT 1 AS ID, N'Αθήνα' AS City;\nSELECT 2;")
             tab.sql_editor._textbox.tag_add('sel','1.0','1.end')
+            tab.timeout_entry.delete(0, 'end');tab.timeout_entry.insert(0, '0')
             tab.execute_sql();tab.execute_sql()
             assert len(sent)==1 and sent[0]['sql_text'].endswith("AS City;")
             assert tab.busy and tab.execute_button.cget('state')=='disabled'
@@ -38,6 +39,10 @@ class SqlSmokeTest:
                     {'columns':['ID','City','Note'],'rows':[[1,'Αθήνα','Δοκιμή'],[2,'Θεσσαλονίκη','Preview']], 'limited':False}]}]})
             root.update()
             assert not tab.busy
+            assert sent[0]['timeout'] == 0
+            sheet = tab.results_panel.tables[tab.results_panel.selector.get()][1]
+            sheet.select_cell(0, 1);tab.results_panel.copy_selected()
+            assert root.clipboard_get().strip() == 'Αθήνα'
             tab.results_panel.copy_all()
             assert 'Αθήνα' in root.clipboard_get()
             try:

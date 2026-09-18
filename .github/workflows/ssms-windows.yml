@@ -5,6 +5,13 @@ on:
   pull_request:
     paths:
       - 'dashboard/app/**'
+      - 'dashboard/requirements.txt'
+      - 'client/app/sql*'
+      - 'client/app/client_agent.py'
+      - 'client/app/main.py'
+      - 'server/app/routes/websocket_routes.py'
+      - 'server/app/websocket/sql_responses.py'
+      - 'tests/test_sql_execution.py'
       - 'tests/test_ssms.py'
       - 'scripts/*ssms*'
       - 'scripts/build_dashboard_exe.ps1'
@@ -23,7 +30,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install application and build dependencies
-        run: python -m pip install -r dashboard/requirements.txt pyinstaller
+        run: python -m pip install -r dashboard/requirements.txt -r client/requirements.txt pyinstaller
       - name: Test SSMS and EXE in a clean directory
         shell: pwsh
         run: ./scripts/validate_ssms_windows.ps1
@@ -35,3 +42,5 @@ jobs:
             dist/MoonHardRemoteSSMS.exe
             dist/ssms-smoke.json
             dist/ssms-preview.png
+            dist/MoonHardRemoteClient/
+            dist/sql-client-smoke.json

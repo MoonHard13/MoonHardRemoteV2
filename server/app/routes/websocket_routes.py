@@ -1,3 +1,4 @@
+from app.websocket.sql_responses import SqlResponseRouter
 import hashlib
 import hmac
 import logging
@@ -565,25 +566,7 @@ class WebSocketRoutes:
                     continue
 
                 if data.get("type") in ("sql_result", "sql_test_connection_result", "sql_cancel_result"):
-                    request_id = data.get("request_id", "")
-                    message_type = data.get("type")
-
-                    if message_type == "sql_cancel_result":
-                        dashboard_websocket = self.pending_requests.get(request_id)
-                    else:
-                        dashboard_websocket = self.pending_requests.pop(
-                            request_id,
-                            None
-                        )
-
-                    if dashboard_websocket:
-                        await connection_manager.send_to_dashboard(
-                            dashboard_websocket,
-                            data
-                        )
-                    else:
-                        await connection_manager.broadcast_to_dashboards(data)
-
+                    await SqlResponseRouter.forward(data, self.pending_requests, connection_manager)
                     continue
 
                 if data.get("type") in ("client_update_extract_result",):
