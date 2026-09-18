@@ -9,6 +9,7 @@ from app.websocket.connection_manager import connection_manager
 from app.websocket.backup_requests import BackupRequestRouter
 from app.websocket.database_requests import DatabaseRequestRouter
 from app.websocket.transmitted_requests import TransmittedRequestRouter
+from app.websocket.terminal_requests import TerminalRequestRouter
 from app.repositories.client_repository import ClientRepository
 
 from app.config import AppConfig
@@ -33,6 +34,7 @@ class WebSocketRoutes:
         self.config = AppConfig()
         self.pending_requests: dict[str, WebSocket] = {}
         self.transmitted_requests = TransmittedRequestRouter(connection_manager)
+        self.terminal_requests = TerminalRequestRouter(connection_manager)
         self.database_requests = DatabaseRequestRouter(connection_manager)
         self.backup_requests = BackupRequestRouter(connection_manager)
         self.heartbeat_db_write_interval_seconds = 300
@@ -448,6 +450,8 @@ class WebSocketRoutes:
                         data.get("action"),
                         data.get("success"),
                     )
+                elif message_type in TerminalRequestRouter.RESULT_TYPES or message_type == "terminal_autocomplete_result":
+                    logger.info("Απάντηση Terminal. type=%s session_id=%s", message_type, data.get("session_id"))
                 elif message_type in {
                     BackupRequestRouter.PROGRESS_TYPE,
                     BackupRequestRouter.RESULT_TYPE,
@@ -460,6 +464,10 @@ class WebSocketRoutes:
                     )
                 else:
                     logger.info("Client message received from %s: %s", client_code, data)
+
+                if data.get("type") in TerminalRequestRouter.RESULT_TYPES:
+                    await self.terminal_requests.result(client_code, data)
+                    continue
 
                 if data.get("type") in TransmittedRequestRouter.RESULT_TYPES:
                     await self.transmitted_requests.result(client_code, data)
@@ -881,6 +889,7 @@ class WebSocketRoutes:
                 )
 
                 if disconnected_active_client:
+                    await self.terminal_requests.discard_client(client_code)
                     self.client_repository.mark_client_offline(client_code)
                     self.client_last_db_heartbeat.pop(client_code, None)
 
@@ -904,6 +913,7 @@ class WebSocketRoutes:
                 )
 
                 if disconnected_active_client:
+                    await self.terminal_requests.discard_client(client_code)
                     self.client_repository.mark_client_offline(client_code)
                     self.client_last_db_heartbeat.pop(client_code, None)
 
@@ -958,10 +968,16 @@ class WebSocketRoutes:
             while True:
                 data = await websocket.receive_json()
 
-                if str(data.get("type", "")).startswith("provider_transmitted_"):
+                if data.get("type") in TerminalRequestRouter.REQUEST_TYPES or data.get("type") == "terminal_autocomplete":
+                    logger.info("Αίτημα Terminal. type=%s session_id=%s", data.get("type"), data.get("session_id"))
+                elif str(data.get("type", "")).startswith("provider_transmitted_"):
                     logger.info("Dashboard transmitted-documents request. type=%s", data.get("type"))
                 else:
                     logger.info("Dashboard message received: %s", data)
+
+                if data.get("type") in TerminalRequestRouter.REQUEST_TYPES:
+                    await self.terminal_requests.request(websocket, data)
+                    continue
 
                 if data.get("type") in TransmittedRequestRouter.REQUEST_TYPES:
                     await self.transmitted_requests.request(websocket, data)
@@ -1362,7 +1378,8 @@ class WebSocketRoutes:
                             "request_id": request_id,
                             "client_code": client_code,
                             "shell": shell,
-                            "command_text": command_text
+                            "command_text": command_text,
+                            "session_id": data.get("session_id", "")
                         }
                     )
 
@@ -2503,6 +2520,7 @@ class WebSocketRoutes:
                 )
 
         except WebSocketDisconnect:
+            await self.terminal_requests.discard_dashboard(websocket)
             self.transmitted_requests.discard_dashboard(websocket)
             self.database_requests.discard_dashboard(websocket)
             self.backup_requests.discard_dashboard(websocket)
@@ -2510,6 +2528,7 @@ class WebSocketRoutes:
 
         except Exception:
             logger.exception("Unexpected dashboard WebSocket error.")
+            await self.terminal_requests.discard_dashboard(websocket)
             self.transmitted_requests.discard_dashboard(websocket)
             self.database_requests.discard_dashboard(websocket)
             self.backup_requests.discard_dashboard(websocket)

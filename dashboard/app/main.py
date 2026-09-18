@@ -1,7 +1,6 @@
 import sys
 
 from app.config import DashboardConfig
-from app.dashboard_app import MoonHardDashboardApp
 from app.logger_config import DashboardLoggerConfig
 
 
@@ -9,6 +8,14 @@ def main() -> None:
     """
     Κεντρικό σημείο εκκίνησης του MoonHard Remote Dashboard.
     """
+
+    if len(sys.argv) == 3 and sys.argv[1] == "--terminal-self-test":
+        from app.terminal_smoke import TerminalSmokeTest
+        raise SystemExit(TerminalSmokeTest.run(sys.argv[2]))
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--terminal":
+        from app.terminal_cli import main as terminal_main
+        raise SystemExit(terminal_main(sys.argv[2:]))
 
     if len(sys.argv) > 1 and sys.argv[1] == "--provider-transmitted":
         from app.provider_transmitted_cli import main as transmitted_main
@@ -25,6 +32,7 @@ def main() -> None:
     config = DashboardConfig()
     DashboardLoggerConfig.setup_logging(config.log_dir)
 
+    from app.dashboard_app import MoonHardDashboardApp
     app = MoonHardDashboardApp()
     app.protocol("WM_DELETE_WINDOW", app.on_close)
     app.mainloop()

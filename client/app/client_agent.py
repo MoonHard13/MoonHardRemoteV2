@@ -14,6 +14,7 @@ from app.database_maintenance_service import DatabaseMaintenanceService
 from app.identity_manager import ClientIdentityManager
 from websockets.exceptions import ConnectionClosed
 from app.terminal_executor import TerminalExecutor
+from app.terminal_session import TerminalSessionManager
 from app.appsettings_reader import AppSettingsReader
 from app.sql_executor import SqlExecutor
 from app.provider.provider_service import ProviderService
@@ -42,6 +43,7 @@ class MoonHardClientAgent:
         self.identity_manager = ClientIdentityManager(self.config.identity_file)
         self.identity = self.identity_manager.load_or_create_identity()
         self.terminal_executor = TerminalExecutor()
+        self.terminal_sessions = TerminalSessionManager()
         self.appsettings_reader = AppSettingsReader()
         self.sql_executor = SqlExecutor()
         self.database_maintenance_service = DatabaseMaintenanceService()
@@ -193,10 +195,17 @@ class MoonHardClientAgent:
             
             await self._send_appsettings(websocket)
             
-            await asyncio.gather(
-                self._listen_forever(websocket),
-                self._send_heartbeat_forever(websocket)
-            )
+            connection_tasks = [asyncio.create_task(self._listen_forever(websocket)),
+                                asyncio.create_task(self._send_heartbeat_forever(websocket))]
+            try:
+                done, _ = await asyncio.wait(connection_tasks, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    task.result()
+            finally:
+                for task in connection_tasks:
+                    task.cancel()
+                await asyncio.gather(*connection_tasks, return_exceptions=True)
+                await self.terminal_sessions.close_all()
 
     def _get_installed_program_versions(self) -> dict[str, str | None]:
         """
@@ -318,7 +327,7 @@ class MoonHardClientAgent:
             "aws_version": program_versions.get("aws_version"),
             # Δηλώνει ρητά ποια προαιρετικά remote protocols γνωρίζει ο client.
             # Έτσι ο server δεν αφήνει νέο αίτημα να περιμένει σε παλιό client.
-            "capabilities": ["database_backup_v1"],
+            "capabilities": ["database_backup_v1", "terminal_session_v1"],
         }
 
         if not client_token_registered:
@@ -334,13 +343,19 @@ class MoonHardClientAgent:
         while True:
             message = await websocket.recv()
             payload = json.loads(message)
-            if str(payload.get("type", "")).startswith("provider_transmitted_"):
+            if (str(payload.get("type", "")).startswith("terminal_session_")
+                    or payload.get("type") == "terminal_autocomplete"):
+                logger.info("Αίτημα Terminal: %s", payload.get("type"))
+            elif str(payload.get("type", "")).startswith("provider_transmitted_"):
                 logger.info("Αίτημα διαβιβασμένων: %s", payload.get("type"))
             else:
                 logger.info("Μήνυμα από server: %s", message)
             message_type = payload.get("type")
 
-            if message_type == "terminal_command":
+            if message_type in {"terminal_session_open", "terminal_session_command", "terminal_session_stop", "terminal_session_close"}:
+                await self.terminal_sessions.handle(websocket, payload, self.identity["client_code"])
+
+            elif message_type == "terminal_command":
                 await self._handle_terminal_command(websocket, payload)
 
             elif message_type == "terminal_autocomplete":
@@ -544,6 +559,9 @@ class MoonHardClientAgent:
         shell = payload.get("shell", "cmd")
         command_text = payload.get("command_text", "")
 
+        session = self.terminal_sessions.sessions.get(payload.get("session_id"))
+        if session and shell == session.shell:
+            self.terminal_executor.current_directories[shell] = Path(session.directory)
         autocomplete_result = self.terminal_executor.get_autocomplete_matches(
             shell=shell,
             command_text=command_text

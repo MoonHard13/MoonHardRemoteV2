@@ -1,0 +1,40 @@
+name: Terminal Windows validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'client/app/terminal_session.py'
+      - 'client/app/client_agent.py'
+      - 'dashboard/app/**'
+      - 'server/app/websocket/terminal_requests.py'
+      - 'tests/test_terminal*.py'
+      - 'scripts/*terminal*.ps1'
+      - 'scripts/build_dashboard_exe.ps1'
+      - '.github/workflows/terminal-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  terminal:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build and application dependencies
+        run: python -m pip install -r dashboard/requirements.txt -r client/requirements.txt pyinstaller
+      - name: Test native shells and bundled EXE in a clean directory
+        shell: pwsh
+        run: ./scripts/validate_terminal_windows.ps1
+      - name: Upload validated executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonHard-Terminal-Windows
+          path: |
+            dist/MoonHardRemoteDashboard.exe
+            dist/MoonHardRemoteTerminal.exe
+            dist/MoonHardRemoteClient/

@@ -134,7 +134,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.overview_tab.grid_columnconfigure(0, weight=1)
         self.overview_tab.grid_rowconfigure(0, weight=1)
         self.terminal_tab.grid_columnconfigure(0, weight=1)
-        self.terminal_tab.grid_rowconfigure(1, weight=1)
+        self.terminal_tab.grid_rowconfigure(0, weight=1)
         self.appsettings_tab.grid_columnconfigure(0, weight=1)
         self.appsettings_tab.grid_rowconfigure(1, weight=1)
         self.sql_tab = self.tabs.add("SSMS")
@@ -297,7 +297,8 @@ class ClientManageWindow(ctk.CTkToplevel):
             self.terminal_tab,
             client_code=self.client_code,
             on_terminal_command_callback=self.on_terminal_command_callback,
-            on_terminal_autocomplete_callback=self.on_terminal_autocomplete_callback
+            on_terminal_autocomplete_callback=self.on_terminal_autocomplete_callback,
+            client_label=" • ".join(str(value) for value in (self.client.get("pc_name"), self.client.get("username"), self.client_code) if value)
         )
         self.terminal_tab_view.grid(row=0, column=0, sticky="nsew")
 

@@ -15,5 +15,7 @@ python -m PyInstaller `
   --paths .\client `
   .\client\app\main.py
 
+if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του Client." }
+
 Write-Host "Build completed." -ForegroundColor Green
 Write-Host "Output: dist\MoonHardRemoteClient\MoonHardRemoteClient.exe" -ForegroundColor Green
