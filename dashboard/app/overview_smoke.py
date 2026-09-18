@@ -23,10 +23,11 @@ class OverviewSmokeTest:
                 'etp_version':'4.1.0.1','aws_version':'7.6.0.0','client_token':'SECRET_SMOKE'}
             renames=[]
             window=ClientManageWindow(root,client,on_rename_callback=lambda code,name:renames.append((code,name)))
-            window.geometry('1350x900')
             # Το Windows Toplevel εμφανίζεται ασύγχρονα. Περιμένουμε τον
-            # πραγματικό βρόχο Tk πριν μετρήσουμε τη διάταξη του παραθύρου.
+            # πραγματικό βρόχο Tk και τις αρχικές αλλαγές titlebar/theme,
+            # που επαναφέρουν τη γεωμετρία, πριν κάνουμε resize και μέτρηση.
             window.after(350,root.quit);root.mainloop();root.update()
+            window.geometry('1350x900');window.after(150,root.quit);root.mainloop()
             tab=window.overview_tab_view;tab._apply_layout();root.update()
             assert not hasattr(window,'header_title_label') and not hasattr(window,'header_info_label')
             assert window.tabs.winfo_height()>window.winfo_height()*.9
