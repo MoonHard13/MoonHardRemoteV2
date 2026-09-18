@@ -23,11 +23,14 @@ class OverviewSmokeTest:
                 'etp_version':'4.1.0.1','aws_version':'7.6.0.0','client_token':'SECRET_SMOKE'}
             renames=[]
             window=ClientManageWindow(root,client,on_rename_callback=lambda code,name:renames.append((code,name)))
-            window.geometry('1350x900');root.update()
+            window.geometry('1350x900')
+            # Το Windows Toplevel εμφανίζεται ασύγχρονα. Περιμένουμε τον
+            # πραγματικό βρόχο Tk πριν μετρήσουμε τη διάταξη του παραθύρου.
+            window.after(350,root.quit);root.mainloop();root.update()
             tab=window.overview_tab_view;tab._apply_layout();root.update()
             assert not hasattr(window,'header_title_label') and not hasattr(window,'header_info_label')
             assert window.tabs.winfo_height()>window.winfo_height()*.9
-            assert int(tab.right_stack.grid_info()['column'])==1
+            assert int(tab.right_stack.grid_info()['column'])==1, f'Wide layout width={tab.winfo_width()}'
             tab.copy_details();assert 'SECRET' not in root.clipboard_get()
             try:
                 import os
@@ -48,7 +51,8 @@ class OverviewSmokeTest:
             def confirm():
                 dialog.entry.insert(0,'RESET');dialog._confirm()
             window.after(150,confirm);assert dialog.get_input()=='RESET'
-            window.geometry('900x600');root.update();tab._apply_layout();root.update()
+            window.geometry('900x600');window.after(150,root.quit);root.mainloop()
+            root.update();tab._apply_layout();root.update()
             assert int(tab.right_stack.grid_info()['column'])==0
             tab.set_dashboard_online(False);assert tab.rename_button.cget('state')=='disabled'
             report={'success':True,'manage_header_removed':True,'responsive_overview':True,
