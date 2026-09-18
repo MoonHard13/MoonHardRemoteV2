@@ -15,6 +15,10 @@ def main() -> None:
         from app.terminal_smoke import ClientTerminalSmokeTest
         raise SystemExit(asyncio.run(ClientTerminalSmokeTest.run(sys.argv[2])))
 
+    if len(sys.argv) == 3 and sys.argv[1] == "--sql-self-test":
+        from app.sql_smoke import SqlClientSmokeTest
+        raise SystemExit(SqlClientSmokeTest.run(sys.argv[2]))
+
     config = ClientConfig()
     ClientLoggerConfig.setup_logging(config.log_dir)
 

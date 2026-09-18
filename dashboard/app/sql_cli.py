@@ -12,6 +12,7 @@ import websockets
 from app.config import DashboardConfig
 from app.logger_config import DashboardLoggerConfig
 from app.sql_workspace import SqlFiles, SqlResultData
+from app.sql_transfer import SqlResultAssembler
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class SqlCLI:
         actions.add_argument('--query', help='SQL κείμενο για εκτέλεση.')
         actions.add_argument('--file', help='Διαδρομή SQL αρχείου.')
         actions.add_argument('--test-connection', action='store_true')
-        parser.add_argument('--timeout', type=int, default=120, help='Timeout αιτήματος, 1–3600 δευτερόλεπτα.')
+        parser.add_argument('--timeout', type=int, default=120, help='Query timeout, 0–3600 δευτερόλεπτα (0 = χωρίς όριο).')
         parser.add_argument('--format', choices=('json', 'csv', 'tsv'), default='json')
         parser.add_argument('--result-set', type=int, default=1, help='Result set για CSV/TSV, με αρίθμηση από 1.')
         return parser
@@ -37,7 +38,7 @@ class SqlCLI:
     @staticmethod
     def payload(args):
         """Μετατρέπει τις επιλογές στο υπάρχον πρωτόκολλο, χωρίς νέα API."""
-        if not 1 <= args.timeout <= 3600 or args.bo_connection < 1 or args.result_set < 1:
+        if not 0 <= args.timeout <= 3600 or args.bo_connection < 1 or args.result_set < 1:
             raise ValueError('Ελέγξτε timeout, BOConnection ID και αριθμό result set.')
         payload = {'type': 'sql_test_connection' if args.test_connection else 'sql_execute',
                    'client_code': args.client, 'request_id': str(uuid.uuid4()),
@@ -69,14 +70,20 @@ class SqlCLI:
                         payload['type'], payload['request_id'], payload['bo_connection_id'])
             async def receive():
                 """Απορρίπτει παλιές ή ξένες απαντήσεις."""
+                assembler = SqlResultAssembler()
                 expected = 'sql_test_connection_result' if payload['type'] == 'sql_test_connection' else 'sql_result'
                 while True:
                     item = json.loads(await ws.recv())
                     if (item.get('request_id') == payload['request_id'] and item.get('client_code') == payload['client_code']
                         and item.get('type') in (expected, 'sql_error')):
-                        return item
+                        if item.get('type') == 'sql_error':
+                            assembler.reset()
+                            return item
+                        result = assembler.feed(item)
+                        if result is not None:
+                            return result
             try:
-                return await asyncio.wait_for(receive(), payload['timeout'] + 30)
+                return await asyncio.wait_for(receive(), None if payload['timeout'] == 0 else payload['timeout'] + 30)
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 if payload['type'] == 'sql_execute':
                     try:

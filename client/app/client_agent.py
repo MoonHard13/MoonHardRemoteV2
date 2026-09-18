@@ -17,6 +17,7 @@ from app.terminal_executor import TerminalExecutor
 from app.terminal_session import TerminalSessionManager
 from app.appsettings_reader import AppSettingsReader
 from app.sql_executor import SqlExecutor
+from app.sql_transport import SqlResultTransport
 from app.provider.provider_service import ProviderService
 from app.provider.transmitted_invoices import TransmittedInvoicesService
 from app.windows_services import WindowsServicesReader
@@ -346,6 +347,8 @@ class MoonHardClientAgent:
             if (str(payload.get("type", "")).startswith("terminal_session_")
                     or payload.get("type") == "terminal_autocomplete"):
                 logger.info("Αίτημα Terminal: %s", payload.get("type"))
+            elif str(payload.get("type", "")).startswith("sql_"):
+                logger.info("Αίτημα SQL. type=%s request_id=%s", payload.get("type"), payload.get("request_id"))
             elif str(payload.get("type", "")).startswith("provider_transmitted_"):
                 logger.info("Αίτημα διαβιβασμένων: %s", payload.get("type"))
             else:
@@ -694,7 +697,8 @@ class MoonHardClientAgent:
                 "batches": []
             }
 
-        await websocket.send(json.dumps(result_message, ensure_ascii=False))
+        for packet in SqlResultTransport.messages(result_message):
+            await websocket.send(packet)
 
     async def _handle_provider_delete_mydata(self, websocket, payload: dict) -> None:
         """

@@ -1,14 +1,14 @@
 """Πίνακες και μηνύματα SSMS με επιλογή result set και εξαγωγή."""
 
 import logging
-import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog
 from pathlib import Path
 
 import customtkinter as ctk
+from tksheet import Sheet
 
 from app.sql_workspace import SqlResultData
-from app.ui.theme import COLORS, FONTS, secondary_button_style, apply_treeview_style
+from app.ui.theme import COLORS, FONTS, secondary_button_style
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +23,6 @@ class SqlResults(ctk.CTkFrame):
         self.grid_rowconfigure(2, weight=1)
         self.tables = {}
         self.datasets = {}
-        self._jobs = []
-        self._generation = 0
-        self._menu = tk.Menu(self, tearoff=False)
-        self._menu.add_command(label='Copy selected', command=self.copy_selected)
-        self._menu.add_command(label='Copy all', command=self.copy_all)
-        self._menu.add_command(label='Export CSV', command=self.export_csv)
         bar = ctk.CTkFrame(self, fg_color='transparent')
         bar.grid(row=0, column=0, padx=12, pady=(10, 4), sticky='ew')
         bar.grid_columnconfigure(0, weight=1)
@@ -70,10 +64,6 @@ class SqlResults(ctk.CTkFrame):
 
     def clear(self):
         """Ακυρώνει την εκκρεμή εισαγωγή γραμμών πριν αλλάξει το αποτέλεσμα."""
-        self._generation += 1
-        for job in self._jobs:
-            self.after_cancel(job)
-        self._jobs.clear()
         for frame, tree in self.tables.values():
             frame.destroy()
         self.tables.clear()
@@ -97,40 +87,40 @@ class SqlResults(ctk.CTkFrame):
         self.show(selected)
 
     def _add_table(self, name: str, dataset: dict):
-        """Χρησιμοποιεί μοναδικά column IDs ακόμη όταν το SQL επιστρέφει διπλά ονόματα."""
+        """Πλέγμα κελιών με σταθερές επικεφαλίδες, αριθμούς και σχεδίαση μόνο ορατών κελιών."""
         frame = ctk.CTkFrame(self.body, fg_color=COLORS.background, corner_radius=0)
         frame.grid_columnconfigure(0, weight=1)
         frame.grid_rowconfigure(0, weight=1)
         columns = dataset.get('columns') or []
-        ids = [f'column_{index}' for index in range(len(columns))]
-        tree = ttk.Treeview(frame, columns=ids, show='headings', selectmode='extended',
-                            style=apply_treeview_style('MoonHard.SqlResult.Treeview'))
-        tree.grid(row=0, column=0, sticky='nsew')
-        vertical = ctk.CTkScrollbar(frame, orientation='vertical', command=tree.yview)
-        vertical.grid(row=0, column=1, sticky='ns')
-        horizontal = ctk.CTkScrollbar(frame, orientation='horizontal', command=tree.xview)
-        horizontal.grid(row=1, column=0, sticky='ew')
-        tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
         rows = dataset.get('rows') or []
-        for index, (column_id, label) in enumerate(zip(ids, columns)):
+        sheet = Sheet(frame, headers=[str(value) for value in columns],
+            data=[[SqlResultData.cell(value) for value in row] for row in rows],
+            theme='dark', startup_focus=False, font=('Consolas', 11, 'normal'),
+            header_font=('Segoe UI', 11, 'bold'), index_font=('Segoe UI', 10, 'normal'),
+            default_row_height=28, default_header_height=30, default_row_index_width=56,
+            show_horizontal_grid=True, show_vertical_grid=True, rounded_boxes=False,
+            table_bg=COLORS.background, table_fg=COLORS.text_primary,
+            table_grid_fg=COLORS.border_soft, header_bg=COLORS.surface_light,
+            header_fg=COLORS.text_primary, index_bg=COLORS.surface_light,
+            index_fg=COLORS.text_secondary, top_left_bg=COLORS.surface_light,
+            table_selected_cells_border_fg=COLORS.accent,
+            table_selected_cells_bg=COLORS.surface_light,
+            table_selected_cells_fg=COLORS.text_primary)
+        sheet.grid(row=0, column=0, sticky='nsew')
+        # Μόνο επιλογή και αλλαγή διαστάσεων: ποτέ edit, paste, delete ή reorder.
+        sheet.enable_bindings('single_select', 'drag_select', 'row_select', 'column_select',
+            'column_width_resize', 'row_height_resize', 'double_click_column_resize',
+            'arrowkeys', 'select_all', 'rc_select', 'right_click_popup_menu')
+        widths = []
+        for index, label in enumerate(columns):
             samples = [len(str(label)), *[len(SqlResultData.cell(row[index])[:50]) for row in rows[:40] if index < len(row)]]
-            tree.heading(column_id, text=str(label))
-            tree.column(column_id, width=max(110, min(360, max(samples) * 7 + 28)), minwidth=70, stretch=False)
-        self.tables[name] = (frame, tree)
-        generation = self._generation
-        def insert(start=0):
-            """Εισάγει μικρές ομάδες γραμμών ώστε να μην παγώνει η οθόνη."""
-            if generation != self._generation:
-                return
-            for index in range(start, min(start + 100, len(rows))):
-                tree.insert('', 'end', iid=str(index), values=[SqlResultData.cell(value) for value in rows[index]])
-            if start + 100 < len(rows):
-                job = self.after_idle(lambda: insert(start + 100))
-                self._jobs.append(job)
-        insert()
-        tree.bind('<Control-c>', lambda event: self.copy_selected())
-        tree.bind('<Control-a>', lambda event, t=tree: self._select_all(t))
-        tree.bind('<Button-3>', lambda event, t=tree: self._context_menu(event, t))
+            widths.append(max(110, min(360, max(samples) * 7 + 28)))
+        sheet.set_column_widths(widths)
+        sheet.bind('<Control-c>', lambda event: self.copy_selected())
+        sheet.popup_menu_add_command('Copy selected cells', self.copy_selected)
+        sheet.popup_menu_add_command('Copy all with headers', self.copy_all)
+        sheet.popup_menu_add_command('Export CSV', self.export_csv)
+        self.tables[name] = (frame, sheet)
 
     def show(self, name: str):
         """Εναλλάσσει πίνακα/μηνύματα και ενημερώνει πλήθος και όρια αποτελεσμάτων."""
@@ -153,16 +143,19 @@ class SqlResults(ctk.CTkFrame):
         self.export_button.configure(state='normal' if table else 'disabled')
 
     def copy_selected(self):
-        """Αντιγράφει τις επιλεγμένες γραμμές με επικεφαλίδες ως TSV."""
+        """Αντιγράφει τα επιλεγμένα ορθογώνια κελιών ως TSV χωρίς επικεφαλίδες."""
         name = self.selector.get()
         if name not in self.tables:
             return 'break'
-        selected = self.tables[name][1].selection()
+        sheet = self.tables[name][1]
         item = self.datasets[name]
-        if selected:
-            rows = [item['rows'][int(index)] for index in selected]
-            self._clipboard(SqlResultData.delimited(item['columns'], rows))
-            logger.info('Αντιγραφή επιλεγμένων SQL γραμμών. rows=%s', len(rows))
+        blocks = []
+        for r1, c1, r2, c2 in sheet.get_all_selection_boxes():
+            rows = [row[c1:c2] for row in item['rows'][r1:r2]]
+            blocks.append(SqlResultData.delimited([], rows, headers=False))
+        if blocks:
+            self._clipboard('\n'.join(blocks))
+            logger.info('Αντιγραφή SQL κελιών. blocks=%s', len(blocks))
         return 'break'
 
     def cycle(self, step: int):
@@ -211,26 +204,3 @@ class SqlResults(ctk.CTkFrame):
                 self.set_messages('Αποτυχία αποθήκευσης CSV. Ελέγξτε τη διαδρομή και τα δικαιώματα.', append=True)
                 self.show_messages()
                 logger.error('Αποτυχία εξαγωγής SQL CSV.')
-
-    @staticmethod
-    def _select_all(tree):
-        """Επιλέγει όλες τις ήδη εμφανισμένες γραμμές."""
-        tree.selection_set(tree.get_children())
-        return 'break'
-
-    def _context_menu(self, event, tree):
-        """Επιλέγει τη γραμμή δεξιού κλικ χωρίς να χάνει υπάρχουσα πολλαπλή επιλογή."""
-        row = tree.identify_row(event.y)
-        if row and row not in tree.selection():
-            tree.selection_set(row)
-        try:
-            self._menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self._menu.grab_release()
-
-    def destroy(self):
-        """Ακυρώνει την εκκρεμή εισαγωγή γραμμών πριν κλείσει το παράθυρο."""
-        for job in self._jobs:
-            self.after_cancel(job)
-        self._jobs.clear()
-        super().destroy()

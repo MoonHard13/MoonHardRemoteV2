@@ -22,9 +22,6 @@ class SqlExecutor:
 
         self.active_cursors: dict[str, Any] = {}
         self.lock = threading.Lock()
-        self.max_rows_per_result_set = 500
-        self.max_cell_chars = 5000
-        self.max_total_cells = 20000
         
     def execute_sql(
         self,
@@ -59,7 +56,12 @@ class SqlExecutor:
 
             logger.info("Connecting to SQL Server for SQL execution.")
 
-            with pyodbc.connect(odbc_connection_string, timeout=timeout, autocommit=True) as connection:
+            if isinstance(timeout, bool) or not isinstance(timeout, int) or not 0 <= timeout <= 3600:
+                raise ValueError("SQL timeout must be between 0 and 3600 seconds (0 = unlimited).")
+
+            # Το login έχει ξεχωριστό όριο. Το 0 απενεργοποιεί μόνο το query timeout.
+            with pyodbc.connect(odbc_connection_string, timeout=15, autocommit=True) as connection:
+                connection.timeout = timeout
                 cursor = connection.cursor()
 
                 with self.lock:
@@ -80,7 +82,7 @@ class SqlExecutor:
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
 
             return {
-                "success": True,
+                "success": not any(item.get("error") for item in results),
                 "error": None,
                 "driver": driver,
                 "elapsed_ms": elapsed_ms,
@@ -105,8 +107,7 @@ class SqlExecutor:
 
     def _execute_batch(self, cursor, batch: str, batch_index: int) -> dict[str, Any]:
         """
-        Εκτελεί ένα SQL batch και μαζεύει όλα τα result sets με limits.
-        Δεν κάνει fetchall() χωρίς όριο.
+        Εκτελεί ένα SQL batch και διαβάζει πλήρη result sets σε ομάδες.
         """
 
         batch_data: dict[str, Any] = {
@@ -119,58 +120,25 @@ class SqlExecutor:
             "limit_message": None
         }
 
-        total_cells = 0
-
         try:
             cursor.execute(batch)
 
             while True:
                 if cursor.description:
                     columns = [column[0] for column in cursor.description]
-                    serialized_rows: list[list[str]] = []
-                    fetched_rows = 0
-                    result_limited = False
-
-                    while fetched_rows < self.max_rows_per_result_set:
-                        row = cursor.fetchone()
-
-                        if row is None:
+                    serialized_rows = []
+                    # Ομαδική ανάγνωση χωρίς να κόβονται γραμμές ή επόμενα result sets.
+                    while True:
+                        rows = cursor.fetchmany(1000)
+                        if not rows:
                             break
-
-                        serialized_row = [
-                            self._serialize_value(value)
-                            for value in row
-                        ]
-
-                        serialized_rows.append(serialized_row)
-                        fetched_rows += 1
-                        total_cells += len(serialized_row)
-
-                        if total_cells >= self.max_total_cells:
-                            result_limited = True
-                            break
-
-                    if fetched_rows >= self.max_rows_per_result_set:
-                        result_limited = True
-
-                    if result_limited:
-                        batch_data["limited"] = True
-                        batch_data["limit_message"] = (
-                            f"Result was limited to {self.max_rows_per_result_set} rows per result set "
-                            f"and {self.max_total_cells} total cells."
-                        )
-
-                    batch_data["result_sets"].append(
-                        {
-                            "columns": columns,
-                            "rows": serialized_rows,
-                            "row_count": len(serialized_rows),
-                            "limited": result_limited
-                        }
-                    )
-
-                    if total_cells >= self.max_total_cells:
-                        break
+                        serialized_rows.extend([
+                            [self._serialize_value(value) for value in row] for row in rows
+                        ])
+                    batch_data["result_sets"].append({
+                        "columns": columns, "rows": serialized_rows,
+                        "row_count": len(serialized_rows), "limited": False
+                    })
 
                 else:
                     batch_data["rowcount"] = cursor.rowcount
@@ -297,27 +265,10 @@ class SqlExecutor:
 
         return result
 
-    def _serialize_value(self, value) -> str:
-        """
-        Μετατρέπει SQL values σε strings για αποστολή μέσω JSON.
-        Κόβει πολύ μεγάλα cell values.
-        """
+    def _serialize_value(self, value) -> str | None:
+        """Διατηρεί ολόκληρη την τιμή και ξεχωρίζει SQL NULL από κενό string."""
+        return None if value is None else str(value)
 
-        if value is None:
-            return ""
-
-        text = str(value)
-
-        if len(text) <= self.max_cell_chars:
-            return text
-
-        omitted_chars = len(text) - self.max_cell_chars
-
-        return (
-            text[:self.max_cell_chars]
-            + f"... [TRUNCATED {omitted_chars} characters]"
-        )
-    
     def _normalize_yes_no_value(self, value: str | None, default: str = "yes") -> str:
         """
         Μετατρέπει boolean-like τιμές σε yes/no για ODBC connection string.
