@@ -21,6 +21,14 @@ def main() -> None:
         from app.appsettings_cli import main as appsettings_main
         raise SystemExit(appsettings_main(sys.argv[2:]))
 
+    if len(sys.argv) == 3 and sys.argv[1] == "--ssms-self-test":
+        from app.sql_smoke import SqlSmokeTest
+        raise SystemExit(SqlSmokeTest.run(sys.argv[2]))
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--ssms":
+        from app.sql_cli import main as sql_main
+        raise SystemExit(sql_main(sys.argv[2:]))
+
     if len(sys.argv) > 1 and sys.argv[1] == "--terminal":
         from app.terminal_cli import main as terminal_main
         raise SystemExit(terminal_main(sys.argv[2:]))

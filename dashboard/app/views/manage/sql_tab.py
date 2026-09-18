@@ -1,716 +1,383 @@
+"""Χώρος εργασίας SSMS με ρυθμιζόμενο editor και πίνακες αποτελεσμάτων."""
+
+import logging
+import tkinter as tk
 import uuid
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog
 from typing import Callable
 
 import customtkinter as ctk
-from app.ui.theme import (
-    COLORS,
-    FONTS,
-    SPACING,
-    card_style,
-    primary_button_style,
-    secondary_button_style,
-    danger_button_style,
-    apply_treeview_style
-)
+
+from app.sql_workspace import SqlFiles, SqlResultData
+from app.ui.theme import COLORS, FONTS, card_style, primary_button_style, secondary_button_style, danger_button_style
+from app.views.manage.sql_editor import SqlEditor
+from app.views.manage.sql_results import SqlResults
+
+logger = logging.getLogger(__name__)
 
 
 class SqlTab(ctk.CTkFrame):
-    """
-    SQL tab για εκτέλεση queries, .sql files, test connection και προβολή αποτελεσμάτων.
-    """
+    """Διατηρεί το υπάρχον SQL πρωτόκολλο και συσχετίζει κάθε απάντηση με την ενεργή εκτέλεση."""
 
-    def __init__(
-        self,
-        parent,
-        client_code: str,
-        on_sql_execute_callback: Callable[[dict], None] | None = None,
-        on_bo_selected_callback: Callable[[str], None] | None = None
-    ) -> None:
-        """
-        Δημιουργεί το SQL tab.
-        """
-
-        super().__init__(parent, corner_radius=0, fg_color="transparent")
-
+    def __init__(self, parent, client_code: str,
+                 on_sql_execute_callback: Callable[[dict], bool | None] | None = None,
+                 on_bo_selected_callback: Callable[[str], None] | None = None,
+                 online: bool = True):
+        super().__init__(parent, corner_radius=0, fg_color='transparent')
         self.client_code = client_code
         self.on_sql_execute_callback = on_sql_execute_callback
         self.on_bo_selected_callback = on_bo_selected_callback
-
-        self.selected_bo_connection_id: int = 1
-        self.current_sql_request_id: str = ""
-        self.sql_result_tab_names: list[str] = []
-        self.sql_table_widgets: dict[str, ttk.Treeview] = {}
-
+        self.selected_bo_connection_id = None
+        self.current_sql_request_id = ''
+        self._active_bo_id = None
+        self._active_kind = ''
+        self._stop_requested = False
+        self._online = online
+        self._values = []
+        self._layout_job = None
+        self._initial_split = False
+        self._bindings = []
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
-
+        self.grid_rowconfigure(1, weight=1)
         self._build_ui()
+        self._bind_shortcuts()
+        self.bind('<Configure>', self._schedule_layout, add='+')
+        self._update_buttons()
 
+    @property
+    def busy(self):
+        """Δηλώνει εκτέλεση ή δοκιμή σύνδεσης που δεν έχει ακόμη ολοκληρωθεί."""
+        return bool(self.current_sql_request_id)
 
-    def _build_ui(self) -> None:
-        """
-        Δημιουργεί το UI του SQL tab.
-        """
+    def _build_ui(self):
+        """Δημιουργεί toolbar, κατακόρυφο splitter και σύντομη ένδειξη συντομεύσεων."""
+        header = ctk.CTkFrame(self, **card_style())
+        header.grid(row=0, column=0, padx=16, pady=(12, 10), sticky='ew')
+        header.grid_columnconfigure(0, weight=1)
+        self.header = header
+        ctk.CTkLabel(header, text='SSMS · SQL Workspace', font=FONTS.subtitle, text_color=COLORS.text_primary,
+                     anchor='w').grid(row=0, column=0, padx=18, pady=(12, 8), sticky='w')
+        self.status_label = ctk.CTkLabel(header, text='Ready', font=FONTS.small,
+                                        fg_color=COLORS.accent_soft, corner_radius=8, text_color=COLORS.accent)
+        self.status_label.grid(row=0, column=1, padx=18, pady=(12, 8), sticky='e')
+        self.connection_bar = ctk.CTkFrame(header, fg_color='transparent')
+        self.connection_bar.grid(row=1, column=0, padx=18, pady=(0, 14), sticky='ew')
+        self.connection_bar.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(self.connection_bar, text='BOConnection', font=FONTS.small,
+                     text_color=COLORS.text_secondary).grid(row=0, column=0, padx=(0, 10))
+        self.sql_bo_option = ctk.CTkOptionMenu(self.connection_bar, values=['No BOConnections'],
+                                              command=self._on_sql_bo_selected, width=250,
+                                              dynamic_resizing=False, fg_color=COLORS.surface_light,
+                                              button_color=COLORS.accent, button_hover_color=COLORS.accent_hover)
+        self.sql_bo_option.grid(row=0, column=1, sticky='ew')
+        self.sql_bo_option.bind('<Up>', lambda event: self._cycle_bo(-1))
+        self.sql_bo_option.bind('<Down>', lambda event: self._cycle_bo(1))
+        self.actions = ctk.CTkFrame(header, fg_color='transparent')
+        self.actions.grid(row=1, column=1, padx=(0, 18), pady=(0, 14), sticky='e')
+        self.test_button = ctk.CTkButton(self.actions, text='Test connection', width=125, height=32,
+                                        command=self.test_sql_connection, **secondary_button_style())
+        self.test_button.grid(row=0, column=0, padx=(0, 6))
+        self.load_button = ctk.CTkButton(self.actions, text='Open .sql', width=90, height=32,
+                                        command=self._load_sql_file, **secondary_button_style())
+        self.load_button.grid(row=0, column=1, padx=(0, 6))
+        self.save_button = ctk.CTkButton(self.actions, text='Save .sql', width=90, height=32,
+                                        command=self.save_sql_file, **secondary_button_style())
+        self.save_button.grid(row=0, column=2, padx=(0, 10))
+        ctk.CTkLabel(self.actions, text='Timeout (s)', font=FONTS.small,
+                     text_color=COLORS.text_secondary).grid(row=0, column=3, padx=(0, 5))
+        self.timeout_entry = ctk.CTkEntry(self.actions, width=56, height=32)
+        self.timeout_entry.insert(0, '120')
+        self.timeout_entry.grid(row=0, column=4, padx=(0, 10))
+        self.execute_button = ctk.CTkButton(self.actions, text='Execute · F5', width=110, height=32,
+                                           command=self.execute_sql, **primary_button_style())
+        self.execute_button.grid(row=0, column=5, padx=(0, 6))
+        self.stop_sql_button = ctk.CTkButton(self.actions, text='Stop', width=70, height=32,
+                                            command=self.stop_sql_execution, **danger_button_style())
+        self.stop_sql_button.grid(row=0, column=6)
+        self.splitter = tk.PanedWindow(self, orient='vertical', bg=COLORS.surface_light,
+                                       borderwidth=0, sashwidth=8, sashrelief='flat', opaqueresize=True)
+        self.splitter.grid(row=1, column=0, padx=16, pady=(0, 8), sticky='nsew')
+        self.editor_panel = SqlEditor(self.splitter)
+        self.sql_editor = self.editor_panel.box
+        self.results_panel = SqlResults(self.splitter)
+        self.sql_result_box = self.results_panel.messages_box
+        self.splitter.add(self.editor_panel, minsize=90, stretch='always')
+        self.splitter.add(self.results_panel, minsize=100, stretch='always')
+        ctk.CTkLabel(self, text='F5 Execute  ·  Alt+Break Stop  ·  Ctrl+O Open  ·  Ctrl+S Save  ·  Ctrl+T Test  ·  Ctrl+Shift+C Copy all  ·  Ctrl+Shift+E CSV',
+                     font=FONTS.small, text_color=COLORS.text_muted, anchor='w').grid(
+                         row=2, column=0, padx=20, pady=(0, 8), sticky='ew')
 
-        top_frame = ctk.CTkFrame(self, **card_style())
-        top_frame.grid(
-            row=0,
-            column=0,
-            padx=SPACING.card_padding,
-            pady=SPACING.card_padding,
-            sticky="ew"
-        )
-        top_frame.grid_columnconfigure(1, weight=1)
+    def _schedule_layout(self, event=None):
+        """Ομαδοποιεί τις αλλαγές μεγέθους πριν μετακινηθεί η toolbar."""
+        if self._layout_job:
+            self.after_cancel(self._layout_job)
+        self._layout_job = self.after(60, self._apply_layout)
 
-        title = ctk.CTkLabel(
-            top_frame,
-            text="SQL Server Query Executor",
-            font=FONTS.subtitle,
-            text_color=COLORS.text_primary
-        )
-        title.grid(row=0, column=0, columnspan=6, padx=18, pady=(18, 8), sticky="w")
+    def _apply_layout(self):
+        """Μεταφέρει τις ενέργειες σε δεύτερη γραμμή σε στενά παράθυρα."""
+        if self._layout_job:
+            self.after_cancel(self._layout_job)
+        self._layout_job = None
+        wide = self.winfo_width() >= 1200
+        self.connection_bar.grid_configure(columnspan=1 if wide else 2)
+        self.actions.grid_configure(row=1 if wide else 2, column=1 if wide else 0,
+                                    columnspan=1 if wide else 2, sticky='e' if wide else 'w',
+                                    padx=(12, 18) if wide else (18, 18))
+        if not self._initial_split and self.splitter.winfo_height() > 200:
+            self.splitter.sash_place(0, 0, int(self.splitter.winfo_height() * .54))
+            self._initial_split = True
 
-        bo_label = ctk.CTkLabel(
-            top_frame,
-            text="BOConnection:",
-            font=FONTS.body_bold,
-            text_color=COLORS.text_primary
-        )
-        bo_label.grid(row=1, column=0, padx=(18, 10), pady=(5, 18), sticky="w")
+    def set_bo_values(self, values: list[str], selected_value: str | None = None):
+        """Ενημερώνει την κοινή επιλογή χωρίς να αποδίδει κρυφά ένα μη διαθέσιμο ID."""
+        self._values = [value for value in values if self._extract_bo_id_from_option(value) is not None]
+        safe = self._values or ['No BOConnections']
+        self.sql_bo_option.configure(values=safe)
+        self.sql_bo_option.set(selected_value if selected_value in safe else safe[0])
+        self.selected_bo_connection_id = self._extract_bo_id_from_option(self.sql_bo_option.get())
+        self._update_buttons()
 
-        self.sql_bo_option = ctk.CTkOptionMenu(
-            top_frame,
-            values=["ID 1"],
-            command=self._on_sql_bo_selected,
-            fg_color=COLORS.surface_light,
-            button_color=COLORS.accent,
-            button_hover_color=COLORS.accent_hover,
-            text_color=COLORS.text_primary,
-            dropdown_fg_color=COLORS.surface,
-            dropdown_hover_color=COLORS.surface_hover
-        )
-        self.sql_bo_option.set("ID 1")
-        self.sql_bo_option.grid(row=1, column=1, padx=(0, 10), pady=(5, 18), sticky="w")
-
-        test_connection_button = ctk.CTkButton(
-            top_frame,
-            text="Test Connection",
-            width=130,
-            command=self.test_sql_connection,
-            **secondary_button_style()
-        )
-        test_connection_button.grid(row=1, column=2, padx=(0, 10), pady=(5, 18))
-
-        load_file_button = ctk.CTkButton(
-            top_frame,
-            text="Load .sql",
-            width=100,
-            command=self._load_sql_file,
-            **secondary_button_style()
-        )
-        load_file_button.grid(row=1, column=3, padx=(0, 10), pady=(5, 18))
-
-        execute_button = ctk.CTkButton(
-            top_frame,
-            text="Execute",
-            width=100,
-            command=self.execute_sql,
-            **primary_button_style()
-        )
-        execute_button.grid(row=1, column=4, padx=(0, 10), pady=(5, 18))
-
-        self.stop_sql_button = ctk.CTkButton(
-            top_frame,
-            text="Stop",
-            width=90,
-            command=self.stop_sql_execution,
-            state="disabled",
-            **danger_button_style()
-        )
-        self.stop_sql_button.grid(row=1, column=5, padx=(0, 18), pady=(5, 18))
-
-        self.sql_editor = ctk.CTkTextbox(
-            self,
-            font=FONTS.mono_body,
-            wrap="none",
-            fg_color="#050A0C",
-            text_color=COLORS.text_primary,
-            border_color=COLORS.border,
-            border_width=1
-        )
-        self.sql_editor.grid(
-            row=1,
-            column=0,
-            padx=SPACING.card_padding,
-            pady=(0, SPACING.inner_padding),
-            sticky="nsew"
-        )
-        self.sql_editor.insert("1.0", "SELECT TOP 10 * FROM INFORMATION_SCHEMA.TABLES;")
-
-        self.sql_results_tabs = ctk.CTkTabview(
-            self,
-            corner_radius=SPACING.card_radius,
-            fg_color=COLORS.surface,
-            segmented_button_fg_color=COLORS.surface_light,
-            segmented_button_selected_color=COLORS.accent,
-            segmented_button_selected_hover_color=COLORS.accent_hover,
-            segmented_button_unselected_color=COLORS.surface_light,
-            segmented_button_unselected_hover_color=COLORS.surface_hover,
-            text_color=COLORS.text_primary
-        )
-        self.sql_results_tabs.grid(
-            row=2,
-            column=0,
-            padx=SPACING.card_padding,
-            pady=(0, SPACING.card_padding),
-            sticky="nsew"
-        )
-
-        self.sql_messages_tab = self.sql_results_tabs.add("Messages")
-        self.sql_messages_tab.grid_columnconfigure(0, weight=1)
-        self.sql_messages_tab.grid_rowconfigure(0, weight=1)
-
-        self.sql_result_box = ctk.CTkTextbox(
-            self.sql_messages_tab,
-            font=FONTS.mono_body,
-            wrap="none",
-            fg_color="#050A0C",
-            text_color=COLORS.text_primary,
-            border_color=COLORS.border,
-            border_width=1
-        )
-        self.sql_result_box.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        self.sql_result_box.configure(state="disabled")
-
-        self.sql_result_tab_names = ["Messages"]
-
-
-    def set_bo_values(
-        self,
-        values: list[str],
-        selected_value: str | None = None
-    ) -> None:
-        """
-        Ενημερώνει τις επιλογές BOConnection του SQL tab.
-        """
-
-        safe_values = values if values else ["No BOConnections"]
-
-        self.sql_bo_option.configure(values=safe_values)
-
-        if selected_value and selected_value in safe_values:
-            self.sql_bo_option.set(selected_value)
-            self._update_selected_bo_id(selected_value)
-        else:
-            self.sql_bo_option.set(safe_values[0])
-            self._update_selected_bo_id(safe_values[0])
-
-
-    def _on_sql_bo_selected(self, selected_value: str) -> None:
-        """
-        Επιλέγει BOConnection ID για SQL εκτέλεση.
-        """
-
-        self._update_selected_bo_id(selected_value)
-
-        if self.on_bo_selected_callback:
-            self.on_bo_selected_callback(selected_value)
-
-
-    def _update_selected_bo_id(self, selected_value: str) -> None:
-        """
-        Ενημερώνει το selected BOConnection ID από επιλογή τύπου 'ID 1 - Database'.
-        """
-
-        connection_id = self._extract_bo_id_from_option(selected_value)
-
-        if connection_id is not None:
-            self.selected_bo_connection_id = connection_id
-
-
-    def _extract_bo_id_from_option(self, selected_value: str) -> int | None:
-        """
-        Εξάγει το ID από επιλογή τύπου 'ID 1 - DatabaseName'.
-        """
-
+    @staticmethod
+    def _extract_bo_id_from_option(value: str):
+        """Αναγνωρίζει επιλογές ID και ονόματος βάσης."""
         try:
-            parts = selected_value.split()
-            return int(parts[1])
-        except Exception:
+            return int(value.split()[1])
+        except (ValueError, IndexError):
             return None
 
+    def _on_sql_bo_selected(self, value: str):
+        """Συγχρονίζει τη βάση με το Manage window."""
+        self.selected_bo_connection_id = self._extract_bo_id_from_option(value)
+        logger.info('Αλλαγή επιλογής SSMS BOConnection.')
+        if self.on_bo_selected_callback:
+            self.on_bo_selected_callback(value)
+        self._update_buttons()
 
-    def _load_sql_file(self) -> None:
-        """
-        Φορτώνει .sql αρχείο στο SQL editor.
-        """
+    def _cycle_bo(self, step: int):
+        """Επιτρέπει επιλογή βάσης από το πληκτρολόγιο όταν δεν εκτελείται αίτημα."""
+        if self._values and not self.busy:
+            index = self._values.index(self.sql_bo_option.get())
+            value = self._values[(index + step) % len(self._values)]
+            self.sql_bo_option.set(value)
+            self._on_sql_bo_selected(value)
+        return 'break'
 
-        owner = self.winfo_toplevel()
-        file_path = filedialog.askopenfilename(
-            parent=owner,
-            title="Select SQL file",
-            filetypes=[("SQL files", "*.sql"), ("All files", "*.*")]
-        )
-        owner.after_idle(owner.focus_force)
+    def _update_buttons(self):
+        """Απενεργοποιεί επαναλαμβανόμενη εκτέλεση και ενέργειες χωρίς διαθέσιμη σύνδεση."""
+        allowed = self._online and not self.busy and self.selected_bo_connection_id is not None
+        for button in (self.execute_button, self.test_button):
+            button.configure(state='normal' if allowed else 'disabled')
+        self.sql_bo_option.configure(state='normal' if self._values and not self.busy else 'disabled')
+        self.stop_sql_button.configure(state='normal' if self.busy and self._active_kind == 'sql_execute'
+                                       and self._online and not self._stop_requested else 'disabled')
+        if not self._online:
+            self.status_label.configure(text='Client offline', text_color=COLORS.warning)
+        elif not self.busy:
+            self.status_label.configure(text='Ready' if self._values else 'Select connection', text_color=COLORS.accent)
 
-        if not file_path:
+    def set_online(self, online: bool):
+        """Ενημερώνει την κατάσταση χωρίς αυτόματη επανάληψη προηγούμενου SQL."""
+        if online == self._online:
             return
+        if not online and self.busy:
+            self.results_panel.set_messages('Η σύνδεση διακόπηκε πριν ληφθεί τελικό αποτέλεσμα. Η κατάσταση της απομακρυσμένης εκτέλεσης είναι άγνωστη.', append=True)
+            self.current_sql_request_id = ''
+            self._active_kind = ''
+        self._online = online
+        self._update_buttons()
 
+    def _begin(self, kind: str, timeout: int, sql_text: str = ''):
+        """Στέλνει ένα μόνο αίτημα και κρατά snapshot της βάσης που χρησιμοποιήθηκε."""
+        if self.busy or not self._online or self.selected_bo_connection_id is None:
+            return
+        if not self.on_sql_execute_callback:
+            self.results_panel.set_messages('Δεν υπάρχει διαθέσιμη σύνδεση για αποστολή SQL.')
+            return
+        self.current_sql_request_id = str(uuid.uuid4())
+        self._active_bo_id = self.selected_bo_connection_id
+        self._active_kind = kind
+        self._stop_requested = False
+        self.results_panel.clear()
+        self.results_panel.set_messages(f"{'Εκτέλεση SQL' if sql_text else 'Δοκιμή σύνδεσης'} · BOConnection ID {self._active_bo_id}")
+        self._update_buttons()
+        self.status_label.configure(text=f'Running · ID {self._active_bo_id}', text_color=COLORS.info)
+        payload = {'type': kind, 'request_id': self.current_sql_request_id, 'client_code': self.client_code,
+                   'bo_connection_id': self._active_bo_id, 'timeout': timeout}
+        if sql_text:
+            payload['sql_text'] = sql_text
         try:
-            content, used_encoding = self._read_sql_file_with_fallback(Path(file_path))
+            sent = self.on_sql_execute_callback(payload)
+            if sent is False:
+                raise RuntimeError('not_sent')
+            logger.info('Αποστολή SSMS αιτήματος. type=%s request_id=%s bo_id=%s', kind, self.current_sql_request_id, self._active_bo_id)
+        except Exception:
+            self.results_panel.set_messages('Το SQL αίτημα δεν στάλθηκε. Ελέγξτε τη σύνδεση Dashboard–Server.')
+            self._finish(False)
+            logger.error('Αποτυχία αποστολής SSMS αιτήματος.')
 
-            self.sql_editor.delete("1.0", "end")
-            self.sql_editor.insert("1.0", content)
-            self._set_sql_result_text(
-                f"Loaded SQL file:\n{file_path}\nEncoding: {used_encoding}\n"
-            )
+    def execute_sql(self):
+        """Εκτελεί την επιλογή ή ολόκληρο το script, όπως δηλώνει η ένδειξη editor."""
+        if self.busy:
+            return
+        sql = self.editor_panel.selected_or_all()
+        if not sql:
+            self.results_panel.set_messages('Το SQL κείμενο είναι κενό.')
+            return
+        try:
+            timeout = int(self.timeout_entry.get())
+            if not 1 <= timeout <= 3600:
+                raise ValueError
+        except ValueError:
+            self.results_panel.set_messages('Το timeout πρέπει να είναι ακέραιος από 1 έως 3600 δευτερόλεπτα.')
+            return
+        self._begin('sql_execute', timeout, sql)
 
-        except Exception as exc:
-            self._set_sql_result_text(f"Failed to load SQL file:\n{exc}\n")
+    def test_sql_connection(self):
+        """Χρησιμοποιεί το υπάρχον αίτημα ελέγχου σύνδεσης με timeout 15s."""
+        self._begin('sql_test_connection', 15)
 
-    def _read_sql_file_with_fallback(self, file_path: Path) -> tuple[str, str]:
-        """
-        Διαβάζει SQL αρχεία με fallback encodings.
-        Υποστηρίζει UTF-8, UTF-16 και ελληνικά Windows encoded αρχεία.
-        """
+    def stop_sql_execution(self):
+        """Ζητά ακύρωση αλλά περιμένει τελικό SQL αποτέλεσμα πριν επιτρέψει νέα εκτέλεση."""
+        if not self.busy or self._active_kind != 'sql_execute' or self._stop_requested or not self._online:
+            return
+        self._stop_requested = True
+        self._update_buttons()
+        self.status_label.configure(text='Stop requested', text_color=COLORS.warning)
+        try:
+            sent = self.on_sql_execute_callback({'type': 'sql_cancel', 'request_id': self.current_sql_request_id,
+                                                'client_code': self.client_code})
+            if sent is False:
+                raise RuntimeError('not_sent')
+            self.results_panel.set_messages('Στάλθηκε αίτημα ακύρωσης. Αναμονή τελικού αποτελέσματος.', append=True)
+            logger.info('Αίτημα ακύρωσης SSMS. request_id=%s', self.current_sql_request_id)
+        except Exception:
+            self._stop_requested = False
+            self._update_buttons()
+            self.status_label.configure(text=f'Running · ID {self._active_bo_id}', text_color=COLORS.info)
+            self.results_panel.set_messages('Το αίτημα ακύρωσης δεν στάλθηκε.', append=True)
 
-        encodings = [
-            "utf-8-sig",
-            "utf-8",
-            "utf-16",
-            "utf-16-le",
-            "cp1253",
-            "iso-8859-7",
-            "cp1252"
-        ]
+    def _accept(self, payload: dict, kind: str = '') -> bool:
+        """Απορρίπτει παλιές απαντήσεις και αποτελέσματα άλλου Client ή εκτέλεσης."""
+        return bool(self.current_sql_request_id and payload.get('client_code') == self.client_code
+                    and payload.get('request_id') == self.current_sql_request_id
+                    and (not kind or kind == self._active_kind)
+                    and (payload.get('bo_connection_id') is None or str(payload['bo_connection_id']) == str(self._active_bo_id)))
 
-        last_error: Exception | None = None
+    def _finish(self, success: bool, detail: str = ''):
+        """Επαναφέρει τα χειριστήρια μόνο μετά από τελικό αποτέλεσμα ή αποτυχία αποστολής."""
+        self.current_sql_request_id = ''
+        self._active_kind = ''
+        self._stop_requested = False
+        self._update_buttons()
+        self.status_label.configure(text=('Completed' if success else 'Error') + detail,
+                                    text_color=COLORS.success if success else COLORS.danger)
 
-        for encoding in encodings:
+    def handle_sql_result(self, payload: dict):
+        """Προβάλλει πίνακες και πραγματικά batch errors χωρίς να χάνει τα μερικά αποτελέσματα."""
+        if not self._accept(payload, 'sql_execute'):
+            return
+        self.results_panel.render(payload)
+        rows = sum(len(item.get('rows') or []) for item in self.results_panel.datasets.values())
+        elapsed = payload.get('elapsed_ms')
+        self._finish(not SqlResultData.failed(payload), f" · {rows} rows" + (f' · {elapsed} ms' if elapsed is not None else ''))
+        logger.info('Ολοκλήρωση SSMS αποτελέσματος. rows=%s', rows)
+
+    def handle_sql_error(self, payload: dict):
+        """Αποκαθιστά και τα κουμπιά μετά από routing error, όπως offline Client."""
+        if self._accept(payload):
+            self.results_panel.set_messages('SQL ERROR:\n' + str(payload.get('message') or 'Unknown SQL error'))
+            self._finish(False)
+
+    def handle_sql_test_connection_result(self, payload: dict):
+        """Εμφανίζει στοιχεία και διάρκεια της δοκιμής σύνδεσης."""
+        if not self._accept(payload, 'sql_test_connection'):
+            return
+        labels = [('BOConnection ID', 'bo_connection_id'), ('Server', 'server_name'), ('Database', 'database_name'),
+                  ('Login', 'login_name'), ('Driver', 'driver'), ('Elapsed ms', 'elapsed_ms'), ('Error', 'error')]
+        self.results_panel.set_messages('SQL Connection Test\n' + '\n'.join(f'{label}: {payload.get(key) if payload.get(key) is not None else "—"}' for label, key in labels))
+        self._finish(bool(payload.get('success')))
+        logger.info('Ολοκλήρωση ελέγχου SSMS σύνδεσης. success=%s', bool(payload.get('success')))
+
+    def handle_sql_cancel_result(self, payload: dict):
+        """Διαχωρίζει την επιβεβαίωση αιτήματος ακύρωσης από το τελικό αποτέλεσμα του query."""
+        if self._accept(payload, 'sql_execute'):
+            self.results_panel.set_messages('Cancel: ' + str(payload.get('message') or payload.get('success')), append=True)
+            if not payload.get('success'):
+                self._stop_requested = False
+                self._update_buttons()
+                self.status_label.configure(text=f'Running · ID {self._active_bo_id}', text_color=COLORS.info)
+
+    def _load_sql_file(self):
+        """Φορτώνει script χωρίς εκτέλεση και κρατά την εστίαση στο Manage window."""
+        owner = self.winfo_toplevel()
+        path = filedialog.askopenfilename(parent=owner, title='Open SQL script', filetypes=[('SQL', '*.sql'), ('All files', '*.*')])
+        owner.after_idle(owner.focus_force)
+        if path:
             try:
-                return file_path.read_text(encoding=encoding), encoding
-            except UnicodeDecodeError as exc:
-                last_error = exc
+                content, encoding = SqlFiles.read(Path(path))
+                self.sql_editor.delete('1.0', 'end'); self.sql_editor.insert('1.0', content)
+                self.results_panel.set_messages(f'Φορτώθηκε SQL αρχείο · Encoding: {encoding}', append=True)
+                logger.info('Φόρτωση SQL αρχείου. encoding=%s', encoding)
+            except (OSError, UnicodeError):
+                self.results_panel.set_messages('Αποτυχία ανάγνωσης SQL αρχείου.', append=True)
+                logger.error('Αποτυχία ανάγνωσης SQL αρχείου.')
 
-        content = file_path.read_text(encoding="cp1253", errors="replace")
-
-        if last_error:
-            return (
-                content,
-                f"cp1253 with replacement characters after decode fallback: {last_error}"
-            )
-
-        return content, "cp1253 with replacement characters"
-
-    def execute_sql(self) -> None:
-        """
-        Στέλνει SQL query για εκτέλεση στον client.
-        """
-
-        sql_text = self.sql_editor.get("1.0", "end").strip()
-
-        if not sql_text:
-            self._set_sql_result_text("SQL text is empty.\n")
-            return
-
-        request_id = str(uuid.uuid4())
-        self.current_sql_request_id = request_id
-        self.stop_sql_button.configure(state="normal")
-        self._clear_sql_result_tabs()
-
-        self._set_sql_result_text(
-            f"Executing SQL on BOConnection ID {self.selected_bo_connection_id}...\n"
-        )
-
-        if self.on_sql_execute_callback:
-            self.on_sql_execute_callback(
-                {
-                    "type": "sql_execute",
-                    "request_id": request_id,
-                    "client_code": self.client_code,
-                    "bo_connection_id": self.selected_bo_connection_id,
-                    "sql_text": sql_text,
-                    "timeout": 120
-                }
-            )
-
-
-    def test_sql_connection(self) -> None:
-        """
-        Στέλνει αίτημα δοκιμής SQL σύνδεσης για το επιλεγμένο BOConnection.
-        """
-
-        request_id = str(uuid.uuid4())
-        self.current_sql_request_id = request_id
-        self._clear_sql_result_tabs()
-
-        self._set_sql_result_text(
-            f"Testing SQL connection on BOConnection ID {self.selected_bo_connection_id}...\n"
-        )
-
-        if self.on_sql_execute_callback:
-            self.on_sql_execute_callback(
-                {
-                    "type": "sql_test_connection",
-                    "request_id": request_id,
-                    "client_code": self.client_code,
-                    "bo_connection_id": self.selected_bo_connection_id,
-                    "timeout": 15
-                }
-            )
-
-
-    def stop_sql_execution(self) -> None:
-        """
-        Στέλνει αίτημα ακύρωσης του τρέχοντος SQL query.
-        """
-
-        if not self.current_sql_request_id:
-            self._set_sql_result_text("No active SQL request to stop.\n")
-            return
-
-        self._set_sql_result_text(
-            f"Stopping SQL request: {self.current_sql_request_id}\n"
-        )
-
-        if self.on_sql_execute_callback:
-            self.on_sql_execute_callback(
-                {
-                    "type": "sql_cancel",
-                    "request_id": self.current_sql_request_id,
-                    "client_code": self.client_code
-                }
-            )
-
-
-    def handle_sql_result(self, payload: dict) -> None:
-        """
-        Εμφανίζει αποτελέσματα SQL εκτέλεσης σε Messages tab και result table tabs.
-        """
-
-        if payload.get("client_code") != self.client_code:
-            return
-
-        self._clear_sql_result_tabs()
-
-        success = payload.get("success")
-        error = payload.get("error")
-        batches = payload.get("batches") or []
-
-        message_lines: list[str] = []
-
-        message_lines.append("=== SQL Execution Summary ===")
-        message_lines.append(f"Success: {success}")
-        message_lines.append(f"BOConnection ID: {payload.get('bo_connection_id')}")
-        message_lines.append(f"Driver: {payload.get('driver')}")
-        message_lines.append(f"Elapsed: {payload.get('elapsed_ms')} ms")
-
-        if error:
-            message_lines.append("")
-            message_lines.append("=== Error ===")
-            message_lines.append(str(error))
-
-        message_lines.append("")
-
-        total_result_tabs = 0
-
-        for batch in batches:
-            batch_index = batch.get("batch_index")
-            batch_error = batch.get("error")
-            rowcount = batch.get("rowcount")
-            result_sets = batch.get("result_sets") or []
-
-            message_lines.append(f"=== Batch {batch_index} ===")
-
-            if batch_error:
-                message_lines.append(f"Batch error: {batch_error}")
-
-            if not result_sets:
-                message_lines.append(f"Rows affected: {rowcount}")
-                message_lines.append("")
-                continue
-
-            for result_index, result_set in enumerate(result_sets, start=1):
-                columns = result_set.get("columns") or []
-                rows = result_set.get("rows") or []
-
-                message_lines.append(
-                    f"Result Set {result_index}: {len(rows)} rows, {len(columns)} columns"
-                )
-
-                tab_name = f"Batch {batch_index} - Result {result_index}"
-
-                if columns:
-                    self._add_sql_result_table_tab(
-                        tab_name=tab_name,
-                        columns=columns,
-                        rows=rows
-                    )
-                    total_result_tabs += 1
-
-            message_lines.append("")
-
-        if total_result_tabs == 0:
-            message_lines.append("No SELECT result sets returned.")
-
-        self._set_sql_result_text("\n".join(message_lines))
-
-        self.stop_sql_button.configure(state="disabled")
-        self.current_sql_request_id = ""
-
-
-    def handle_sql_error(self, payload: dict) -> None:
-        """
-        Εμφανίζει SQL routing/server error.
-        """
-
-        self._set_sql_result_text(
-            f"SQL ERROR:\n{payload.get('message', 'Unknown SQL error.')}\n"
-        )
-
-
-    def handle_sql_test_connection_result(self, payload: dict) -> None:
-        """
-        Εμφανίζει αποτέλεσμα δοκιμής SQL σύνδεσης.
-        """
-
-        if payload.get("client_code") != self.client_code:
-            return
-
-        text = (
-            "=== SQL Connection Test ===\n"
-            f"Success: {payload.get('success')}\n"
-            f"BOConnection ID: {payload.get('bo_connection_id')}\n"
-            f"Driver: {payload.get('driver')}\n"
-            f"Elapsed: {payload.get('elapsed_ms')} ms\n"
-            f"Server: {payload.get('server_name')}\n"
-            f"Database: {payload.get('database_name')}\n"
-            f"Login: {payload.get('login_name')}\n"
-        )
-
-        if payload.get("error"):
-            text += f"\nError:\n{payload.get('error')}\n"
-
-        self._set_sql_result_text(text)
-
-
-    def handle_sql_cancel_result(self, payload: dict) -> None:
-        """
-        Εμφανίζει αποτέλεσμα ακύρωσης SQL query.
-        """
-
-        if payload.get("client_code") != self.client_code:
-            return
-
-        self.stop_sql_button.configure(state="disabled")
-
-        self._set_sql_result_text(
-            "=== SQL Cancel Result ===\n"
-            f"Success: {payload.get('success')}\n"
-            f"Message: {payload.get('message')}\n"
-        )
-
-
-    def _set_sql_result_text(self, text: str) -> None:
-        """
-        Ενημερώνει το SQL result textbox.
-        """
-
-        self.sql_result_box.configure(state="normal")
-        self.sql_result_box.delete("1.0", "end")
-        self.sql_result_box.insert("end", text)
-        self.sql_result_box.configure(state="disabled")
-
-
-    def _clear_sql_result_tabs(self) -> None:
-        """
-        Καθαρίζει όλα τα SQL result tabs εκτός από το Messages tab.
-        """
-
-        for tab_name in list(self.sql_result_tab_names):
-            if tab_name == "Messages":
-                continue
-
+    def save_sql_file(self):
+        """Αποθηκεύει ολόκληρο το script ως UTF-8, ανεξάρτητα από την επιλογή κειμένου."""
+        owner = self.winfo_toplevel()
+        path = filedialog.asksaveasfilename(parent=owner, title='Save SQL script', defaultextension='.sql', filetypes=[('SQL', '*.sql')])
+        owner.after_idle(owner.focus_force)
+        if path:
             try:
-                self.sql_results_tabs.delete(tab_name)
-            except Exception:
-                pass
+                Path(path).write_text(self.sql_editor.get('1.0', 'end-1c'), encoding='utf-8')
+                logger.info('Αποθήκευση SQL script.')
+            except OSError:
+                self.results_panel.set_messages('Αποτυχία αποθήκευσης SQL αρχείου.', append=True)
+                logger.error('Αποτυχία αποθήκευσης SQL αρχείου.')
 
-        self.sql_result_tab_names = ["Messages"]
-        self.sql_table_widgets.clear()
+    @staticmethod
+    def _read_sql_file_with_fallback(path):
+        """Διατηρεί την προηγούμενη δημόσια διεπαφή ανάγνωσης αρχείων."""
+        return SqlFiles.read(path)
 
-        self._set_sql_result_text("")
+    def _set_sql_result_text(self, text):
+        """Διατηρεί την προηγούμενη διεπαφή μηνυμάτων."""
+        self.results_panel.set_messages(text)
 
+    def _bind_shortcuts(self):
+        """Ενεργοποιεί συντομεύσεις μόνο όταν η εστίαση ανήκει στην καρτέλα SSMS."""
+        top = self.winfo_toplevel()
+        actions = {'<F5>': self.execute_sql, '<Control-Return>': self.execute_sql, '<Alt-Cancel>': self.stop_sql_execution,
+                   '<Alt-Pause>': self.stop_sql_execution, '<Alt-Break>': self.stop_sql_execution,
+                   '<Control-o>': self._load_sql_file, '<Control-s>': self.save_sql_file, '<Control-t>': self.test_sql_connection,
+                   '<Control-Shift-C>': self.results_panel.copy_all, '<Control-Shift-E>': self.results_panel.export_csv,
+                   '<Control-b>': self.sql_bo_option._canvas.focus_set,
+                   '<Control-r>': self.results_panel.selector._canvas.focus_set,
+                   '<Control-m>': self.results_panel.show_messages,
+                   '<Control-Shift-P>': self.sql_editor._textbox.focus_set,
+                   '<Alt-Up>': lambda: self._move_split(-40), '<Alt-Down>': lambda: self._move_split(40)}
+        for sequence, action in actions.items():
+            def handle(event, callback=action):
+                """Δεν παρεμβαίνει στο Terminal ή σε άλλες καρτέλες."""
+                widget = top.focus_get()
+                while widget is not None:
+                    if widget is self:
+                        callback(); return 'break'
+                    widget = getattr(widget, 'master', None)
+            self._bindings.append((sequence, top.bind(sequence, handle, add='+')))
 
-    def _add_sql_result_table_tab(
-        self,
-        tab_name: str,
-        columns: list[str],
-        rows: list[list]
-    ) -> None:
-        """
-        Δημιουργεί νέο tab με πίνακα αποτελεσμάτων SQL.
-        """
+    def _move_split(self, offset: int):
+        """Αλλάζει την κατανομή editor/αποτελεσμάτων και από πληκτρολόγιο."""
+        current = self.splitter.sash_coord(0)[1]
+        target = max(90, min(self.splitter.winfo_height() - 108, current + offset))
+        self.splitter.sash_place(0, 0, target)
 
-        safe_tab_name = tab_name
-
-        if safe_tab_name in self.sql_result_tab_names:
-            suffix = 2
-
-            while f"{safe_tab_name} ({suffix})" in self.sql_result_tab_names:
-                suffix += 1
-
-            safe_tab_name = f"{safe_tab_name} ({suffix})"
-
-        table_tab = self.sql_results_tabs.add(safe_tab_name)
-        table_tab.grid_columnconfigure(0, weight=1)
-        table_tab.grid_rowconfigure(0, weight=1)
-
-        table_frame = ctk.CTkFrame(
-            table_tab,
-            fg_color=COLORS.surface,
-            corner_radius=SPACING.small_radius,
-            border_width=1,
-            border_color=COLORS.border_soft
-        )
-        table_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        table_frame.grid_columnconfigure(0, weight=1)
-        table_frame.grid_rowconfigure(0, weight=1)
-
-        tree_container = tk.Frame(
-            table_frame,
-            bg=COLORS.background,
-            highlightthickness=0,
-            bd=0
-        )
-        tree_container.grid(
-            row=0,
-            column=0,
-            padx=6,
-            pady=6,
-            sticky="nsew"
-        )
-
-        tree_style = apply_treeview_style("MoonHard.SqlResult.Treeview")
-
-        tree = ttk.Treeview(
-            tree_container,
-            columns=columns,
-            show="headings",
-            height=10,
-            style=tree_style
-        )
-
-        vertical_scrollbar = tk.Scrollbar(
-            tree_container,
-            orient="vertical",
-            command=tree.yview,
-            width=18,
-            bg="#D1D5DB",
-            activebackground="#16C7B7",
-            troughcolor="#13282F",
-            relief="flat",
-            bd=0
-        )
-
-        horizontal_scrollbar = tk.Scrollbar(
-            tree_container,
-            orient="horizontal",
-            command=tree.xview,
-            width=18,
-            bg="#D1D5DB",
-            activebackground="#16C7B7",
-            troughcolor="#13282F",
-            relief="flat",
-            bd=0
-        )
-
-        tree.configure(
-            yscrollcommand=vertical_scrollbar.set,
-            xscrollcommand=horizontal_scrollbar.set
-        )
-
-        vertical_scrollbar.pack(side="right", fill="y")
-        horizontal_scrollbar.pack(side="bottom", fill="x")
-        tree.pack(side="left", fill="both", expand=True)
-
-        for column in columns:
-            tree.heading(column, text=column)
-            tree.column(
-                column,
-                width=320,
-                minwidth=220,
-                stretch=False
-            )
-
-        for row in rows:
-            tree.insert("", "end", values=row)
-
-        tree.bind("<Control-c>", lambda _event, t=tree: self._copy_selected_sql_rows(t))
-        tree.bind("<Button-3>", lambda event, t=tree: self._show_sql_table_context_menu(event, t))
-
-        self.sql_result_tab_names.append(safe_tab_name)
-        self.sql_table_widgets[safe_tab_name] = tree
-
-
-    def _copy_selected_sql_rows(self, tree: ttk.Treeview) -> None:
-        """
-        Αντιγράφει τις επιλεγμένες γραμμές SQL result table στο clipboard.
-        """
-
-        selected_items = tree.selection()
-
-        if not selected_items:
-            return
-
-        copied_lines: list[str] = []
-
-        for item in selected_items:
-            values = tree.item(item, "values")
-            copied_lines.append("\t".join(str(value) for value in values))
-
-        copied_text = "\n".join(copied_lines)
-
-        self.clipboard_clear()
-        self.clipboard_append(copied_text)
-
-
-    def _copy_all_sql_rows(self, tree: ttk.Treeview) -> None:
-        """
-        Αντιγράφει όλες τις γραμμές SQL result table στο clipboard.
-        """
-
-        copied_lines: list[str] = []
-
-        for item in tree.get_children():
-            values = tree.item(item, "values")
-            copied_lines.append("\t".join(str(value) for value in values))
-
-        copied_text = "\n".join(copied_lines)
-
-        self.clipboard_clear()
-        self.clipboard_append(copied_text)
-
-
-    def _show_sql_table_context_menu(self, event, tree: ttk.Treeview) -> None:
-        """
-        Εμφανίζει context menu για αντιγραφή γραμμών SQL result table.
-        """
-
-        context_menu = __import__("tkinter").Menu(self, tearoff=0)
-
-        context_menu.add_command(
-            label="Copy selected rows",
-            command=lambda: self._copy_selected_sql_rows(tree)
-        )
-
-        context_menu.add_command(
-            label="Copy all rows",
-            command=lambda: self._copy_all_sql_rows(tree)
-        )
-
-        context_menu.tk_popup(event.x_root, event.y_root)
-        context_menu.grab_release()
+    def destroy(self):
+        """Αφαιρεί callbacks και bindings πριν κλείσει η καρτέλα."""
+        if self._layout_job:
+            self.after_cancel(self._layout_job)
+        top = self.winfo_toplevel()
+        for sequence, binding in self._bindings:
+            top.unbind(sequence, binding)
+        self._bindings.clear()
+        super().destroy()

@@ -11,6 +11,7 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed `
     --hidden-import app.backup_cli --hidden-import app.database_cli `
     --hidden-import app.provider_transmitted_cli `
     --hidden-import app.appsettings_cli --hidden-import app.appsettings_smoke `
+    --hidden-import app.sql_cli --hidden-import app.sql_smoke `
     --icon .\dashboard\assets\MoonHardRemoteDashboard.ico `
     --add-data ".\dashboard\assets;assets" .\dashboard\app\main.py
 if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του Dashboard." }
@@ -24,3 +25,8 @@ if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του Terminal CLI." }
 python -m PyInstaller --noconfirm --clean --onefile --console `
     --name MoonHardRemoteAppSettings --paths .\dashboard .\dashboard\app\appsettings_cli.py
 if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του AppSettings CLI." }
+
+# Προσφέρει console EXE για εκτέλεση SQL, αρχεία και εξαγωγή αποτελεσμάτων από CMD.
+python -m PyInstaller --noconfirm --clean --onefile --console `
+    --name MoonHardRemoteSSMS --paths .\dashboard .\dashboard\app\sql_cli.py
+if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του SSMS CLI." }
