@@ -30,7 +30,7 @@ MESSAGES = {
     ErrorCategory.TIMEOUT: "Ο Provider δεν απάντησε μέσα στο χρονικό όριο.",
     ErrorCategory.CONNECTION: "Δεν ήταν δυνατή η ασφαλής σύνδεση με τον Provider.",
     ErrorCategory.HTTP_4XX: "Ο Provider απέρριψε το αίτημα.",
-    ErrorCategory.NOT_FOUND: "HTTP 404: Δεν βρέθηκε το ζητούμενο endpoint ή στοιχείο. Ελέγξτε το URL ανάκτησης με την IMPACT.",
+    ErrorCategory.NOT_FOUND: "HTTP 404: Δεν βρέθηκαν τα ζητούμενα στοιχεία ή το endpoint. Ελέγξτε διάστημα, ΑΦΜ και URL ανάκτησης. Το 404 δεν επιβεβαιώνει κενή λίστα.",
     ErrorCategory.END_OF_LIST: "Ο Provider δήλωσε ότι η ζητούμενη σελίδα υπερβαίνει τις διαθέσιμες σελίδες.",
     ErrorCategory.ERP_TIMEOUT: "Ο Client δεν απάντησε εγκαίρως στην ανάκτηση ERP.",
     ErrorCategory.ERP_CONNECTION: "Δεν ήταν δυνατή η αποστολή του αιτήματος ERP στον Client.",

@@ -41,7 +41,7 @@ class ProviderDiagnosticCLI:
         parser.add_argument("--bo-connection", type=int, default=1)
         parser.add_argument("--issuer-vat", default="", help="ΑΦΜ εταιρείας από τη βάση· απαιτείται όταν υπάρχουν πολλά.")
         operations = parser.add_mutually_exclusive_group()
-        operations.add_argument("--probe", action="store_true", help="Ανάγνωση πρώτης σελίδας σημερινών παραστατικών.")
+        operations.add_argument("--probe", action="store_true", help="Έλεγχος πρόσβασης Provider με πρώτη σελίδα ευρύτερου διαστήματος.")
         operations.add_argument("--documents", action="store_true", help="Πλήρης ανάκτηση εξερχόμενων παραστατικών.")
         operations.add_argument("--reconcile", action="store_true", help="Σύγκριση ERP και Provider στο ίδιο διάστημα.")
         parser.add_argument("--reconciliation-status", choices=tuple(STATUS_LABELS), default="")
