@@ -2,6 +2,7 @@ from typing import Callable, Any
 
 import customtkinter as ctk
 
+from app.appsettings_presenter import AppSettingsPresenter
 from app.ui.theme import COLORS, FONTS, SPACING, card_style
 from app.views.manage.provider_tab import ProviderTab
 from app.views.manage.overview_tab import OverviewTab
@@ -136,7 +137,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.terminal_tab.grid_columnconfigure(0, weight=1)
         self.terminal_tab.grid_rowconfigure(0, weight=1)
         self.appsettings_tab.grid_columnconfigure(0, weight=1)
-        self.appsettings_tab.grid_rowconfigure(1, weight=1)
+        self.appsettings_tab.grid_rowconfigure(0, weight=1)
         self.sql_tab = self.tabs.add("SSMS")
         self.sql_tab.grid_columnconfigure(0, weight=1)
         self.sql_tab.grid_rowconfigure(2, weight=1)
@@ -482,154 +483,47 @@ class ClientManageWindow(ctk.CTkToplevel):
             return
 
         if not payload.get("success"):
-            message = payload.get("message", "Failed to load appsettings.")
-            self._set_appsettings_text(f"ERROR: {message}")
-            self.appsettings_tab_view.set_status("Failed to load appsettings.")
+            self.appsettings_data = {}
+            self.bo_connections = []
+            self._sync_bo_views()
+            self._set_appsettings_text("Αποτυχία φόρτωσης AppSettings. Ανοίξτε ξανά τη διαχείριση για νέα ανάκτηση.")
+            self.appsettings_tab_view.set_status("Αποτυχία φόρτωσης AppSettings.")
             return
 
-        appsettings = payload.get("appsettings") or {}
-        self.appsettings_data = appsettings
-
-        file_found = appsettings.get("file_found", False)
-        file_path = appsettings.get("file_path") or "-"
-        last_read_at = appsettings.get("last_read_at") or "-"
-
-        self.bo_connections = appsettings.get("bo_connections") or []
-        self.selected_bo_connection_id = appsettings.get("selected_bo_connection_id") or 1
-
-        if not file_found:
-            self.appsettings_tab_view.set_status(
-                "appsettings.production.json was not found on this client."
+        self.appsettings_data = AppSettingsPresenter.safe_data(payload.get("appsettings") or {})
+        self.bo_connections = [item for item in self.appsettings_data.get("bo_connections", [])
+                               if isinstance(item, dict)] if self.appsettings_data.get("file_found") else []
+        available = {str(item.get("ID")) for item in self.bo_connections}
+        if str(self.selected_bo_connection_id) not in available:
+            requested = self.appsettings_data.get("selected_bo_connection_id")
+            self.selected_bo_connection_id = requested if str(requested) in available else (
+                self.bo_connections[0].get("ID") if self.bo_connections else 1
             )
-            self._set_appsettings_text(
-                f"File found: No\n"
-                f"Path checked: {file_path}\n"
-                f"Last read: {last_read_at}\n"
-            )
-            return
+        self._sync_bo_views()
+        self._refresh_selected_bo_connection()
 
-        bo_values = self._build_bo_connection_values()
-
-        if bo_values:
-            default_value = self._find_bo_option_value(self.selected_bo_connection_id)
-
-            if default_value:
-                self.appsettings_tab_view.set_bo_values(
-                    values=bo_values,
-                    selected_value=default_value
-                )
-            else:
-                self.appsettings_tab_view.set_bo_values(
-                    values=bo_values,
-                    selected_value=bo_values[0]
-                )
-        else:
-            self.appsettings_tab_view.set_bo_values(
-                values=["No BOConnections"],
-                selected_value="No BOConnections"
-            )
-
-        selected_bo_value = self.appsettings_tab_view.get_selected_bo_value()
-
+    def _sync_bo_views(self) -> None:
+        """Συγχρονίζει λίστες και κοινή επιλογή χωρίς εκτέλεση SQL ή provider ενεργειών."""
+        values = self._build_bo_connection_values()
+        selected = self._find_bo_option_value(self.selected_bo_connection_id)
+        self.appsettings_tab_view.set_bo_values(values, selected)
         if hasattr(self, "sql_tab_view"):
-            if bo_values:
-                self.sql_tab_view.set_bo_values(
-                    values=bo_values,
-                    selected_value=selected_bo_value
-                )
-            else:
-                self.sql_tab_view.set_bo_values(
-                    values=["No BOConnections"],
-                    selected_value="No BOConnections"
-                )
-
+            self.sql_tab_view.set_bo_values(values, selected)
         if hasattr(self, "database_tab_view"):
             self.database_tab_view.refresh_bo_values()
-
         if hasattr(self, "provider_tab_view"):
-            self.provider_tab_view.update_bo_values(
-                bo_values=bo_values,
-                selected_value=self.appsettings_tab_view.get_selected_bo_value()
-            )
-
+            self.provider_tab_view.update_bo_values(values, selected)
         if hasattr(self, "senario_prosorinon_tab_view"):
             self.senario_prosorinon_tab_view.refresh_bo_values()
 
-        self.appsettings_tab_view.set_status(
-            f"Loaded from: {file_path} | Last read: {last_read_at}"
-        )
-
-        self._refresh_selected_bo_connection()
-        
-        
     def _refresh_selected_bo_connection(self) -> None:
         """
         Εμφανίζει τα στοιχεία του επιλεγμένου BOConnection.
         """
 
-        appsettings = self.appsettings_data or {}
-        summary = appsettings.get("appsettings_summary") or {}
-        provider_connections = appsettings.get("provider_connections") or []
-        selected_connection = self._get_selected_bo_connection()
-
-        if not appsettings:
-            self._set_appsettings_text("No appsettings data loaded yet.")
-            return
-
-        if not selected_connection:
-            self._set_appsettings_text("No BOConnections found.")
-            return
-
-        database_connection = selected_connection.get("DatabaseConnection", "")
-        connection_parts = self._parse_connection_string(database_connection)
-
-        provider_text = self._format_provider_connections(provider_connections)
-
-        text = (
-            "=== AppSettings Summary ===\n"
-            f"AllowedHosts: {summary.get('AllowedHosts')}\n"
-            f"MaxRetries: {summary.get('MaxRetries')}\n"
-            f"MaxWaitTimePerInvoice: {summary.get('MaxWaitTimePerInvoice')}\n"
-            f"Initial Date: {summary.get('initialDate')}\n\n"
-
-            "=== Selected BOConnection ===\n"
-            f"ID: {selected_connection.get('ID')}\n"
-            f"Server: {connection_parts.get('server')}\n"
-            f"Database: {connection_parts.get('database')}\n"
-            f"User ID: {connection_parts.get('user_id')}\n"
-            f"Password: {connection_parts.get('password')}\n"
-            f"UserOID: {selected_connection.get('UserOID')}\n"
-            f"Email: {selected_connection.get('email')}\n"
-            f"ClientAuth: {selected_connection.get('ClientAuth')}\n"
-            f"SubscriptionKey: {selected_connection.get('subscriptionKey')}\n\n"
-
-            "=== Full DatabaseConnection ===\n"
-            f"{database_connection}\n\n"
-
-            "=== ProviderConnections ===\n"
-            f"{provider_text}\n"
+        self.appsettings_tab_view.set_data(
+            self.appsettings_data or {}, self._get_selected_bo_connection()
         )
-
-        self._set_appsettings_text(text)
-
-    def _format_provider_connections(self, provider_connections: list[dict]) -> str:
-        """
-        Μορφοποιεί τα ProviderConnections για προβολή.
-        """
-
-        if not provider_connections:
-            return "No ProviderConnections found."
-
-        lines: list[str] = []
-
-        for provider in provider_connections:
-            lines.append(
-                f"ID: {provider.get('ID')}\n"
-                f"BaseURL: {provider.get('BaseURL')}\n"
-                f"OfflineURL: {provider.get('OfflineURL')}\n"
-            )
-
-        return "\n".join(lines)
 
     def _parse_connection_string(self, connection_string: str) -> dict[str, str | None]:
         """
@@ -679,7 +573,7 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         for connection in self.bo_connections:
             connection_id = connection.get("ID")
-            database_connection = connection.get("DatabaseConnection", "")
+            database_connection = connection.get("DatabaseConnection") or ""
             database_name = self._parse_connection_string(database_connection).get("database") or "-"
 
             values.append(f"ID {connection_id} - {database_name}")
@@ -709,6 +603,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         if connection_id is not None:
             self.selected_bo_connection_id = connection_id
 
+        self._sync_bo_views()
         self._refresh_selected_bo_connection()
 
     def _extract_bo_id_from_option(self, selected_value: str) -> int | None:
@@ -728,7 +623,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         """
 
         for connection in self.bo_connections:
-            if connection.get("ID") == self.selected_bo_connection_id:
+            if str(connection.get("ID")) == str(self.selected_bo_connection_id):
                 return connection
 
         return self.bo_connections[0] if self.bo_connections else {}
@@ -755,15 +650,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.sql_tab_view.grid(row=0, column=0, sticky="nsew")
         
     def _on_sql_bo_selected(self, selected_value: str) -> None:
-        """
-        Συγχρονίζει το επιλεγμένο BOConnection ID από το SQL tab.
-        """
-
-        connection_id = self._extract_bo_id_from_option(selected_value)
-
-        if connection_id is not None:
-            self.selected_bo_connection_id = connection_id
-
+        """Συγχρονίζει την επιλογή SSMS με το AppSettings και τις λοιπές προβολές."""
+        self._on_bo_connection_selected(selected_value)
 
     def handle_sql_result(self, payload: dict) -> None:
         """
@@ -815,11 +703,8 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.database_tab_view.grid(row=0, column=0, sticky="nsew")
 
     def _on_database_bo_selected(self, selected_value: str) -> None:
-        """Συγχρονίζει το BOConnection ID που επιλέχθηκε στο Database tab."""
-
-        connection_id = self._extract_bo_id_from_option(selected_value)
-        if connection_id is not None:
-            self.selected_bo_connection_id = connection_id
+        """Συγχρονίζει την επιλογή Database με το AppSettings και τις λοιπές προβολές."""
+        self._on_bo_connection_selected(selected_value)
 
     def handle_database_action_result(self, payload: dict) -> None:
         """Προωθεί database action result στο DatabaseTab."""

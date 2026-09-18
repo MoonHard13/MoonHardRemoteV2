@@ -10,6 +10,7 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed `
     --hidden-import app.terminal_cli --hidden-import app.terminal_smoke `
     --hidden-import app.backup_cli --hidden-import app.database_cli `
     --hidden-import app.provider_transmitted_cli `
+    --hidden-import app.appsettings_cli --hidden-import app.appsettings_smoke `
     --icon .\dashboard\assets\MoonHardRemoteDashboard.ico `
     --add-data ".\dashboard\assets;assets" .\dashboard\app\main.py
 if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του Dashboard." }
@@ -18,3 +19,8 @@ if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του Dashboard." }
 python -m PyInstaller --noconfirm --clean --onefile --console `
     --name MoonHardRemoteTerminal --paths .\dashboard .\dashboard\app\terminal_cli.py
 if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του Terminal CLI." }
+
+# Δημιουργεί console EXE για ασφαλή προβολή AppSettings και ανακατευθύνσεις JSON.
+python -m PyInstaller --noconfirm --clean --onefile --console `
+    --name MoonHardRemoteAppSettings --paths .\dashboard .\dashboard\app\appsettings_cli.py
+if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του AppSettings CLI." }

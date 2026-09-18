@@ -1,0 +1,36 @@
+name: AppSettings Windows validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'dashboard/app/**'
+      - 'tests/test_appsettings.py'
+      - 'scripts/*appsettings*'
+      - 'scripts/build_dashboard_exe.ps1'
+      - '.github/workflows/appsettings-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  appsettings:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install application and build dependencies
+        run: python -m pip install -r dashboard/requirements.txt pyinstaller
+      - name: Test UI and executables in a clean directory
+        shell: pwsh
+        run: ./scripts/validate_appsettings_windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MoonHard-AppSettings-Windows
+          path: |
+            dist/MoonHardRemoteDashboard.exe
+            dist/MoonHardRemoteAppSettings.exe
+            dist/appsettings-smoke.json
