@@ -1,5 +1,6 @@
 """Στοχευμένες δοκιμές backup engine, scheduler, routing, UI και CLI."""
 
+import ast
 import importlib.util
 import sys
 import tempfile
@@ -366,7 +367,11 @@ class BackupIntegrationSourceTests(unittest.TestCase):
         window_source = (ROOT / "dashboard/app/views/manage/backup_window.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('"capabilities": ["database_backup_v1"]', client_source)
+        declarations = [node for node in ast.walk(ast.parse(client_source)) if isinstance(node, ast.Dict)]
+        capabilities = next(ast.literal_eval(node.values[index])
+                            for node in declarations for index, key in enumerate(node.keys)
+                            if isinstance(key, ast.Constant) and key.value == "capabilities")
+        self.assertIn("database_backup_v1", capabilities)
         self.assertIn("_handle_ack_timeout", window_source)
         self.assertIn("self.resizable(True, True)", window_source)
         self.assertNotIn("self.transient(parent)", window_source)

@@ -290,7 +290,7 @@ class MoonHardDashboardApp(ctk.CTk):
                 payload.get("message")
             )
 
-        elif message_type == "terminal_result":
+        elif message_type in ("terminal_result", "terminal_session_result", "terminal_session_output"):
             client_code = payload.get("client_code", "")
             manage_window = self.manage_windows.get(client_code)
 
@@ -572,7 +572,14 @@ class MoonHardDashboardApp(ctk.CTk):
         Μεταφέρει την αλλαγή κατάστασης σύνδεσης στο κύριο GUI thread.
         """
 
-        self.after(0, lambda: self.status_label.configure(text=status))
+        def update_status() -> None:
+            """Ενημερώνει και τα ανοικτά terminals για απώλεια της σύνδεσης."""
+            self.status_label.configure(text=status)
+            if status != "Online":
+                for window in self.manage_windows.values():
+                    if window.winfo_exists() and hasattr(window, "terminal_tab_view"):
+                        window.terminal_tab_view.connection_lost()
+        self.after(0, update_status)
 
     def on_close(self) -> None:
         """
@@ -776,18 +783,11 @@ class MoonHardDashboardApp(ctk.CTk):
         Στέλνει terminal command στον server για εκτέλεση στον επιλεγμένο client.
         """
 
-        if not self.websocket_client:
-            logger.warning("Dashboard WebSocket is not connected.")
-            return
-
-        self.websocket_client.send_message(payload)
-
-        logger.info(
-            "Terminal command sent. client_code=%s shell=%s command=%s",
-            payload.get("client_code"),
-            payload.get("shell"),
-            payload.get("command")
-        )
+        if not self.websocket_client or not self.websocket_client.is_connected():
+            raise RuntimeError("Το Dashboard δεν είναι συνδεδεμένο στον Server.")
+        if not self.websocket_client.send_message(payload):
+            raise RuntimeError("Δεν εστάλη το αίτημα Terminal. Ελέγξτε τη σύνδεση.")
+        logger.info("Αίτημα Terminal. type=%s client_code=%s", payload.get("type"), payload.get("client_code"))
 
     def _send_terminal_autocomplete(self, payload: dict[str, Any]) -> None:
         """
