@@ -20,6 +20,11 @@ if (-not $Process.WaitForExit(60000)) {
     Stop-Process -Id $Process.Id -Force
     throw "Έληξε η αναμονή Dashboard EXE."
 }
+if (Test-Path $ReportPath) {
+    # Τα δεδομένα της αναφοράς είναι αποκλειστικά συνθετικά.
+    Copy-Item $ReportPath (Join-Path $ProjectRoot "dist\overview-smoke.json")
+    Get-Content $ReportPath -Raw | Write-Host
+}
 if ($Process.ExitCode -ne 0) { throw "Αποτυχία Overview Dashboard EXE." }
 $Report = Get-Content $ReportPath -Raw | ConvertFrom-Json
 if (-not $Report.success) { throw "Αποτυχία ελέγχου Overview." }
