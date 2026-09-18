@@ -13,6 +13,14 @@ def main() -> None:
         from app.terminal_smoke import TerminalSmokeTest
         raise SystemExit(TerminalSmokeTest.run(sys.argv[2]))
 
+    if len(sys.argv) == 3 and sys.argv[1] == "--appsettings-self-test":
+        from app.appsettings_smoke import AppSettingsSmokeTest
+        raise SystemExit(AppSettingsSmokeTest.run(sys.argv[2]))
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--appsettings":
+        from app.appsettings_cli import main as appsettings_main
+        raise SystemExit(appsettings_main(sys.argv[2:]))
+
     if len(sys.argv) > 1 and sys.argv[1] == "--terminal":
         from app.terminal_cli import main as terminal_main
         raise SystemExit(terminal_main(sys.argv[2:]))
