@@ -366,7 +366,7 @@ class BackupIntegrationSourceTests(unittest.TestCase):
         window_source = (ROOT / "dashboard/app/views/manage/backup_window.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('"database_backup_v1"', client_source)
+        self.assertIn('"capabilities": ["database_backup_v1"]', client_source)
         self.assertIn("_handle_ack_timeout", window_source)
         self.assertIn("self.resizable(True, True)", window_source)
         self.assertNotIn("self.transient(parent)", window_source)
@@ -388,4 +388,3 @@ class BackupIntegrationSourceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

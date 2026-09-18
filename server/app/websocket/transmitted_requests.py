@@ -24,8 +24,6 @@ class TransmittedRequestRouter:
     REQUEST_TYPES = ("provider_transmitted_search", "provider_transmitted_types")
     RESULT_TYPES = tuple(f"{name}_result" for name in REQUEST_TYPES)
     TIMEOUT_SECONDS = 75
-    ALLOWED_FIELDS = ("type", "request_id", "client_code", "bo_connection_id", "start_date",
-                      "end_date", "number", "mark", "document_type", "before_oid", "limit")
 
     def __init__(self, manager) -> None:
         """Κρατά μόνο προσωρινά αναγνωριστικά συσχέτισης και χρονόμετρα."""
@@ -61,7 +59,9 @@ class TransmittedRequestRouter:
         self.pending[request_id] = pending
         pending.timer = asyncio.get_running_loop().call_later(
             self.TIMEOUT_SECONDS, lambda: asyncio.create_task(self._expire(request_id)))
-        forwarded = {key: data[key] for key in self.ALLOWED_FIELDS if key in data}
+        allowed = ("type", "request_id", "client_code", "bo_connection_id", "start_date",
+                   "end_date", "number", "mark", "document_type", "before_oid", "limit")
+        forwarded = {key: data[key] for key in allowed if key in data}
         try:
             sent = await self.manager.send_to_client(code, forwarded)
         except Exception:
