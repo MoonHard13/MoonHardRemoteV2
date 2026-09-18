@@ -109,6 +109,14 @@ class ReconciliationReader:
         if relation and "mydata_responseoid" in md:
             def field(name):
                 return f"NULLIF(LTRIM(RTRIM(CAST(md.[{name}] AS nvarchar(500)))), N'')" if name.lower() in md else "CAST(NULL AS nvarchar(500))"
+            # Μορφή ISO μέχρι δευτερόλεπτα: δεν εξαρτάται από γλώσσα και αποφεύγει
+            # την απόρριψη datetime2 υψηλής ακρίβειας από το παλαιότερο ISDATE.
+            invoice_date = "CAST(NULL AS nvarchar(500))"
+            if "mydata_responseinvoicedate" in md:
+                iso_date = "CONVERT(nvarchar(19), md.[MyDATA_ResponseInvoiceDate], 126)"
+                # Η σκέτη ISO ημέρα παίρνει ώρα με T για να μην επηρεάζεται το ISDATE από DATEFORMAT.
+                invoice_date = (f"CASE WHEN LEN({iso_date}) = 10 THEN {iso_date} + N'T00:00:00' "
+                    f"ELSE {iso_date} END")
             mark = field("MyDATA_ResponseInvoiceMARK")
             success_sql = ""
             if success_available:
@@ -123,20 +131,24 @@ class ReconciliationReader:
             response_sql = f"""OUTER APPLY (SELECT TOP (1) {mark} AS mark,
                 {field('MyDATA_ResponseInvoiceUID')} AS uid,
                 {field('MyDATA_ResponseInvoiceType')} AS invoiceType,
-                {field('MyDATA_ResponseInvoiceDate')} AS invoice_date,
+                {invoice_date} AS invoice_date,
                 {field('MyDATA_ResponseStatusCode')} AS response_status
                 FROM dbo.TblSnMyDATA_Response AS md {success_sql} WHERE {relation}
                 ORDER BY CASE WHEN {mark} IS NULL THEN 1 ELSE 0 END, md.MyDATA_ResponseOID DESC) AS response"""
         else:
-            # Το σκέτο NULL έχει τύπο int και δεν μετατρέπεται σε datetime2 από TRY_CONVERT.
+            # Τα κενά πεδία κρατούν τύπο κειμένου για ασφαλείς μετατροπές και COALESCE.
             empty_text = "CAST(NULL AS nvarchar(500))"
             response_sql = (f"OUTER APPLY (SELECT {empty_text} AS mark, {empty_text} AS uid, "
                 f"{empty_text} AS invoiceType, {empty_text} AS invoice_date, {empty_text} AS response_status) AS response")
             warnings.append(f"{source}: δεν τεκμηριώνεται σύνδεση παραστατικού με MyDATA_Response.")
         if source == "pos":
             warnings.append("POS: δεν έχει τεκμηριωθεί πηγή συνολικής αξίας/ΦΠΑ· τα ποσά δεν συγκρίνονται.")
-        effective_date = "COALESCE(TRY_CONVERT(datetime2, response.invoice_date), doc.dateIssued)" if source == "pos" else "doc.dateIssued"
-        verified = "CASE WHEN TRY_CONVERT(datetime2, response.invoice_date) IS NOT NULL THEN 1 ELSE 0 END" if source == "pos" else "1"
+        # ISDATE/CONVERT λειτουργούν και πριν από SQL Server 2012, χωρίς TRY_CONVERT.
+        # Η μη έγκυρη ημερομηνία παραμένει NULL, ώστε η πληρωμή να δηλώνεται μη επιβεβαιωμένη.
+        parsed_date = ("CASE WHEN ISDATE(response.invoice_date) = 1 "
+            "THEN CONVERT(datetime, response.invoice_date, 126) ELSE CAST(NULL AS datetime) END")
+        effective_date = f"COALESCE(({parsed_date}), doc.dateIssued)" if source == "pos" else "doc.dateIssued"
+        verified = "CASE WHEN ISDATE(response.invoice_date) = 1 THEN 1 ELSE 0 END" if source == "pos" else "1"
         if source == "pos":
             warnings.append("POS χωρίς MyDATA InvoiceDate: διαθέσιμη μόνο ημερομηνία πληρωμής· η έκδοση δεν επιβεβαιώνεται.")
         outer_top = "TOP (?) " if source == "pos" else ""

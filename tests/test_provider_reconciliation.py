@@ -512,7 +512,8 @@ class IssueDateTests(unittest.TestCase):
         schema=fixture.schema()
         schema['TblSnMyDATA_Response'].add('mydata_responseinvoicedate')
         query,params,_=fixture.query(schema=schema,before=100)
-        self.assertIn('COALESCE(TRY_CONVERT(datetime2, response.invoice_date), doc.dateIssued)',query)
+        self.assertIn('COALESCE((CASE WHEN ISDATE(response.invoice_date) = 1',query)
+        self.assertIn('THEN CONVERT(datetime, response.invoice_date, 126) ELSE CAST(NULL AS datetime) END)',query)
         self.assertIn('MAX(base.SalesPWDate) AS dateIssued',query)
         self.assertNotIn('GROUP BY base.SalesPWDate',query)
         self.assertNotIn('WHERE base.SalesPWDate',query)
@@ -521,7 +522,7 @@ class IssueDateTests(unittest.TestCase):
 
 
 class SQLFallbackAndDiagnosticsTests(unittest.TestCase):
-    def test_missing_date_field_is_text_null_for_try_convert(self):
+    def test_missing_date_field_is_text_null_for_safe_date_conversion(self):
         fixture = SQLReaderTests()
         schema = fixture.schema()
         self.assertNotIn('mydata_responseinvoicedate', schema['TblSnMyDATA_Response'])
@@ -579,6 +580,60 @@ class SQLFallbackAndDiagnosticsTests(unittest.TestCase):
         self.assertNotIn('012345678', message)
         connection.close.assert_called_once()
         cursor.close.assert_called_once()
+
+
+class LegacySQLCompatibilityTests(unittest.TestCase):
+    def test_no_modern_date_functions_for_any_supported_schema_or_source(self):
+        fixture = SQLReaderTests()
+        schemas = [fixture.schema(), fixture.schema(False)]
+        schemas.append({**fixture.schema(False), 'TblSnMyDATA_Response': set()})
+        with_date = fixture.schema()
+        with_date['TblSnMyDATA_Response'].add('mydata_responseinvoicedate')
+        schemas.append(with_date)
+        for schema in schemas:
+            for source in ('pos', 'sales'):
+                for single in (False, True):
+                    for before in (None, 42):
+                        with self.subTest(source=source, single=single, before=before, schema=schema):
+                            query, params, _ = fixture.query(source, schema, single, before)
+                            for function in ('TRY_CONVERT(', 'TRY_CAST(', 'DATEFROMPARTS(', 'FORMAT('):
+                                self.assertNotIn(function, query.upper())
+                            self.assertNotIn('datetime2', query.lower())
+                            self.assertEqual(query.count('?'), len(params))
+
+    def test_pos_iso_projection_removes_fraction_before_legacy_validation(self):
+        fixture = SQLReaderTests()
+        schema = fixture.schema()
+        schema['TblSnMyDATA_Response'].add('mydata_responseinvoicedate')
+        query, _, _ = fixture.query(schema=schema)
+        self.assertIn('CONVERT(nvarchar(19), md.[MyDATA_ResponseInvoiceDate], 126)', query)
+        self.assertIn("+ N'T00:00:00'", query)
+        self.assertIn('CASE WHEN ISDATE(response.invoice_date) = 1 THEN 1 ELSE 0 END AS issue_date_verified', query)
+        self.assertNotIn('CAST(md.[MyDATA_ResponseInvoiceDate] AS nvarchar', query)
+
+    def test_missing_response_date_preserves_guard_and_unverified_payment_fallback(self):
+        fixture = SQLReaderTests()
+        schema = fixture.schema(False)
+        schema['TblSnMyDATA_Response'] = set()
+        query, _, warnings = fixture.query(schema=schema)
+        self.assertIn('CAST(NULL AS nvarchar(500)) AS invoice_date', query)
+        self.assertIn('ELSE CAST(NULL AS datetime) END), doc.dateIssued)', query)
+        self.assertIn('ISDATE(response.invoice_date)', query)
+        self.assertTrue(any('η έκδοση δεν επιβεβαιώνεται' in text for text in warnings))
+
+    def test_date_only_iso_projection_uses_midnight_before_isdate(self):
+        fixture = SQLReaderTests()
+        schema = fixture.schema()
+        schema['TblSnMyDATA_Response'].add('mydata_responseinvoicedate')
+        query, _, _ = fixture.query(schema=schema)
+        self.assertIn("CASE WHEN LEN(CONVERT(nvarchar(19), md.[MyDATA_ResponseInvoiceDate], 126)) = 10", query)
+        self.assertIn("THEN CONVERT(nvarchar(19), md.[MyDATA_ResponseInvoiceDate], 126) + N'T00:00:00'", query)
+        self.assertIn("ELSE CONVERT(nvarchar(19), md.[MyDATA_ResponseInvoiceDate], 126) END AS invoice_date", query)
+
+    def test_native_195_diagnostics_remain_safe_and_identifiable(self):
+        exc = RuntimeError('42000', "'TRY_CONVERT' is not a recognized built-in function name. password=private-fixture (195) (SQLExecDirectW)")
+        self.assertEqual(Reader.sql_error_details(exc), ('42000', 195, 'unsupported_function'))
+        self.assertNotIn('private-fixture', str(Reader.sql_error_details(exc)))
 
 
 if __name__ == '__main__':
