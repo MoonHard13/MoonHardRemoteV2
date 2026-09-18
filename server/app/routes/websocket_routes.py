@@ -450,7 +450,7 @@ class WebSocketRoutes:
                         data.get("action"),
                         data.get("success"),
                     )
-                elif message_type in TerminalRequestRouter.RESULT_TYPES:
+                elif message_type in TerminalRequestRouter.RESULT_TYPES or message_type == "terminal_autocomplete_result":
                     logger.info("Απάντηση Terminal. type=%s session_id=%s", message_type, data.get("session_id"))
                 elif message_type in {
                     BackupRequestRouter.PROGRESS_TYPE,
@@ -968,7 +968,7 @@ class WebSocketRoutes:
             while True:
                 data = await websocket.receive_json()
 
-                if data.get("type") in TerminalRequestRouter.REQUEST_TYPES:
+                if data.get("type") in TerminalRequestRouter.REQUEST_TYPES or data.get("type") == "terminal_autocomplete":
                     logger.info("Αίτημα Terminal. type=%s session_id=%s", data.get("type"), data.get("session_id"))
                 elif str(data.get("type", "")).startswith("provider_transmitted_"):
                     logger.info("Dashboard transmitted-documents request. type=%s", data.get("type"))

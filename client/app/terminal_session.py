@@ -54,25 +54,7 @@ class PersistentShell:
 
     MAX_OUTPUT = 60000
     TIMEOUT = 60
-    PS_HOST = r"""+$mh_utf8 = New-Object System.Text.UTF8Encoding($false)
-[Console]::InputEncoding = $mh_utf8
-[Console]::OutputEncoding = $mh_utf8
-$OutputEncoding = $mh_utf8
-while ($null -ne ($mh_line = [Console]::ReadLine())) {
-    $mh_request = ConvertFrom-Json $mh_line
-    $mh_script = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($mh_request.command))
-    $LASTEXITCODE = 0
-    try {
-        . ([scriptblock]::Create($mh_script)) | Out-Default
-        $mh_ok = $?
-        $mh_code = if ($LASTEXITCODE -ne 0) { $LASTEXITCODE } elseif ($mh_ok) { 0 } else { 1 }
-    } catch {
-        $_ | Out-String | ForEach-Object { [Console]::Write($_) }
-        $mh_code = 1
-    }
-    [Console]::WriteLine($mh_request.token + ':' + $mh_code + ':' + (Get-Location).Path)
-}
-"""
+    PS_INIT = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); $OutputEncoding = [Console]::OutputEncoding\n\n"
 
     def __init__(self, shell: str) -> None:
         self.shell = shell
@@ -87,8 +69,7 @@ while ($null -ne ($mh_line = [Console]::ReadLine())) {
         if os.name != "nt":
             raise RuntimeError("Οι μόνιμες συνεδρίες Terminal απαιτούν Windows στον Client.")
         if self.shell == "powershell":
-            encoded = base64.b64encode(self.PS_HOST.encode("utf-16-le")).decode("ascii")
-            args = ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
+            args = ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-Command", "-"]
         else:
             args = ["cmd.exe", "/d", "/q", "/k", "chcp 65001>nul & prompt $s"]
         self.process = await asyncio.create_subprocess_exec(
@@ -96,13 +77,23 @@ while ($null -ne ($mh_line = [Console]::ReadLine())) {
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
+        if self.shell == "powershell":
+            self.process.stdin.write(self.PS_INIT.encode("ascii"))
+            await self.process.stdin.drain()
         logger.info("Εκκίνηση μόνιμου shell. shell=%s pid=%s", self.shell, self.process.pid)
 
     def script(self, command: str, token: str) -> bytes:
         """Κωδικοποιεί εντολή και πλαίσιο ολοκλήρωσης χωρίς αλλαγή της σύνταξης shell."""
         if self.shell == "powershell":
-            return (json.dumps({"command": base64.b64encode(command.encode("utf-8")).decode("ascii"),
-                                "token": token}) + "\n").encode("utf-8")
+            encoded = base64.b64encode(command.encode("utf-8")).decode("ascii")
+            script = (
+                "$LASTEXITCODE = 0; try { "
+                ". ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded + "')))) | Out-Default; "
+                "$mh_ok = $?; $mh_code = if ($LASTEXITCODE -ne 0) { $LASTEXITCODE } elseif ($mh_ok) { 0 } else { 1 } "
+                "} catch { $_ | Out-String | ForEach-Object { [Console]::Write($_) }; $mh_code = 1 }; "
+                "[Console]::WriteLine('" + token + ":' + $mh_code + ':' + (Get-Location).Path)\n\n"
+            )
+            return script.encode("ascii")
         return (command + '\r\n@echo ' + token + ':%errorlevel%:"%cd%"\r\n').encode("utf-8")
 
     async def execute(self, command: str, emit) -> dict:

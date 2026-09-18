@@ -801,10 +801,10 @@ class MoonHardDashboardApp(ctk.CTk):
         self.websocket_client.send_message(payload)
 
         logger.info(
-            "Terminal autocomplete sent. client_code=%s shell=%s command_text=%s",
+            "Terminal autocomplete sent. client_code=%s shell=%s request_id=%s",
             payload.get("client_code"),
             payload.get("shell"),
-            payload.get("command_text")
+            payload.get("request_id")
         )
 
     def _send_processes_request(self, payload: dict) -> None:

@@ -1,11 +1,15 @@
 """Ενιαίο terminal με προστατευμένο ιστορικό και επεξεργάσιμο ενεργό prompt."""
 
 import tkinter as tk
+import logging
 from contextlib import contextmanager
 
 import customtkinter as ctk
 
 from app.ui.theme import COLORS
+
+
+logger = logging.getLogger(__name__)
 
 
 class InlineTerminal(ctk.CTkTextbox):
@@ -180,6 +184,7 @@ class InlineTerminal(ctk.CTkTextbox):
             return "break"
         self.clipboard_clear()
         self.clipboard_append(selected)
+        logger.info("Αντιγραφή επιλογής Terminal.")
         return "break"
 
     def copy_all(self) -> str:
@@ -197,6 +202,7 @@ class InlineTerminal(ctk.CTkTextbox):
             if self.text.tag_ranges("sel"):
                 self.text.delete("sel.first", "sel.last")
             self.text.insert("insert", value[:8000])
+            logger.info("Επικόλληση στο ενεργό prompt Terminal.")
             self.text.see("insert")
         except tk.TclError:
             pass

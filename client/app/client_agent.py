@@ -343,7 +343,8 @@ class MoonHardClientAgent:
         while True:
             message = await websocket.recv()
             payload = json.loads(message)
-            if str(payload.get("type", "")).startswith("terminal_session_"):
+            if (str(payload.get("type", "")).startswith("terminal_session_")
+                    or payload.get("type") == "terminal_autocomplete"):
                 logger.info("Αίτημα Terminal: %s", payload.get("type"))
             elif str(payload.get("type", "")).startswith("provider_transmitted_"):
                 logger.info("Αίτημα διαβιβασμένων: %s", payload.get("type"))

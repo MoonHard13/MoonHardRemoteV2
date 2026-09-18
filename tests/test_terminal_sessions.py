@@ -46,18 +46,25 @@ class FramingTests(unittest.TestCase):
     def test_powershell_command_is_base64_not_interpolated(self):
         shell = sessions.PersistentShell("powershell")
         command = '$test = "Ελλάδα"; Write-Output $test'
-        payload = json.loads(shell.script(command, "token"))
-        self.assertEqual(sessions.base64.b64decode(payload['command']).decode('utf-8'), command)
-        self.assertEqual(payload['token'], "token")
+        script = shell.script(command, "token").decode('ascii')
+        encoded = sessions.base64.b64encode(command.encode('utf-8')).decode('ascii')
+        self.assertIn(encoded, script)
+        self.assertNotIn(command, script)
 
 
 class ProcessTests(unittest.IsolatedAsyncioTestCase):
     """Χρησιμοποιεί πραγματικό process για έλεγχο streaming, ορίων και timeout σε Linux."""
 
     async def asyncSetUp(self):
-        self.shell = sessions.PersistentShell("powershell")
+        class TestShell(sessions.PersistentShell):
+            """Δίνει στα process tests απλό JSON transport αντί για native shell σύνταξη."""
+            def script(self, command, token):
+                return (json.dumps({'command':sessions.base64.b64encode(command.encode()).decode(),
+                                    'token':token}) + '\n').encode()
+        self.shell = TestShell("powershell")
         worker = r'''
 import json, sys, time
+sys.stdout.reconfigure(encoding='utf-8')
 for line in sys.stdin:
     request = json.loads(line)
     import base64
@@ -244,7 +251,9 @@ class WindowsShellTests(unittest.IsolatedAsyncioTestCase):
             chunks.append(text)
         try:
             await shell.start()
-            await shell.execute('$test = "Ελλάδα"', emit)
+            first = await shell.execute('$test = "Ελλάδα"', emit)
+            self.assertFalse(first['session_closed'], ''.join(chunks))
+            self.assertEqual(first['exit_code'], 0, ''.join(chunks))
             result = await shell.execute('Write-Output $test', emit)
             self.assertIn('Ελλάδα', ''.join(chunks))
             self.assertEqual(result['exit_code'], 0)
