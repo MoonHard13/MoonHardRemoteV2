@@ -579,6 +579,8 @@ class MoonHardDashboardApp(ctk.CTk):
                 for window in self.manage_windows.values():
                     if window.winfo_exists() and hasattr(window, "terminal_tab_view"):
                         window.terminal_tab_view.connection_lost()
+                    if window.winfo_exists() and hasattr(window, "sql_tab_view"):
+                        window.sql_tab_view.set_online(False)
         self.after(0, update_status)
 
     def on_close(self) -> None:
@@ -1798,22 +1800,14 @@ class MoonHardDashboardApp(ctk.CTk):
                 }
             )
             
-    def _send_sql_execute(self, payload: dict[str, Any]) -> None:
-        """
-        Στέλνει SQL execute request στον server.
-        """
-
+    def _send_sql_execute(self, payload: dict[str, Any]) -> bool:
+        """Στέλνει το SQL αίτημα και ενημερώνει το UI όταν δεν μπορεί να αποσταλεί."""
         if not self.websocket_client:
             logger.warning("Dashboard WebSocket is not connected.")
-            return
-
-        self.websocket_client.send_message(payload)
-
-        logger.info(
-            "SQL execute sent. client_code=%s bo_connection_id=%s",
-            payload.get("client_code"),
-            payload.get("bo_connection_id")
-        )
+            return False
+        sent = self.websocket_client.send_message(payload)
+        logger.info("SQL request send. sent=%s type=%s bo_id=%s", sent, payload.get("type"), payload.get("bo_connection_id"))
+        return sent
 
     def _send_database_request(self, payload: dict[str, Any]) -> None:
         """Στέλνει ελεγχόμενη database action στον server."""

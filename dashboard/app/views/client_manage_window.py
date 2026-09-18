@@ -140,7 +140,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.appsettings_tab.grid_rowconfigure(0, weight=1)
         self.sql_tab = self.tabs.add("SSMS")
         self.sql_tab.grid_columnconfigure(0, weight=1)
-        self.sql_tab.grid_rowconfigure(2, weight=1)
+        self.sql_tab.grid_rowconfigure(0, weight=1)
         self.database_tab = self.tabs.add("Database")
         self.database_tab.grid_columnconfigure(0, weight=1)
         self.database_tab.grid_rowconfigure(0, weight=1)
@@ -269,6 +269,9 @@ class ClientManageWindow(ctk.CTkToplevel):
                     f"Code: {self.client_code}"
                 )
             )
+
+        if hasattr(self, "sql_tab_view"):
+            self.sql_tab_view.set_online(status == "online")
 
         if hasattr(self, "updates_tab_view"):
             self.updates_tab_view.update_client_state(self.client)
@@ -645,7 +648,8 @@ class ClientManageWindow(ctk.CTkToplevel):
             self.sql_tab,
             client_code=self.client_code,
             on_sql_execute_callback=self.on_sql_execute_callback,
-            on_bo_selected_callback=self._on_sql_bo_selected
+            on_bo_selected_callback=self._on_sql_bo_selected,
+            online=self.client.get("status", "online") == "online"
         )
         self.sql_tab_view.grid(row=0, column=0, sticky="nsew")
         
