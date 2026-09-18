@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import customtkinter as ctk
 from app.views.manage.sql_tab import SqlTab
+from app.ui.theme import COLORS
 
 
 class SqlSmokeTest:
@@ -14,7 +15,9 @@ class SqlSmokeTest:
         """Γράφει αναφορά με συνθετικά δεδομένα και προαιρετικό screenshot Windows."""
         root = tab = None
         try:
+            ctk.set_appearance_mode('dark')
             root = ctk.CTk();root.geometry('1350x900');root.title('MoonHard · SSMS preview')
+            root.configure(fg_color=COLORS.background)
             root.grid_columnconfigure(0,weight=1);root.grid_rowconfigure(0,weight=1)
             sent=[]
             tab=SqlTab(root,'SMOKE',sent.append);tab.grid(sticky='nsew')

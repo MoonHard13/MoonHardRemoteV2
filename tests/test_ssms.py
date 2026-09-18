@@ -173,6 +173,10 @@ class SqlUITests(unittest.TestCase):
         self.tab.execute_sql();rid=self.tab.current_sql_request_id
         self.tab.stop_sql_execution();self.tab.stop_sql_execution()
         self.assertEqual(sum(item['type']=='sql_cancel' for item in self.sent),1)
+        self.tab.handle_sql_cancel_result({'client_code':'TEST','request_id':rid,'success':False,'message':'Cancel failed'})
+        self.assertEqual(self.tab.stop_sql_button.cget('state'),'normal')
+        self.assertIn('Running',self.tab.status_label.cget('text'))
+        self.tab.stop_sql_execution()
         self.tab.handle_sql_cancel_result({'client_code':'TEST','request_id':rid,'success':True,'message':'Cancel sent'})
         self.assertTrue(self.tab.busy)
         self.reply(success=False,error='Cancelled')
@@ -211,6 +215,8 @@ class SqlUITests(unittest.TestCase):
     def test_failed_send_unlocks_and_disconnect_does_not_repeat_sql(self):
         self.tab.on_sql_execute_callback=lambda payload:False
         self.tab.execute_sql();self.assertFalse(self.tab.busy)
+        self.tab.set_online(True)
+        self.assertIn('Error',self.tab.status_label.cget('text'))
         self.tab.on_sql_execute_callback=self.sent.append
         self.tab.execute_sql();self.tab.set_online(False)
         self.assertFalse(self.tab.busy)

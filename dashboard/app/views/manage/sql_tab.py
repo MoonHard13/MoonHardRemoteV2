@@ -56,7 +56,7 @@ class SqlTab(ctk.CTkFrame):
         header.grid(row=0, column=0, padx=16, pady=(12, 10), sticky='ew')
         header.grid_columnconfigure(0, weight=1)
         self.header = header
-        ctk.CTkLabel(header, text='SSMS · SQL Workspace', font=FONTS.subtitle,
+        ctk.CTkLabel(header, text='SSMS · SQL Workspace', font=FONTS.subtitle, text_color=COLORS.text_primary,
                      anchor='w').grid(row=0, column=0, padx=18, pady=(12, 8), sticky='w')
         self.status_label = ctk.CTkLabel(header, text='Ready', font=FONTS.small,
                                         fg_color=COLORS.accent_soft, corner_radius=8, text_color=COLORS.accent)
@@ -177,6 +177,8 @@ class SqlTab(ctk.CTkFrame):
 
     def set_online(self, online: bool):
         """Ενημερώνει την κατάσταση χωρίς αυτόματη επανάληψη προηγούμενου SQL."""
+        if online == self._online:
+            return
         if not online and self.busy:
             self.results_panel.set_messages('Η σύνδεση διακόπηκε πριν ληφθεί τελικό αποτέλεσμα. Η κατάσταση της απομακρυσμένης εκτέλεσης είναι άγνωστη.', append=True)
             self.current_sql_request_id = ''
@@ -251,6 +253,7 @@ class SqlTab(ctk.CTkFrame):
         except Exception:
             self._stop_requested = False
             self._update_buttons()
+            self.status_label.configure(text=f'Running · ID {self._active_bo_id}', text_color=COLORS.info)
             self.results_panel.set_messages('Το αίτημα ακύρωσης δεν στάλθηκε.', append=True)
 
     def _accept(self, payload: dict, kind: str = '') -> bool:
@@ -302,6 +305,7 @@ class SqlTab(ctk.CTkFrame):
             if not payload.get('success'):
                 self._stop_requested = False
                 self._update_buttons()
+                self.status_label.configure(text=f'Running · ID {self._active_bo_id}', text_color=COLORS.info)
 
     def _load_sql_file(self):
         """Φορτώνει script χωρίς εκτέλεση και κρατά την εστίαση στο Manage window."""
