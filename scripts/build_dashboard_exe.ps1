@@ -12,6 +12,7 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed `
     --hidden-import app.provider_transmitted_cli `
     --hidden-import app.appsettings_cli --hidden-import app.appsettings_smoke `
     --hidden-import app.sql_cli --hidden-import app.sql_smoke `
+    --hidden-import app.overview_cli --hidden-import app.overview_smoke `
     --icon .\dashboard\assets\MoonHardRemoteDashboard.ico `
     --add-data ".\dashboard\assets;assets" .\dashboard\app\main.py
 if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του Dashboard." }
@@ -30,3 +31,8 @@ if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του AppSettings CLI.
 python -m PyInstaller --noconfirm --clean --onefile --console `
     --name MoonHardRemoteSSMS --paths .\dashboard .\dashboard\app\sql_cli.py
 if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του SSMS CLI." }
+
+# Console EXE για Overview metadata, rename και επιβεβαιωμένο reset token από CMD.
+python -m PyInstaller --noconfirm --clean --onefile --console `
+    --name MoonHardRemoteOverview --paths .\dashboard .\dashboard\app\overview_cli.py
+if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του Overview CLI." }

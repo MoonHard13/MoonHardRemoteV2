@@ -196,10 +196,20 @@ class MoonHardDashboardApp(ctk.CTk):
             self._request_client_groups()
 
         elif message_type == "rename_client_success":
+            client = payload.get("client") or {}
+            window = self.manage_windows.get(client.get("client_code"))
+            if window and window.winfo_exists():
+                window.overview_tab_view.handle_rename_result(payload)
+                window.update_client_data(client)
             logger.info("Client renamed successfully.")
 
         elif message_type == "rename_client_error":
-            logger.error("Client rename failed: %s", payload.get("message"))
+            pending = [window for window in self.manage_windows.values()
+                       if window.winfo_exists() and window.overview_tab_view.name_pending]
+            # Το υπάρχον error δεν έχει client_code: δεν αναθέτουμε ξένο error σε παράλληλο αίτημα.
+            if len(pending) == 1:
+                pending[0].overview_tab_view.handle_rename_result(payload)
+            logger.error("Client rename failed.")
 
         elif message_type == "client_token_reset_success":
             client_code = payload.get("client_code", "")
@@ -575,6 +585,9 @@ class MoonHardDashboardApp(ctk.CTk):
         def update_status() -> None:
             """Ενημερώνει και τα ανοικτά terminals για απώλεια της σύνδεσης."""
             self.status_label.configure(text=status)
+            for window in self.manage_windows.values():
+                if window.winfo_exists() and hasattr(window, "overview_tab_view"):
+                    window.overview_tab_view.set_dashboard_online(status == "Online")
             if status != "Online":
                 for window in self.manage_windows.values():
                     if window.winfo_exists() and hasattr(window, "terminal_tab_view"):
@@ -600,46 +613,22 @@ class MoonHardDashboardApp(ctk.CTk):
 
         self.destroy()
 
-    def _rename_client(self, client_code: str, display_name: str) -> None:
-        """
-        Στέλνει αίτημα αλλαγής φιλικού ονόματος client στον server.
-        """
-
+    def _rename_client(self, client_code: str, display_name: str) -> bool:
+        """Επιστρέφει πραγματική κατάσταση αποστολής χωρίς να δηλώνει αποθήκευση."""
         if not self.websocket_client:
-            return
+            return False
+        sent = self.websocket_client.send_message({"type": "rename_client", "client_code": client_code,
+                                                   "display_name": display_name})
+        logger.info("Rename client request. client_code=%s sent=%s", client_code, bool(sent))
+        return bool(sent)
 
-        self.websocket_client.send_message(
-            {
-                "type": "rename_client",
-                "client_code": client_code,
-                "display_name": display_name
-            }
-        )
-
-        logger.info(
-            "Rename client request sent. client_code=%s display_name=%s",
-            client_code,
-            display_name
-        )
-
-    def _reset_client_token(self, client_code: str) -> None:
-        """
-        Ζητάει reset του per-client token από τον server.
-        Ο client θα κάνει reconnect και θα δημιουργήσει νέο local token.
-        """
-
+    def _reset_client_token(self, client_code: str) -> bool:
+        """Στέλνει το υπάρχον reset request χωρίς να καταγράφει token."""
         if not self.websocket_client:
-            logger.warning("Cannot reset client token. WebSocket is not connected.")
-            return
-
-        self.websocket_client.send_message(
-            {
-                "type": "reset_client_token",
-                "client_code": client_code
-            }
-        )
-
-        logger.warning("Client token reset request sent. client_code=%s", client_code)
+            return False
+        sent = self.websocket_client.send_message({"type": "reset_client_token", "client_code": client_code})
+        logger.warning("Client token reset request. client_code=%s sent=%s", client_code, bool(sent))
+        return bool(sent)
 
     def _request_client_groups(self) -> None:
         """
@@ -1781,6 +1770,7 @@ class MoonHardDashboardApp(ctk.CTk):
         )
 
         self.manage_windows[client_code] = window
+        window.overview_tab_view.set_dashboard_online(bool(self.websocket_client and self.websocket_client.is_connected()))
         open_window_count = len(
             [
                 manage_window
