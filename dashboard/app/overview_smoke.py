@@ -16,7 +16,10 @@ class OverviewSmokeTest:
         """Δεν συνδέεται σε Server και δεν αλλάζει πραγματικό Client."""
         root=window=None
         try:
-            ctk.set_appearance_mode('dark');root=ctk.CTk();root.withdraw()
+            # Ο πραγματικός Dashboard parent είναι ορατός. Ο κρυφός parent
+            # στα Windows κρατά παλιές διαστάσεις στις θυγατρικές καρτέλες.
+            ctk.set_appearance_mode('dark');root=ctk.CTk();root.geometry('1350x900')
+            root.after(350,root.quit);root.mainloop()
             client={'client_code':'SMOKE','display_name':'InitialTest','pc_name':'PC-01','username':'operator',
                 'status':'online','ws_connected':True,'group_name':'Support','last_seen':'2026-09-18T12:00:00+00:00',
                 'app_version':'1.0.3','amv_version':'13.30.000','bo_version':'13.30.001',
@@ -27,11 +30,11 @@ class OverviewSmokeTest:
             # πραγματικό βρόχο Tk και τις αρχικές αλλαγές titlebar/theme,
             # που επαναφέρουν τη γεωμετρία, πριν κάνουμε resize και μέτρηση.
             window.after(350,root.quit);root.mainloop();root.update()
-            window.geometry('1350x900');window.after(150,root.quit);root.mainloop()
+            window.deiconify();window.geometry('1350x900');window.after(150,root.quit);root.mainloop()
             tab=window.overview_tab_view;tab._apply_layout();root.update()
             assert not hasattr(window,'header_title_label') and not hasattr(window,'header_info_label')
             assert window.tabs.winfo_height()>window.winfo_height()*.9
-            assert int(tab.right_stack.grid_info()['column'])==1, f'Wide layout width={tab.winfo_width()}'
+            assert int(tab.right_stack.grid_info()['column'])==1, f'Wide layout width={tab.winfo_width()}, window={window.geometry()}, mapped={window.winfo_ismapped()}'
             tab.copy_details();assert 'SECRET' not in root.clipboard_get()
             try:
                 import os
