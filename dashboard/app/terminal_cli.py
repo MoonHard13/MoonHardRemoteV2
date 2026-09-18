@@ -129,6 +129,9 @@ class TerminalCLI:
 
     def run(self, argv=None) -> int:
         """Επιστρέφει πραγματικό exit code ή σαφές μήνυμα αποτυχίας."""
+        for stream in (sys.stdin, sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
         parser = self.parser()
         args = parser.parse_args(argv)
         if not args.command and not args.interactive:
