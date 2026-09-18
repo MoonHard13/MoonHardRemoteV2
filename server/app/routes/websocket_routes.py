@@ -9,7 +9,6 @@ from app.websocket.connection_manager import connection_manager
 from app.websocket.backup_requests import BackupRequestRouter
 from app.websocket.database_requests import DatabaseRequestRouter
 from app.websocket.transmitted_requests import TransmittedRequestRouter
-from app.websocket.provider_diagnostic_requests import ProviderDiagnosticRequestRouter
 from app.repositories.client_repository import ClientRepository
 
 from app.config import AppConfig
@@ -34,7 +33,6 @@ class WebSocketRoutes:
         self.config = AppConfig()
         self.pending_requests: dict[str, WebSocket] = {}
         self.transmitted_requests = TransmittedRequestRouter(connection_manager)
-        self.provider_diagnostic_requests = ProviderDiagnosticRequestRouter(connection_manager)
         self.database_requests = DatabaseRequestRouter(connection_manager)
         self.backup_requests = BackupRequestRouter(connection_manager)
         self.heartbeat_db_write_interval_seconds = 300
@@ -434,9 +432,7 @@ class WebSocketRoutes:
                 data = await websocket.receive_json()
 
                 message_type = str(data.get("type", ""))
-                if message_type.startswith("provider_diagnostic_"):
-                    logger.info("Client Provider diagnostic message. type=%s", message_type)
-                elif message_type.startswith("provider_transmitted_"):
+                if message_type.startswith("provider_transmitted_"):
                     logger.info("Client transmitted-documents message. type=%s", message_type)
                 elif message_type == DatabaseRequestRouter.PROGRESS_TYPE:
                     logger.debug(
@@ -464,10 +460,6 @@ class WebSocketRoutes:
                     )
                 else:
                     logger.info("Client message received from %s: %s", client_code, data)
-
-                if data.get("type") in ProviderDiagnosticRequestRouter.RESULT_TYPES:
-                    await self.provider_diagnostic_requests.result(client_code, data)
-                    continue
 
                 if data.get("type") in TransmittedRequestRouter.RESULT_TYPES:
                     await self.transmitted_requests.result(client_code, data)
@@ -966,16 +958,10 @@ class WebSocketRoutes:
             while True:
                 data = await websocket.receive_json()
 
-                if str(data.get("type", "")).startswith("provider_diagnostic_"):
-                    logger.info("Dashboard Provider diagnostic request. type=%s", data.get("type"))
-                elif str(data.get("type", "")).startswith("provider_transmitted_"):
+                if str(data.get("type", "")).startswith("provider_transmitted_"):
                     logger.info("Dashboard transmitted-documents request. type=%s", data.get("type"))
                 else:
                     logger.info("Dashboard message received: %s", data)
-
-                if data.get("type") in ProviderDiagnosticRequestRouter.REQUEST_TYPES:
-                    await self.provider_diagnostic_requests.request(websocket, data)
-                    continue
 
                 if data.get("type") in TransmittedRequestRouter.REQUEST_TYPES:
                     await self.transmitted_requests.request(websocket, data)
@@ -2517,7 +2503,6 @@ class WebSocketRoutes:
                 )
 
         except WebSocketDisconnect:
-            self.provider_diagnostic_requests.discard_dashboard(websocket)
             self.transmitted_requests.discard_dashboard(websocket)
             self.database_requests.discard_dashboard(websocket)
             self.backup_requests.discard_dashboard(websocket)
@@ -2525,7 +2510,6 @@ class WebSocketRoutes:
 
         except Exception:
             logger.exception("Unexpected dashboard WebSocket error.")
-            self.provider_diagnostic_requests.discard_dashboard(websocket)
             self.transmitted_requests.discard_dashboard(websocket)
             self.database_requests.discard_dashboard(websocket)
             self.backup_requests.discard_dashboard(websocket)
@@ -2569,4 +2553,3 @@ async def dashboard_websocket_endpoint(websocket: WebSocket) -> None:
     """
 
     await websocket_routes.dashboard_socket(websocket)
-

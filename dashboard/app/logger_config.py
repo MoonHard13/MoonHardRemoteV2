@@ -3,8 +3,6 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from app.provider_diagnostic.security import SecretRedactingFormatter
-
 
 class DashboardLoggerConfig:
     """
@@ -29,7 +27,7 @@ class DashboardLoggerConfig:
             root_logger.removeHandler(handler)
             handler.close()
 
-        formatter = SecretRedactingFormatter(
+        formatter = logging.Formatter(
             "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
         )
 
