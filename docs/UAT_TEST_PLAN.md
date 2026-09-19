@@ -1,4 +1,4 @@
-MoonHard Remote V2 — UAT Test Plan
+MoonHard Remote — UAT Test Plan
 1. Current feature scope covered
 
 This UAT covers:
