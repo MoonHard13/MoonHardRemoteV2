@@ -135,6 +135,8 @@ class DashboardUITests(unittest.TestCase):
     def test_workspace_metrics_and_client_hierarchy(self):
         """Counters, status badge και client fields ενημερώνονται σωστά."""
 
+        from app.ui.theme import COLORS
+
         self.assertEqual(self.view.count_label.cget("text"), "1 / 1 shown")
         self.assertEqual(self.view.online_count_label.cget("text"), "1 online")
         self.assertEqual(
@@ -144,6 +146,41 @@ class DashboardUITests(unittest.TestCase):
         self.assertEqual(row["name_label"].cget("text"), "TEST CLIENT")
         self.assertEqual(row["group_label"].cget("text"), "Athens")
         self.assertEqual(row["status_text"].cget("text"), "ONLINE  ·  CONNECTED")
+        self.assertEqual(row["status_label"].cget("fg_color"), COLORS.success)
+        self.assertEqual(row["status_badge"].cget("fg_color"), COLORS.success_soft)
+        self.assertTrue(row["status_label"].grid_info())
+        self.assertTrue(row["status_badge"].grid_info())
+
+    def test_grouped_offline_client_keeps_red_status_markers(self):
+        """Group badge και scroll position δεν κρύβουν το offline styling."""
+
+        from app.ui.theme import COLORS
+
+        self.view.update_clients(
+            [
+                {
+                    "display_name": "GROUPED CLIENT",
+                    "pc_name": "GROUPED-PC",
+                    "username": "user",
+                    "client_code": "CLIENT-GROUPED",
+                    "status": "offline",
+                    "ws_connected": False,
+                    "group_name": "KASTELORIZO",
+                    "app_version": "1.0.13",
+                }
+            ],
+            force=True,
+        )
+        self.root.update()
+
+        row = self.view.client_rows["CLIENT-GROUPED"]
+        self.assertEqual(row["status_label"].cget("fg_color"), COLORS.danger)
+        self.assertEqual(row["status_badge"].cget("fg_color"), COLORS.danger_soft)
+        self.assertEqual(row["status_text"].cget("text"), "OFFLINE")
+        self.assertEqual(row["status_text"].cget("text_color"), COLORS.danger)
+        self.assertEqual(row["group_label"].cget("text"), "KASTELORIZO")
+        self.assertTrue(row["status_label"].grid_info())
+        self.assertTrue(row["status_badge"].grid_info())
 
     def test_toolbar_stacks_on_compact_window_and_shortcuts_work(self):
         """Η toolbar γίνεται δεύτερη σειρά χωρίς να χάνονται τα actions."""

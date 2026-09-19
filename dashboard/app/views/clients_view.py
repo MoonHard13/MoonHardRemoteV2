@@ -665,6 +665,7 @@ class ClientsView(ctk.CTkFrame):
             status_value = "OFFLINE"
 
         status_label = row_data.get("status_label")
+        status_badge = row_data.get("status_badge")
         name_label = row_data.get("name_label")
         group_label = row_data.get("group_label")
         identity_label = row_data.get("identity_label")
@@ -679,6 +680,9 @@ class ClientsView(ctk.CTkFrame):
             status_label.configure(
                 fg_color=COLORS.success if status == "online" else COLORS.danger
             )
+
+        if status_badge:
+            status_badge.configure(fg_color=status_background)
 
         if name_label:
             name_label.configure(text=presentation["name"])
@@ -695,7 +699,6 @@ class ClientsView(ctk.CTkFrame):
             status_text.configure(
                 text=status_value,
                 text_color=status_color,
-                fg_color=status_background
             )
 
         if manage_button:
@@ -1292,15 +1295,18 @@ class ClientsView(ctk.CTkFrame):
         row.grid(row=row_index, column=0, padx=4, pady=5, sticky="ew")
         row.grid_columnconfigure(1, weight=1)
 
-        status_label = ctk.CTkLabel(
+        # Fixed-size frames are used for the visual status markers. Empty
+        # CTkLabel widgets can occasionally fail to repaint after an item that
+        # started outside the visible scroll area is brought into view.
+        status_label = ctk.CTkFrame(
             row,
-            text="",
-            width=12,
-            height=46,
-            corner_radius=6,
+            width=8,
+            height=72,
+            corner_radius=4,
             fg_color=COLORS.success if status == "online" else COLORS.danger
         )
         status_label.grid(row=0, column=0, padx=(14, 12), pady=14, sticky="ns")
+        status_label.grid_propagate(False)
 
         info_frame = ctk.CTkFrame(row, fg_color="transparent")
         info_frame.grid(row=0, column=1, padx=(0, 12), pady=10, sticky="ew")
@@ -1359,20 +1365,35 @@ class ClientsView(ctk.CTkFrame):
         )
         meta_label.grid(row=3, column=0, columnspan=2, pady=(2, 0), sticky="ew")
 
-        actions = ctk.CTkFrame(row, fg_color="transparent")
+        actions = ctk.CTkFrame(
+            row,
+            width=258,
+            height=74,
+            fg_color="transparent"
+        )
         actions.grid(row=0, column=2, padx=(0, 14), pady=10, sticky="e")
-        actions.grid_columnconfigure(0, weight=1)
+        actions.grid_propagate(False)
+
+        status_badge = ctk.CTkFrame(
+            actions,
+            width=258,
+            height=28,
+            fg_color=status_background,
+            corner_radius=8
+        )
+        status_badge.grid(row=0, column=0, columnspan=3, pady=(0, 7), sticky="ew")
+        status_badge.grid_propagate(False)
+        status_badge.grid_columnconfigure(0, weight=1)
+        status_badge.grid_rowconfigure(0, weight=1)
 
         status_text = ctk.CTkLabel(
-            actions,
+            status_badge,
             text=status_value,
             font=FONTS.small,
             text_color=status_color,
-            fg_color=status_background,
-            corner_radius=8,
-            height=28
+            fg_color="transparent"
         )
-        status_text.grid(row=0, column=0, columnspan=3, pady=(0, 7), sticky="ew")
+        status_text.grid(row=0, column=0, sticky="nsew")
 
         manage_button = ctk.CTkButton(
             actions,
@@ -1416,6 +1437,7 @@ class ClientsView(ctk.CTkFrame):
             "frame": row,
             "client": client,
             "status_label": status_label,
+            "status_badge": status_badge,
             "name_label": name_label,
             "group_label": group_label,
             "identity_label": identity_label,
