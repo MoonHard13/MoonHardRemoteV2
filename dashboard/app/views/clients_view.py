@@ -1368,7 +1368,7 @@ class ClientsView(ctk.CTkFrame):
         actions = ctk.CTkFrame(
             row,
             width=258,
-            height=74,
+            height=70,
             fg_color="transparent"
         )
         actions.grid(row=0, column=2, padx=(0, 14), pady=10, sticky="e")
@@ -1381,7 +1381,7 @@ class ClientsView(ctk.CTkFrame):
             fg_color=status_background,
             corner_radius=8
         )
-        status_badge.grid(row=0, column=0, columnspan=3, pady=(0, 7), sticky="ew")
+        status_badge.place(x=0, y=0, width=258, height=28)
         status_badge.grid_propagate(False)
         status_badge.grid_columnconfigure(0, weight=1)
         status_badge.grid_rowconfigure(0, weight=1)
@@ -1395,8 +1395,17 @@ class ClientsView(ctk.CTkFrame):
         )
         status_text.grid(row=0, column=0, sticky="nsew")
 
-        manage_button = ctk.CTkButton(
+        buttons_frame = ctk.CTkFrame(
             actions,
+            width=258,
+            height=32,
+            fg_color="transparent"
+        )
+        buttons_frame.place(x=0, y=38, width=258, height=32)
+        buttons_frame.grid_propagate(False)
+
+        manage_button = ctk.CTkButton(
+            buttons_frame,
             text="Manage",
             width=94,
             height=32,
@@ -1404,20 +1413,20 @@ class ClientsView(ctk.CTkFrame):
             state="normal" if ws_connected else "disabled",
             **primary_button_style()
         )
-        manage_button.grid(row=1, column=0, padx=(0, 6))
+        manage_button.grid(row=0, column=0, padx=(0, 6))
 
         group_button = ctk.CTkButton(
-            actions,
+            buttons_frame,
             text="Group",
             width=76,
             height=32,
             command=lambda c=client: self._open_group_callback(c),
             **secondary_button_style()
         )
-        group_button.grid(row=1, column=1, padx=(0, 6))
+        group_button.grid(row=0, column=1, padx=(0, 6))
         
         delete_button = ctk.CTkButton(
-            actions,
+            buttons_frame,
             text="Delete",
             width=76,
             height=32,
@@ -1431,13 +1440,14 @@ class ClientsView(ctk.CTkFrame):
             corner_radius=SPACING.button_radius,
             font=FONTS.body_bold
         )
-        delete_button.grid(row=1, column=2)
+        delete_button.grid(row=0, column=2)
 
         self.client_rows[str(client_code).strip()] = {
             "frame": row,
             "client": client,
             "status_label": status_label,
             "status_badge": status_badge,
+            "buttons_frame": buttons_frame,
             "name_label": name_label,
             "group_label": group_label,
             "identity_label": identity_label,
