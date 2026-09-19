@@ -40,6 +40,17 @@ class DashboardSourceTests(unittest.TestCase):
         self.assertNotIn("Remote client control dashboard", source)
         self.assertIn("self.grid_rowconfigure(0, weight=1)", source)
 
+    def test_customtkinter_place_uses_constructor_dimensions(self):
+        """Το CTk place δεν δέχεται width/height όπως το tkinter place."""
+
+        source = (PROJECT_ROOT / "dashboard/app/views/clients_view.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("status_badge.place(x=0, y=0)", source)
+        self.assertIn("buttons_frame.place(x=0, y=38)", source)
+        self.assertNotIn("status_badge.place(x=0, y=0, width=", source)
+        self.assertNotIn("buttons_frame.place(x=0, y=38, width=", source)
+
     @unittest.skipUnless(
         importlib.util.find_spec("customtkinter"),
         "Απαιτεί CustomTkinter.",
