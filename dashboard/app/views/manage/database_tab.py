@@ -10,7 +10,6 @@ from app.views.manage.backup_window import BackupManagerWindow
 from app.ui.theme import (
     COLORS,
     FONTS,
-    SPACING,
     card_style,
     danger_button_style,
     primary_button_style,
@@ -57,54 +56,67 @@ class DatabaseTab(ctk.CTkFrame):
         self.action_buttons: list[ctk.CTkButton] = []
         self._shortcut_bindings: list[tuple[str, str | None]] = []
         self._shortcut_parent = self.winfo_toplevel()
+        self._layout_job: str | None = None
+        self._wide_layout: bool | None = None
+        self._description_labels: list[ctk.CTkLabel] = []
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
         self._build_ui()
+        self.bind("<Configure>", self._schedule_layout, add="+")
         self._bind_shortcuts()
 
     def _build_ui(self) -> None:
         """Δημιουργεί responsive διάταξη συμβατή με το theme του dashboard."""
 
-        content = ctk.CTkScrollableFrame(
-            self,
-            fg_color="transparent",
-            corner_radius=0,
-        )
-        content.grid(row=0, column=0, sticky="nsew")
-        content.grid_columnconfigure(0, weight=1)
-        content.grid_columnconfigure(1, weight=1)
-
-        header = ctk.CTkFrame(content, **card_style())
+        header = ctk.CTkFrame(self, **card_style())
         header.grid(
             row=0,
             column=0,
-            columnspan=2,
-            padx=SPACING.card_padding,
-            pady=(SPACING.card_padding, SPACING.inner_padding),
+            padx=16,
+            pady=(12, 10),
             sticky="ew",
         )
-        header.grid_columnconfigure(1, weight=1)
+        header.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
             header,
-            text="Database Maintenance",
-            font=FONTS.subtitle,
+            text="Database",
+            font=FONTS.title,
             text_color=COLORS.text_primary,
-        ).grid(row=0, column=0, columnspan=4, padx=18, pady=(16, 4), sticky="w")
+            anchor="w",
+        ).grid(row=0, column=0, padx=20, pady=(14, 0), sticky="ew")
+
+        self.selection_badge = ctk.CTkLabel(
+            header,
+            text="No database",
+            font=FONTS.small,
+            text_color=COLORS.warning,
+            fg_color=COLORS.warning_soft,
+            corner_radius=8,
+            height=28,
+        )
+        self.selection_badge.grid(row=0, column=1, padx=20, pady=(14, 0), sticky="e")
 
         ctk.CTkLabel(
             header,
-            text="BOConnection:",
-            font=FONTS.body_bold,
-            text_color=COLORS.text_primary,
-        ).grid(row=1, column=0, padx=(18, 10), pady=(6, 16), sticky="w")
+            text="Controlled information, cleanup, maintenance and backup operations",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+        ).grid(row=1, column=0, columnspan=2, padx=20, pady=(2, 10), sticky="ew")
+
+        toolbar = ctk.CTkFrame(header, fg_color="transparent")
+        toolbar.grid(row=2, column=0, columnspan=2, padx=20, pady=(0, 16), sticky="ew")
+        toolbar.grid_columnconfigure(0, weight=1)
 
         self.bo_option = ctk.CTkOptionMenu(
-            header,
+            toolbar,
             values=["No BOConnections"],
             command=self._on_bo_selected,
-            width=260,
+            width=320,
+            height=34,
+            dynamic_resizing=False,
             fg_color=COLORS.surface_light,
             button_color=COLORS.accent,
             button_hover_color=COLORS.accent_hover,
@@ -112,207 +124,201 @@ class DatabaseTab(ctk.CTkFrame):
             dropdown_fg_color=COLORS.surface,
             dropdown_hover_color=COLORS.surface_hover,
         )
-        self.bo_option.grid(row=1, column=1, padx=(0, 10), pady=(6, 16), sticky="w")
+        self.bo_option.grid(row=0, column=0, padx=(0, 10), sticky="ew")
 
         refresh_button = ctk.CTkButton(
-            header,
-            text="Refresh BO  [F5]",
-            width=125,
+            toolbar,
+            text="Refresh  ·  F5",
+            width=130,
+            height=34,
             command=self.refresh_bo_values,
             **secondary_button_style(),
         )
-        refresh_button.grid(row=1, column=2, padx=(0, 10), pady=(6, 16))
+        refresh_button.grid(row=0, column=1, padx=(0, 8))
 
         test_button = self._action_button(
-            header,
-            text="Test Connection  [Ctrl+T]",
+            toolbar,
+            text="Test connection  ·  Ctrl+T",
             command=lambda: self.request_action("test_connection"),
-            width=185,
+            width=205,
             style="primary",
         )
-        test_button.grid(row=1, column=3, padx=(0, 18), pady=(6, 16))
+        test_button.configure(height=34)
+        test_button.grid(row=0, column=2)
 
-        info_card = self._card(content, row=1, column=0, title="Database Information")
-        ctk.CTkLabel(
-            info_card,
-            text="Read the oldest date and row totals without changing data.",
-            font=FONTS.body,
-            text_color=COLORS.text_secondary,
-            justify="left",
-            wraplength=390,
-        ).grid(row=1, column=0, columnspan=2, padx=16, pady=(0, 12), sticky="w")
+        self.workspace = ctk.CTkFrame(self, fg_color="transparent")
+        self.workspace.grid(row=1, column=0, sticky="nsew")
+        self.workspace.grid_rowconfigure(0, weight=1)
+
+        self.operations = ctk.CTkScrollableFrame(
+            self.workspace, fg_color="transparent", corner_radius=0)
+        self.operations.grid_columnconfigure(0, weight=3)
+        self.operations.grid_columnconfigure(1, weight=2)
+        self.left_stack = ctk.CTkFrame(self.operations, fg_color="transparent")
+        self.right_stack = ctk.CTkFrame(self.operations, fg_color="transparent")
+        for stack in (self.left_stack, self.right_stack):
+            stack.grid_columnconfigure(0, weight=1)
+
+        self.info_card = self._card(
+            self.left_stack,
+            "Database information",
+            "Read the oldest available date and row totals without changing data.",
+        )
+        self.info_card.grid(row=0, column=0, pady=(0, 10), sticky="ew")
 
         sales_button = self._action_button(
-            info_card,
-            text="SalesTrans Info  [Ctrl+1]",
+            self.info_card,
+            text="SalesTrans information  ·  Ctrl+1",
             command=lambda: self.request_action("sales_trans_info"),
         )
-        sales_button.grid(row=2, column=0, padx=(16, 6), pady=(0, 16), sticky="ew")
+        sales_button.grid(row=2, column=0, padx=16, pady=(0, 8), sticky="ew")
 
         mydata_button = self._action_button(
-            info_card,
-            text="MyData Info  [Ctrl+2]",
+            self.info_card,
+            text="MyData failed responses  ·  Ctrl+2",
             command=lambda: self.request_action("mydata_info"),
         )
-        mydata_button.grid(row=2, column=1, padx=(6, 16), pady=(0, 16), sticky="ew")
+        mydata_button.grid(row=3, column=0, padx=16, pady=(0, 16), sticky="ew")
 
-        cleanup_card = self._card(content, row=1, column=1, title="MyData Cleanup")
-        cleanup_card.grid_columnconfigure(0, weight=1)
-        cleanup_card.grid_columnconfigure(1, weight=1)
+        self.history_card = self._card(
+            self.left_stack,
+            "Sales history",
+            "Run SnProPOS_SalesTrHist using the selected cutoff date.",
+        )
+        self.history_card.grid(row=1, column=0, pady=(0, 10), sticky="ew")
+        self.history_date_entry = self._date_field(
+            self.history_card, "Cutoff date  ·  YYYYMMDD", 2, 0)
+        history_button = self._action_button(
+            self.history_card,
+            text="Run sales history  ·  Ctrl+4",
+            command=self.request_history,
+        )
+        history_button.grid(row=3, column=0, padx=16, pady=(2, 16), sticky="ew")
 
-        ctk.CTkLabel(
-            cleanup_card,
-            text="Deletes only responses whose status is not Success within the selected range.",
-            font=FONTS.body,
-            text_color=COLORS.text_secondary,
-            justify="left",
-            wraplength=390,
-        ).grid(row=1, column=0, columnspan=2, padx=16, pady=(0, 10), sticky="w")
+        self.backup_card = self._card(
+            self.left_stack,
+            "Database backup",
+            "Create verified backups and manage daily, weekly or monthly schedules.",
+        )
+        self.backup_card.grid(row=2, column=0, pady=(0, 10), sticky="ew")
+        backup_button = ctk.CTkButton(
+            self.backup_card,
+            text="Open Backup Manager  ·  Ctrl+7",
+            command=self.open_backup_manager,
+            height=36,
+            **primary_button_style(),
+        )
+        backup_button.grid(row=2, column=0, padx=16, pady=(0, 16), sticky="ew")
 
-        self.clean_from_entry = self._date_field(cleanup_card, "From (YYYYMMDD)", 2, 0)
-        self.clean_to_entry = self._date_field(cleanup_card, "To (YYYYMMDD)", 2, 1)
+        self.cleanup_card = self._card(
+            self.right_stack,
+            "MyData cleanup",
+            "Delete only responses whose status is not Success within the selected range.",
+        )
+        self.cleanup_card.grid(row=0, column=0, pady=(0, 10), sticky="ew")
+        self.cleanup_card.grid_columnconfigure(0, weight=1)
+        self.cleanup_card.grid_columnconfigure(1, weight=1)
+
+        self.clean_from_entry = self._date_field(self.cleanup_card, "From  ·  YYYYMMDD", 2, 0)
+        self.clean_to_entry = self._date_field(self.cleanup_card, "To  ·  YYYYMMDD", 2, 1)
         self.clean_to_entry.insert(0, datetime.now().astimezone().strftime("%Y%m%d"))
 
-        clean_button = self._action_button(
-            cleanup_card,
-            text="Clean Responses  [Ctrl+3]",
+        self.clean_button = self._action_button(
+            self.cleanup_card,
+            text="Delete failed responses  ·  Ctrl+3",
             command=self.request_clean_mydata,
             style="danger",
         )
-        clean_button.grid(
+        self.clean_button.grid(
             row=4, column=0, columnspan=2, padx=16, pady=(2, 16), sticky="ew"
         )
 
-        history_card = self._card(content, row=2, column=0, title="Sales History")
-        history_card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(
-            history_card,
-            text="Runs SnProPOS_SalesTrHist for the selected cutoff date.",
-            font=FONTS.body,
-            text_color=COLORS.text_secondary,
-            justify="left",
-            wraplength=390,
-        ).grid(row=1, column=0, padx=16, pady=(0, 10), sticky="w")
-
-        self.history_date_entry = self._date_field(
-            history_card,
-            "Date (YYYYMMDD)",
-            2,
-            0,
+        self.maintenance_card = self._card(
+            self.right_stack,
+            "Database maintenance",
+            "Long-running operations. Use only outside working hours and after verifying a backup.",
+            warning=True,
         )
-        history_button = self._action_button(
-            history_card,
-            text="Run History  [Ctrl+4]",
-            command=self.request_history,
-        )
-        history_button.grid(row=4, column=0, padx=16, pady=(2, 16), sticky="ew")
+        self.maintenance_card.grid(row=1, column=0, pady=(0, 10), sticky="ew")
 
-        maintenance_card = self._card(
-            content, row=2, column=1, title="Database Maintenance"
-        )
-        ctk.CTkLabel(
-            maintenance_card,
-            text=(
-                "Run these operations only during non-working hours. "
-                "Rebuild may require significant time."
-            ),
-            font=FONTS.body,
-            text_color=COLORS.warning,
-            justify="left",
-            wraplength=390,
-        ).grid(row=1, column=0, columnspan=2, padx=16, pady=(0, 14), sticky="w")
-
-        shrink_button = self._action_button(
-            maintenance_card,
-            text="Shrink Database  [Ctrl+5]",
+        self.shrink_button = self._action_button(
+            self.maintenance_card,
+            text="Shrink database files  ·  Ctrl+5",
             command=self.request_shrink,
             style="danger",
         )
-        shrink_button.grid(row=2, column=0, padx=(16, 6), pady=(0, 16), sticky="ew")
+        self.shrink_button.grid(row=2, column=0, padx=16, pady=(0, 8), sticky="ew")
 
-        rebuild_button = self._action_button(
-            maintenance_card,
-            text="Rebuild / Update  [Ctrl+6]",
+        self.rebuild_button = self._action_button(
+            self.maintenance_card,
+            text="Rebuild / Update database  ·  Ctrl+6",
             command=self.request_rebuild,
             style="danger",
         )
-        rebuild_button.grid(row=2, column=1, padx=(6, 16), pady=(0, 16), sticky="ew")
-
-        backup_card = ctk.CTkFrame(content, **card_style())
-        backup_card.grid(
-            row=3,
-            column=0,
-            columnspan=2,
-            padx=SPACING.card_padding,
-            pady=(0, SPACING.inner_padding),
-            sticky="ew",
-        )
-        backup_card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(
-            backup_card,
-            text="Database Backup",
-            font=FONTS.section_title,
-            text_color=COLORS.text_primary,
-        ).grid(row=0, column=0, padx=16, pady=(14, 4), sticky="w")
-        ctk.CTkLabel(
-            backup_card,
-            text=(
-                "Create verified full backups to a local folder, UNC share, or cloud destination. "
-                "Configure daily, weekly, and monthly schedules that run on the remote client."
-            ),
-            font=FONTS.body,
-            text_color=COLORS.text_secondary,
-            justify="left",
-            wraplength=760,
-        ).grid(row=1, column=0, padx=16, pady=(0, 14), sticky="w")
-        ctk.CTkButton(
-            backup_card,
-            text="Backup & Scheduling  [Ctrl+7]",
-            command=self.open_backup_manager,
-            width=230,
-            **primary_button_style(),
-        ).grid(row=0, column=1, rowspan=2, padx=16, pady=16, sticky="e")
-
-        output_card = ctk.CTkFrame(content, **card_style())
-        output_card.grid(
-            row=4,
-            column=0,
-            columnspan=2,
-            padx=SPACING.card_padding,
-            pady=(0, SPACING.card_padding),
-            sticky="nsew",
-        )
-        output_card.grid_columnconfigure(0, weight=1)
-        output_card.grid_rowconfigure(3, weight=1)
+        self.rebuild_button.grid(row=3, column=0, padx=16, pady=(0, 16), sticky="ew")
 
         ctk.CTkLabel(
-            output_card,
+            self.operations,
+            text="F5 Refresh  ·  Ctrl+T Test  ·  Ctrl+1…7 Actions  ·  Ctrl+Shift+C Copy activity",
+            font=FONTS.small,
+            text_color=COLORS.text_muted,
+            anchor="w",
+        ).grid(row=2, column=0, columnspan=2, padx=8, pady=(2, 8), sticky="ew")
+
+        self.output_card = ctk.CTkFrame(self.workspace, **card_style())
+        self.output_card.grid_columnconfigure(0, weight=1)
+        self.output_card.grid_rowconfigure(3, weight=1)
+
+        ctk.CTkLabel(
+            self.output_card,
             text="Activity",
             font=FONTS.subtitle,
             text_color=COLORS.text_primary,
-        ).grid(row=0, column=0, padx=16, pady=(14, 2), sticky="w")
+        ).grid(row=0, column=0, padx=(18, 8), pady=(16, 4), sticky="w")
+
+        activity_actions = ctk.CTkFrame(self.output_card, fg_color="transparent")
+        activity_actions.grid(row=0, column=1, padx=(0, 14), pady=(12, 4), sticky="e")
+        ctk.CTkButton(
+            activity_actions,
+            text="Copy",
+            width=72,
+            height=30,
+            command=self.copy_output,
+            **secondary_button_style(),
+        ).grid(row=0, column=0, padx=(0, 6))
+        ctk.CTkButton(
+            activity_actions,
+            text="Clear",
+            width=72,
+            height=30,
+            command=self.clear_output,
+            **secondary_button_style(),
+        ).grid(row=0, column=1)
 
         self.status_label = ctk.CTkLabel(
-            output_card,
+            self.output_card,
             text="Ready",
-            font=FONTS.body,
-            text_color=COLORS.text_secondary,
+            font=FONTS.small,
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+            corner_radius=8,
+            height=28,
         )
-        self.status_label.grid(row=1, column=0, padx=16, pady=(0, 8), sticky="w")
+        self.status_label.grid(row=1, column=0, columnspan=2, padx=16, pady=(2, 10), sticky="ew")
 
         self.progress_bar = ctk.CTkProgressBar(
-            output_card,
+            self.output_card,
             height=8,
             fg_color=COLORS.surface_light,
             progress_color=COLORS.accent,
         )
-        self.progress_bar.grid(row=2, column=0, padx=16, pady=(0, 10), sticky="ew")
+        self.progress_bar.grid(row=2, column=0, columnspan=2, padx=16, pady=(0, 10), sticky="ew")
         self.progress_bar.set(0)
         self.progress_bar.grid_remove()
 
         self.output_box = ctk.CTkTextbox(
-            output_card,
-            height=150,
+            self.output_card,
+            height=240,
             fg_color=COLORS.background,
             text_color=COLORS.text_primary,
             border_color=COLORS.border,
@@ -320,7 +326,7 @@ class DatabaseTab(ctk.CTkFrame):
             font=FONTS.mono_body,
             wrap="word",
         )
-        self.output_box.grid(row=3, column=0, padx=16, pady=(0, 16), sticky="nsew")
+        self.output_box.grid(row=3, column=0, columnspan=2, padx=16, pady=(0, 16), sticky="nsew")
         self._set_output("Select a BOConnection and choose an operation.")
 
         self.clean_from_entry.bind(
@@ -329,21 +335,18 @@ class DatabaseTab(ctk.CTkFrame):
         self.clean_to_entry.bind("<Return>", lambda _event: self.request_clean_mydata())
         self.history_date_entry.bind("<Return>", lambda _event: self.request_history())
         self.refresh_bo_values()
+        self._apply_layout()
 
-    def _card(self, parent, row: int, column: int, title: str) -> ctk.CTkFrame:
+    def _card(
+        self,
+        parent,
+        title: str,
+        description: str,
+        warning: bool = False,
+    ) -> ctk.CTkFrame:
         """Δημιουργεί κοινό card λειτουργιών."""
 
         frame = ctk.CTkFrame(parent, **card_style())
-        frame.grid(
-            row=row,
-            column=column,
-            padx=(
-                SPACING.card_padding if column == 0 else 6,
-                6 if column == 0 else SPACING.card_padding,
-            ),
-            pady=(0, SPACING.inner_padding),
-            sticky="nsew",
-        )
         frame.grid_columnconfigure(0, weight=1)
         frame.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(
@@ -351,7 +354,19 @@ class DatabaseTab(ctk.CTkFrame):
             text=title,
             font=FONTS.section_title,
             text_color=COLORS.text_primary,
-        ).grid(row=0, column=0, columnspan=2, padx=16, pady=(14, 5), sticky="w")
+        ).grid(row=0, column=0, columnspan=2, padx=16, pady=(14, 3), sticky="w")
+        description_label = ctk.CTkLabel(
+            frame,
+            text=description,
+            font=FONTS.small,
+            text_color=COLORS.warning if warning else COLORS.text_secondary,
+            justify="left",
+            anchor="w",
+            wraplength=420,
+        )
+        description_label.grid(
+            row=1, column=0, columnspan=2, padx=16, pady=(0, 12), sticky="ew")
+        self._description_labels.append(description_label)
         return frame
 
     def _date_field(
@@ -400,11 +415,79 @@ class DatabaseTab(ctk.CTkFrame):
             parent,
             text=text,
             width=width,
+            height=36,
             command=command,
             **style_values,
         )
+        if style == "danger":
+            button.configure(
+                fg_color=COLORS.danger_soft,
+                hover_color=COLORS.danger,
+                text_color="#FF8A8A",
+                border_width=1,
+                border_color=COLORS.danger,
+                corner_radius=10,
+                font=FONTS.body_bold,
+            )
         self.action_buttons.append(button)
         return button
+
+    def _schedule_layout(self, _event=None) -> None:
+        """Συγχωνεύει τα διαδοχικά resize events πριν αλλάξει τη διάταξη."""
+
+        if self._layout_job:
+            self.after_cancel(self._layout_job)
+        self._layout_job = self.after(70, self._apply_layout)
+
+    def _apply_layout(self) -> None:
+        """Τοποθετεί το Activity δίπλα ή κάτω από τις λειτουργίες."""
+
+        self._layout_job = None
+        wide = self.winfo_width() >= 1550
+        self.workspace.grid_columnconfigure(0, weight=3 if wide else 1)
+        self.workspace.grid_columnconfigure(1, weight=2 if wide else 0)
+        self.workspace.grid_rowconfigure(0, weight=1 if wide else 3)
+        self.workspace.grid_rowconfigure(1, weight=0 if wide else 2)
+
+        self.operations.grid(
+            row=0,
+            column=0,
+            padx=(16, 8) if wide else 16,
+            pady=(0, 16 if wide else 8),
+            sticky="nsew",
+        )
+        self.output_card.grid(
+            row=0 if wide else 1,
+            column=1 if wide else 0,
+            padx=(8, 16) if wide else 16,
+            pady=(0, 16),
+            sticky="nsew",
+        )
+
+        operation_width = self.operations.winfo_width()
+        if operation_width <= 100 or self._wide_layout != wide:
+            available = max(self.winfo_width() - 48, 320)
+            operation_width = available * 0.58 if wide else available
+        paired_cards = operation_width >= 900
+        self.operations.grid_columnconfigure(0, weight=3 if paired_cards else 1)
+        self.operations.grid_columnconfigure(1, weight=2 if paired_cards else 0)
+        self.left_stack.grid(
+            row=0,
+            column=0,
+            padx=(4, 7) if paired_cards else 4,
+            sticky="new",
+        )
+        self.right_stack.grid(
+            row=0 if paired_cards else 1,
+            column=1 if paired_cards else 0,
+            padx=(7, 4) if paired_cards else 4,
+            sticky="new",
+        )
+
+        wrap = int(max(260, operation_width * (0.43 if paired_cards else 0.82)))
+        for label in self._description_labels:
+            label.configure(wraplength=wrap)
+        self._wide_layout = wide
 
     def refresh_bo_values(self) -> None:
         """Ανανεώνει τις BOConnections και κρατά την κοινή επιλογή του Manage window."""
@@ -422,12 +505,23 @@ class DatabaseTab(ctk.CTkFrame):
         )
         self.bo_option.configure(values=safe_values)
         self.bo_option.set(selected_value)
+        has_connection = bool(values)
+        self.selection_badge.configure(
+            text="Database selected" if has_connection else "No database",
+            text_color=COLORS.success if has_connection else COLORS.warning,
+            fg_color=COLORS.success_soft if has_connection else COLORS.warning_soft,
+        )
 
     def _on_bo_selected(self, selected_value: str) -> None:
         """Συγχρονίζει την επιλογή βάσης με τα υπόλοιπα tabs."""
 
         if self.on_bo_selected_callback:
             self.on_bo_selected_callback(selected_value)
+        self.selection_badge.configure(
+            text="Database selected",
+            text_color=COLORS.success,
+            fg_color=COLORS.success_soft,
+        )
 
     @staticmethod
     def _extract_bo_id(selected_value: str) -> int | None:
@@ -723,7 +817,14 @@ class DatabaseTab(ctk.CTkFrame):
     def _set_status(self, text: str, color: str) -> None:
         """Ενημερώνει τη γραμμή κατάστασης."""
 
-        self.status_label.configure(text=text, text_color=color)
+        soft_color = {
+            COLORS.success: COLORS.success_soft,
+            COLORS.warning: COLORS.warning_soft,
+            COLORS.danger: COLORS.danger_soft,
+            COLORS.accent: COLORS.accent_soft,
+            COLORS.info: COLORS.info_soft,
+        }.get(color, COLORS.surface_light)
+        self.status_label.configure(text=text, text_color=color, fg_color=soft_color)
 
     def _set_output(self, text: str) -> None:
         """Ενημερώνει το read-only πλαίσιο αποτελεσμάτων."""
@@ -740,6 +841,22 @@ class DatabaseTab(ctk.CTkFrame):
         self.output_box.insert("end", text)
         self.output_box.see("end")
         self.output_box.configure(state="disabled")
+
+    def copy_output(self) -> None:
+        """Αντιγράφει την ορατή αναφορά δραστηριότητας στο clipboard."""
+
+        text = self.output_box.get("1.0", "end-1c").strip()
+        if not text:
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+
+    def clear_output(self) -> None:
+        """Καθαρίζει μόνο την προβολή, χωρίς να επηρεάζει ενεργό αίτημα."""
+
+        self._set_output("No activity to display.")
+        if not self.current_request_id:
+            self._set_status("Ready", COLORS.info)
 
     @staticmethod
     def _valid_date(value: str) -> bool:
@@ -777,6 +894,7 @@ class DatabaseTab(ctk.CTkFrame):
             ("<Control-Key-5>", self.request_shrink),
             ("<Control-Key-6>", self.request_rebuild),
             ("<Control-Key-7>", self.open_backup_manager),
+            ("<Control-Shift-C>", self.copy_output),
         )
         for key, callback in shortcuts:
             binding_id = self._shortcut_parent.bind(
@@ -797,6 +915,9 @@ class DatabaseTab(ctk.CTkFrame):
     def destroy(self) -> None:
         """Αφαιρεί τα global bindings όταν κλείνει το Manage window."""
 
+        if self._layout_job:
+            self.after_cancel(self._layout_job)
+            self._layout_job = None
         if self.backup_window and self.backup_window.winfo_exists():
             self.backup_window.destroy()
         for key, binding_id in self._shortcut_bindings:
