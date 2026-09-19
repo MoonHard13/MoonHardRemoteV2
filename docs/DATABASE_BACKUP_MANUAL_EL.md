@@ -2,7 +2,7 @@
 
 ## Σκοπός
 
-Η λειτουργία **Database Backup & Scheduling** επιτρέπει τη δημιουργία και τη διαχείριση πλήρων αντιγράφων ασφαλείας SQL Server από το MoonHard Remote V2.
+Η λειτουργία **Database Backup & Scheduling** επιτρέπει τη δημιουργία και τη διαχείριση πλήρων αντιγράφων ασφαλείας SQL Server από το MoonHard Remote.
 
 Υποστηρίζονται:
 

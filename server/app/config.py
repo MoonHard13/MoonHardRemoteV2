@@ -15,7 +15,7 @@ class AppConfig:
 
         load_dotenv()
 
-        self.app_name = os.getenv("APP_NAME", "MoonHard Remote v2 Server")
+        self.app_name = os.getenv("APP_NAME", "MoonHard Remote Server")
         self.app_version = os.getenv("APP_VERSION", "1.0.0")
         self.environment = os.getenv("ENVIRONMENT", "development")
         self.client_token = os.getenv("CLIENT_TOKEN", "")

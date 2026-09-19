@@ -1,7 +1,7 @@
 <service>
   <id>MoonHardRemoteClient</id>
   <name>MoonHard Remote Client</name>
-  <description>MoonHard Remote v2 Client Agent</description>
+  <description>MoonHard Remote Client Agent</description>
 
   <executable>C:\Program Files\MoonHardRemoteV2\Client\MoonHardRemoteClient.exe</executable>
   <workingdirectory>C:\Program Files\MoonHardRemoteV2\Client</workingdirectory>

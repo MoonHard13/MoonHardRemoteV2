@@ -23,7 +23,7 @@ def main() -> None:
     ClientLoggerConfig.setup_logging(config.log_dir)
 
     logger = logging.getLogger(__name__)
-    logger.info("Εκκίνηση MoonHard Remote v2 Client.")
+    logger.info("Εκκίνηση MoonHard Remote Client.")
 
     from app.client_agent import MoonHardClientAgent
     agent = MoonHardClientAgent()

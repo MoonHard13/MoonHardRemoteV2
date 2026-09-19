@@ -6,7 +6,7 @@ from typing import Any
 import customtkinter as ctk
 
 from app.config import DashboardConfig
-from app.ui.theme import COLORS, FONTS, SPACING, card_style
+from app.ui.theme import COLORS, SPACING
 from app.views.clients_view import ClientsView
 from app.websocket_client import DashboardWebSocketClient
 from app.views.client_manage_window import ClientManageWindow
@@ -44,7 +44,7 @@ class MoonHardDashboardApp(ctk.CTk):
         self.clients_auto_refresh_job = None
                 
         self.title(self.config_data.app_name)
-        self.geometry("1100x700")
+        self.geometry("1280x760")
         self.minsize(900, 600)
 
         ctk.set_appearance_mode("dark")
@@ -62,60 +62,7 @@ class MoonHardDashboardApp(ctk.CTk):
         """
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
-
-        self.header_frame = ctk.CTkFrame(self, **card_style())
-        self.header_frame.grid(
-            row=0,
-            column=0,
-            padx=SPACING.window_padding,
-            pady=(SPACING.window_padding, SPACING.large_gap),
-            sticky="ew"
-        )
-        self.header_frame.grid_columnconfigure(0, weight=1)
-
-        title_label = ctk.CTkLabel(
-            self.header_frame,
-            text="MoonHard Remote v2",
-            font=FONTS.title,
-            text_color=COLORS.text_primary
-        )
-        title_label.grid(
-            row=0,
-            column=0,
-            padx=SPACING.card_padding,
-            pady=(SPACING.card_padding, 2),
-            sticky="w"
-        )
-
-        subtitle_label = ctk.CTkLabel(
-            self.header_frame,
-            text="Remote client control dashboard",
-            font=FONTS.body,
-            text_color=COLORS.text_secondary
-        )
-        subtitle_label.grid(
-            row=1,
-            column=0,
-            padx=SPACING.card_padding,
-            pady=(0, SPACING.card_padding),
-            sticky="w"
-        )
-
-        self.status_label = ctk.CTkLabel(
-            self.header_frame,
-            text="Σύνδεση...",
-            font=FONTS.body_bold,
-            text_color=COLORS.accent
-        )
-        self.status_label.grid(
-            row=0,
-            column=1,
-            rowspan=2,
-            padx=SPACING.card_padding,
-            pady=SPACING.card_padding,
-            sticky="e"
-        )
+        self.grid_rowconfigure(0, weight=1)
 
         self.clients_view = ClientsView(
             self,
@@ -129,12 +76,13 @@ class MoonHardDashboardApp(ctk.CTk):
             on_delete_group_callback=self._delete_client_group
         )
         self.clients_view.grid(
-            row=1,
+            row=0,
             column=0,
             padx=SPACING.window_padding,
-            pady=(0, SPACING.window_padding),
+            pady=SPACING.window_padding,
             sticky="nsew"
         )
+        self.status_label = self.clients_view.connection_status_label
 
     def _start_websocket(self) -> None:
         """
@@ -584,7 +532,7 @@ class MoonHardDashboardApp(ctk.CTk):
 
         def update_status() -> None:
             """Ενημερώνει και τα ανοικτά terminals για απώλεια της σύνδεσης."""
-            self.status_label.configure(text=status)
+            self.clients_view.set_connection_status(status)
             for window in self.manage_windows.values():
                 if window.winfo_exists() and hasattr(window, "overview_tab_view"):
                     window.overview_tab_view.set_dashboard_online(status == "Online")

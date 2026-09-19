@@ -46,6 +46,10 @@ class ClientsView(ctk.CTkFrame):
         self.manage_groups_window = None
         self.manage_groups_list_frame = None
         self.last_clients_snapshot: tuple = tuple()
+        self._layout_after_job = None
+        self._wide_layout: bool | None = None
+        self._shortcut_bindings: list[tuple[str, str | None]] = []
+        self._shortcut_parent = self.winfo_toplevel()
 
         self.on_manage_callback = on_manage_callback
         self.on_delete_callback = on_delete_callback
@@ -57,6 +61,8 @@ class ClientsView(ctk.CTkFrame):
         self.on_delete_group_callback = on_delete_group_callback
                        
         self._build_ui()
+        self.bind("<Configure>", self._schedule_layout, add="+")
+        self._bind_shortcuts()
 
     def _build_ui(self) -> None:
         """
@@ -66,55 +72,121 @@ class ClientsView(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
-        header_frame = ctk.CTkFrame(self, fg_color="transparent")
-        header_frame.grid(row=0, column=0, padx=SPACING.card_padding, pady=(SPACING.card_padding, 8), sticky="ew")
-        header_frame.grid_columnconfigure(0, weight=1)
-
-        title = ctk.CTkLabel(
-            header_frame,
-            text="Connected Clients",
-            font=FONTS.subtitle,
-            text_color=COLORS.text_primary
+        self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.header_frame.grid(
+            row=0,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(SPACING.card_padding, 12),
+            sticky="ew"
         )
-        title.grid(row=0, column=0, sticky="w")
+        self.header_frame.grid_columnconfigure(0, weight=1)
+
+        self.title_frame = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        self.title_frame.grid(row=0, column=0, sticky="w")
+
+        ctk.CTkLabel(
+            self.title_frame,
+            text="Clients",
+            font=FONTS.title,
+            text_color=COLORS.text_primary,
+            anchor="w"
+        ).grid(row=0, column=0, sticky="w")
+
+        ctk.CTkLabel(
+            self.title_frame,
+            text="Search, monitor and manage registered workstations",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w"
+        ).grid(row=1, column=0, pady=(2, 0), sticky="w")
+
+        self.metrics_frame = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        self.metrics_frame.grid(row=0, column=1, padx=(12, 0), sticky="e")
 
         self.count_label = ctk.CTkLabel(
-            header_frame,
-            text="0 clients",
-            font=FONTS.body_bold,
-            text_color=COLORS.text_secondary
+            self.metrics_frame,
+            text="0 / 0 shown",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            fg_color=COLORS.surface_light,
+            corner_radius=8,
+            height=30
         )
-        self.count_label.grid(row=0, column=1, sticky="e")
+        self.count_label.grid(row=0, column=0, padx=(0, 6))
 
-        filter_frame = ctk.CTkFrame(self, fg_color="transparent")
-        filter_frame.grid(row=1, column=0, padx=SPACING.card_padding, pady=(0, 10), sticky="ew")
-        filter_frame.grid_columnconfigure(0, weight=0, minsize=420)
-        filter_frame.grid_columnconfigure(1, weight=0)
-        filter_frame.grid_columnconfigure(2, weight=0)
-        filter_frame.grid_columnconfigure(3, weight=1)
-        filter_frame.grid_columnconfigure(4, weight=0)
-        filter_frame.grid_columnconfigure(5, weight=0)
-        filter_frame.grid_columnconfigure(6, weight=0)
-        filter_frame.grid_columnconfigure(7, weight=0)
+        self.online_count_label = ctk.CTkLabel(
+            self.metrics_frame,
+            text="0 online",
+            font=FONTS.small,
+            text_color=COLORS.success,
+            fg_color=COLORS.success_soft,
+            corner_radius=8,
+            height=30
+        )
+        self.online_count_label.grid(row=0, column=1, padx=(0, 6))
+
+        self.connected_count_label = ctk.CTkLabel(
+            self.metrics_frame,
+            text="0 controllable",
+            font=FONTS.small,
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+            corner_radius=8,
+            height=30
+        )
+        self.connected_count_label.grid(row=0, column=2, padx=(0, 6))
+
+        self.connection_status_label = ctk.CTkLabel(
+            self.metrics_frame,
+            text="Connecting",
+            font=FONTS.small,
+            text_color=COLORS.accent,
+            fg_color=COLORS.accent_soft,
+            corner_radius=8,
+            height=30
+        )
+        self.connection_status_label.grid(row=0, column=3)
+
+        self.toolbar_frame = ctk.CTkFrame(
+            self,
+            fg_color=COLORS.background,
+            corner_radius=SPACING.small_radius,
+            border_width=1,
+            border_color=COLORS.border_soft
+        )
+        self.toolbar_frame.grid(
+            row=1,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, 10),
+            sticky="ew"
+        )
+        self.toolbar_frame.grid_columnconfigure(0, weight=1)
+
+        self.filters_frame = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
+        self.filters_frame.grid_columnconfigure(0, weight=1, minsize=260)
 
         self.search_entry = ctk.CTkEntry(
-            filter_frame,
-            placeholder_text="Search by name, PC, user, code...",
-            width=420,
-            fg_color=COLORS.surface_light,
+            self.filters_frame,
+            placeholder_text="Search name, PC, user, code or version...",
+            height=36,
+            fg_color=COLORS.surface,
             border_color=COLORS.border,
             text_color=COLORS.text_primary,
             placeholder_text_color=COLORS.text_muted
         )
-        self.search_entry.grid(row=0, column=0, padx=(0, 10), pady=(0, 8), sticky="ew")
+        self.search_entry.grid(row=0, column=0, padx=(0, 8), sticky="ew")
         self.search_entry.bind("<KeyRelease>", lambda _event: self._schedule_filter_apply())
 
         self.status_option = ctk.CTkOptionMenu(
-            filter_frame,
+            self.filters_frame,
             values=["All", "Online", "Offline"],
             command=lambda _value: self._apply_filters(),
-            width=120,
-            fg_color=COLORS.surface_light,
+            width=125,
+            height=36,
+            dynamic_resizing=False,
+            fg_color=COLORS.surface,
             button_color=COLORS.accent,
             button_hover_color=COLORS.accent_hover,
             text_color=COLORS.text_primary,
@@ -122,14 +194,16 @@ class ClientsView(ctk.CTkFrame):
             dropdown_hover_color=COLORS.surface_hover
         )
         self.status_option.set("All")
-        self.status_option.grid(row=0, column=1, padx=(0, 10), pady=(0, 8), sticky="e")
+        self.status_option.grid(row=0, column=1, padx=(0, 8))
 
         self.group_option = ctk.CTkOptionMenu(
-            filter_frame,
+            self.filters_frame,
             values=["All Groups"],
             command=lambda _value: self._apply_filters(),
             width=180,
-            fg_color=COLORS.surface_light,
+            height=36,
+            dynamic_resizing=False,
+            fg_color=COLORS.surface,
             button_color=COLORS.accent,
             button_hover_color=COLORS.accent_hover,
             text_color=COLORS.text_primary,
@@ -137,43 +211,51 @@ class ClientsView(ctk.CTkFrame):
             dropdown_hover_color=COLORS.surface_hover
         )
         self.group_option.set("All Groups")
-        self.group_option.grid(row=0, column=2, padx=(0, 0), pady=(0, 8), sticky="e")
+        self.group_option.grid(row=0, column=2)
+
+        self.actions_frame = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
 
         self.manage_groups_button = ctk.CTkButton(
-            filter_frame,
-            text="Manage Groups",
-            width=130,
+            self.actions_frame,
+            text="Groups  ·  Ctrl+G",
+            width=145,
+            height=36,
             command=self._open_manage_groups_window,
             **secondary_button_style()
         )
-        self.manage_groups_button.grid(row=0, column=4, padx=(0, 10), sticky="e")
+        self.manage_groups_button.grid(row=0, column=0, padx=(0, 8))
 
-        clear_button = ctk.CTkButton(
-            filter_frame,
-            text="Clear",
-            width=80,
+        self.clear_button = ctk.CTkButton(
+            self.actions_frame,
+            text="Clear  ·  Ctrl+L",
+            width=120,
+            height=36,
             command=self._clear_filters,
             **secondary_button_style()
         )
-        clear_button.grid(row=0, column=5, padx=(0, 10), sticky="w")
+        self.clear_button.grid(row=0, column=1, padx=(0, 8))
 
         self.refresh_button = ctk.CTkButton(
-            filter_frame,
-            text="Refresh",
-            width=90,
+            self.actions_frame,
+            text="Refresh  ·  F5",
+            width=120,
+            height=36,
             command=self.request_refresh,
             **primary_button_style()
         )
-        self.refresh_button.grid(row=0, column=6, padx=(0, 10), sticky="w")
+        self.refresh_button.grid(row=0, column=2, padx=(0, 8))
 
         self.bulk_update_button = ctk.CTkButton(
-            filter_frame,
-            text="Bulk Update",
-            width=120,
+            self.actions_frame,
+            text="Bulk update  ·  Ctrl+U",
+            width=175,
+            height=36,
             command=self.request_bulk_update,
             **primary_button_style()
         )
-        self.bulk_update_button.grid(row=0, column=7, padx=(0, 0), sticky="w")
+        self.bulk_update_button.grid(row=0, column=3)
+
+        self._apply_layout()
 
         self.scroll_frame = ctk.CTkScrollableFrame(
             self,
@@ -188,6 +270,102 @@ class ClientsView(ctk.CTkFrame):
             sticky="nsew"
         )
         self.scroll_frame.grid_columnconfigure(0, weight=1)
+
+    def _schedule_layout(self, _event=None) -> None:
+        """Συγχωνεύει τα διαδοχικά resize events πριν αλλάξει τη διάταξη."""
+
+        if self._layout_after_job:
+            self.after_cancel(self._layout_after_job)
+        self._layout_after_job = self.after(70, self._apply_layout)
+
+    def _apply_layout(self) -> None:
+        """Προσαρμόζει header και toolbar στο διαθέσιμο πλάτος."""
+
+        self._layout_after_job = None
+        wide = self.winfo_width() >= 1250
+
+        self.header_frame.grid_columnconfigure(1, weight=0 if wide else 1)
+        self.title_frame.grid(row=0, column=0, sticky="w")
+        self.metrics_frame.grid(
+            row=0 if wide else 1,
+            column=1 if wide else 0,
+            padx=(12, 0) if wide else 0,
+            pady=0 if wide else (10, 0),
+            sticky="e" if wide else "w"
+        )
+
+        self.toolbar_frame.grid_columnconfigure(0, weight=1)
+        self.toolbar_frame.grid_columnconfigure(1, weight=0 if wide else 1)
+        self.filters_frame.grid(
+            row=0,
+            column=0,
+            padx=(14, 8) if wide else 14,
+            pady=14,
+            sticky="ew"
+        )
+        self.actions_frame.grid(
+            row=0 if wide else 1,
+            column=1 if wide else 0,
+            padx=(8, 14) if wide else 14,
+            pady=14 if wide else (0, 14),
+            sticky="e"
+        )
+        detail_wrap = max(320, self.winfo_width() - 430)
+        for row_data in self.client_rows.values():
+            for label_name in ("identity_label", "versions_label", "meta_label"):
+                label = row_data.get(label_name)
+                if label and label.winfo_exists():
+                    label.configure(wraplength=detail_wrap)
+        self._wide_layout = wide
+
+    def set_connection_status(self, status: str) -> None:
+        """Ενημερώνει το compact badge σύνδεσης του dashboard."""
+
+        normalized = str(status or "").strip().lower()
+        if normalized == "online":
+            text = "Dashboard online"
+            text_color = COLORS.success
+            background = COLORS.success_soft
+        elif normalized in {"σύνδεση...", "connecting", "connecting..."}:
+            text = "Connecting"
+            text_color = COLORS.accent
+            background = COLORS.accent_soft
+        else:
+            text = status or "Offline"
+            text_color = COLORS.danger
+            background = COLORS.danger_soft
+
+        self.connection_status_label.configure(
+            text=text,
+            text_color=text_color,
+            fg_color=background
+        )
+
+    def _bind_shortcuts(self) -> None:
+        """Συνδέει τα shortcuts της αρχικής οθόνης στο κεντρικό παράθυρο."""
+
+        shortcuts = (
+            ("<Control-f>", lambda: self.search_entry.focus_set()),
+            ("<Control-l>", self._clear_filters),
+            ("<Control-g>", self._open_manage_groups_window),
+            ("<Control-u>", self.request_bulk_update),
+            ("<F5>", self.request_refresh),
+        )
+        for key, callback in shortcuts:
+            binding_id = self._shortcut_parent.bind(
+                key,
+                lambda _event, action=callback: self._run_visible_shortcut(action),
+                add="+"
+            )
+            self._shortcut_bindings.append((key, binding_id))
+
+    def _run_visible_shortcut(self, callback) -> str | None:
+        """Εκτελεί shortcut μόνο όταν η αρχική προβολή είναι ορατή."""
+
+        if not self.winfo_exists() or not self.winfo_viewable():
+            return None
+        callback()
+        return "break"
 
     def update_clients(self, clients: list[dict], force: bool = False) -> bool:
         """
@@ -312,10 +490,17 @@ class ClientsView(ctk.CTkFrame):
             for client in self.clients
             if str(client.get("status", "offline")).lower() == "online"
         )
+        connected_count = sum(
+            1
+            for client in self.clients
+            if bool(client.get("ws_connected", False))
+        )
 
         self.count_label.configure(
-            text=f"{visible_count} shown / {len(self.clients)} total · {online_count} online"
+            text=f"{visible_count} / {len(self.clients)} shown"
         )
+        self.online_count_label.configure(text=f"{online_count} online")
+        self.connected_count_label.configure(text=f"{connected_count} controllable")
 
 
     def _hide_empty_label(self) -> None:
@@ -415,25 +600,41 @@ class ClientsView(ctk.CTkFrame):
         Δημιουργεί το κείμενο πληροφοριών για ένα client row.
         """
 
-        client_code = client.get("client_code", "-")
-        display_name = client.get("display_name") or client.get("pc_name") or "-"
-        pc_name = client.get("pc_name", "-")
-        username = client.get("username", "-")
-        app_version = client.get("app_version", "-")
-        last_seen = client.get("last_seen", "-")
-        group_name = client.get("group_name") or "Ungrouped"
-        amv_version = client.get("amv_version") or "-"
-        bo_version = client.get("bo_version") or "-"
-        etp_version = client.get("etp_version") or "-"
-        aws_version = client.get("aws_version") or "-"
+        presentation = self._client_presentation(client)
 
         return (
-            f"{display_name}\n"
-            f"PC: {pc_name}  •  User: {username}  •  MoonHard: {app_version}\n"
-            f"AMV: {amv_version}  •  BO: {bo_version}  •  ETP: {etp_version}  •  AWS: {aws_version}\n"
-            f"Group: {group_name}  •  Code: {client_code}\n"
-            f"Last seen: {last_seen}"
+            f"{presentation['name']}\n"
+            f"{presentation['identity']}\n"
+            f"{presentation['versions']}\n"
+            f"{presentation['meta']}"
         )
+
+    @staticmethod
+    def _client_presentation(client: dict) -> dict[str, str]:
+        """Μετατρέπει τα raw client δεδομένα σε σύντομα UI strings."""
+
+        client_code = str(client.get("client_code") or "-")
+        display_name = str(client.get("display_name") or client.get("pc_name") or "-")
+        pc_name = str(client.get("pc_name") or "-")
+        username = str(client.get("username") or "-")
+        app_version = str(client.get("app_version") or "-")
+        last_seen = str(client.get("last_seen") or "-")
+        group_name = str(client.get("group_name") or "Ungrouped")
+        amv_version = str(client.get("amv_version") or "-")
+        bo_version = str(client.get("bo_version") or "-")
+        etp_version = str(client.get("etp_version") or "-")
+        aws_version = str(client.get("aws_version") or "-")
+
+        return {
+            "name": display_name,
+            "group": group_name,
+            "identity": f"PC  {pc_name}   ·   User  {username}",
+            "versions": (
+                f"MoonHard  {app_version}   ·   AMV  {amv_version}   ·   "
+                f"BO  {bo_version}   ·   ETP  {etp_version}   ·   AWS  {aws_version}"
+            ),
+            "meta": f"Code  {client_code}   ·   Last seen  {last_seen}",
+        }
 
 
     def _update_client_row_widgets(self, client_code: str, client: dict) -> None:
@@ -447,27 +648,54 @@ class ClientsView(ctk.CTkFrame):
             return
 
         status = str(client.get("status", "offline")).lower()
-        status_color = COLORS.success if status == "online" else COLORS.danger
         ws_connected = bool(client.get("ws_connected", False))
-        controllable_text = "CONNECTED" if ws_connected else "NOT CONNECTED"
+        presentation = self._client_presentation(client)
+
+        if status == "online" and ws_connected:
+            status_color = COLORS.success
+            status_background = COLORS.success_soft
+            status_value = "ONLINE  ·  CONNECTED"
+        elif status == "online":
+            status_color = COLORS.warning
+            status_background = COLORS.warning_soft
+            status_value = "ONLINE  ·  NOT CONNECTED"
+        else:
+            status_color = COLORS.danger
+            status_background = COLORS.danger_soft
+            status_value = "OFFLINE"
 
         status_label = row_data.get("status_label")
-        info_label = row_data.get("info_label")
+        name_label = row_data.get("name_label")
+        group_label = row_data.get("group_label")
+        identity_label = row_data.get("identity_label")
+        versions_label = row_data.get("versions_label")
+        meta_label = row_data.get("meta_label")
         status_text = row_data.get("status_text")
         manage_button = row_data.get("manage_button")
         group_button = row_data.get("group_button")
         delete_button = row_data.get("delete_button")
 
         if status_label:
-            status_label.configure(fg_color=status_color)
+            status_label.configure(
+                fg_color=COLORS.success if status == "online" else COLORS.danger
+            )
 
-        if info_label:
-            info_label.configure(text=self._build_client_main_text(client))
+        if name_label:
+            name_label.configure(text=presentation["name"])
+        if group_label:
+            group_label.configure(text=presentation["group"])
+        if identity_label:
+            identity_label.configure(text=presentation["identity"])
+        if versions_label:
+            versions_label.configure(text=presentation["versions"])
+        if meta_label:
+            meta_label.configure(text=presentation["meta"])
 
         if status_text:
             status_text.configure(
-                text=f"{status.upper()} / {controllable_text}",
-                text_color=status_color
+                text=status_value,
+                text_color=status_color,
+                fg_color=status_background
             )
 
         if manage_button:
@@ -1036,103 +1264,188 @@ class ClientsView(ctk.CTkFrame):
         """
 
         status = str(client.get("status", "offline")).lower()
-        status_color = COLORS.success if status == "online" else COLORS.danger
         ws_connected = bool(client.get("ws_connected", False))
-        controllable_text = "CONNECTED" if ws_connected else "NOT CONNECTED"
-        
-        client_code = client.get("client_code", "-")
-        display_name = client.get("display_name") or client.get("pc_name") or "-"
-        pc_name = client.get("pc_name", "-")
-        username = client.get("username", "-")
-        app_version = client.get("app_version", "-")
-        last_seen = client.get("last_seen", "-")
-        group_name = client.get("group_name") or "Ungrouped"
-        amv_version = client.get("amv_version") or "-"
-        bo_version = client.get("bo_version") or "-"
-        etp_version = client.get("etp_version") or "-"
-        aws_version = client.get("aws_version") or "-"
+        presentation = self._client_presentation(client)
+        client_code = str(client.get("client_code") or "-")
+        detail_wrap = max(320, self.winfo_width() - 430)
+
+        if status == "online" and ws_connected:
+            status_color = COLORS.success
+            status_background = COLORS.success_soft
+            status_value = "ONLINE  ·  CONNECTED"
+        elif status == "online":
+            status_color = COLORS.warning
+            status_background = COLORS.warning_soft
+            status_value = "ONLINE  ·  NOT CONNECTED"
+        else:
+            status_color = COLORS.danger
+            status_background = COLORS.danger_soft
+            status_value = "OFFLINE"
 
         row = ctk.CTkFrame(
             self.scroll_frame,
             fg_color=COLORS.surface,
-            corner_radius=SPACING.card_radius,
+            corner_radius=SPACING.small_radius,
             border_width=1,
             border_color=COLORS.border_soft
         )
-        row.grid(row=row_index, column=0, padx=4, pady=6, sticky="ew")
+        row.grid(row=row_index, column=0, padx=4, pady=5, sticky="ew")
         row.grid_columnconfigure(1, weight=1)
 
         status_label = ctk.CTkLabel(
             row,
             text="",
-            width=18,
-            height=18,
-            corner_radius=9,
-            fg_color=status_color
+            width=12,
+            height=46,
+            corner_radius=6,
+            fg_color=COLORS.success if status == "online" else COLORS.danger
         )
-        status_label.grid(row=0, column=0, padx=(15, 10), pady=12, sticky="w")
+        status_label.grid(row=0, column=0, padx=(14, 12), pady=14, sticky="ns")
 
-        main_text = self._build_client_main_text(client)
+        info_frame = ctk.CTkFrame(row, fg_color="transparent")
+        info_frame.grid(row=0, column=1, padx=(0, 12), pady=10, sticky="ew")
+        info_frame.grid_columnconfigure(1, weight=1)
 
-        info_label = ctk.CTkLabel(
-            row,
-            text=main_text,
-            font=FONTS.body,
+        name_label = ctk.CTkLabel(
+            info_frame,
+            text=presentation["name"],
+            font=FONTS.section_title,
             text_color=COLORS.text_primary,
-            justify="left",
             anchor="w"
         )
-        info_label.grid(row=0, column=1, padx=10, pady=12, sticky="ew")
+        name_label.grid(row=0, column=0, padx=(0, 8), sticky="w")
+
+        group_label = ctk.CTkLabel(
+            info_frame,
+            text=presentation["group"],
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            fg_color=COLORS.surface_light,
+            corner_radius=7,
+            height=24
+        )
+        group_label.grid(row=0, column=1, sticky="w")
+
+        identity_label = ctk.CTkLabel(
+            info_frame,
+            text=presentation["identity"],
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+            justify="left",
+            wraplength=detail_wrap
+        )
+        identity_label.grid(row=1, column=0, columnspan=2, pady=(3, 0), sticky="ew")
+
+        versions_label = ctk.CTkLabel(
+            info_frame,
+            text=presentation["versions"],
+            font=FONTS.small,
+            text_color=COLORS.text_primary,
+            anchor="w",
+            justify="left",
+            wraplength=detail_wrap
+        )
+        versions_label.grid(row=2, column=0, columnspan=2, pady=(2, 0), sticky="ew")
+
+        meta_label = ctk.CTkLabel(
+            info_frame,
+            text=presentation["meta"],
+            font=FONTS.small,
+            text_color=COLORS.text_muted,
+            anchor="w",
+            justify="left",
+            wraplength=detail_wrap
+        )
+        meta_label.grid(row=3, column=0, columnspan=2, pady=(2, 0), sticky="ew")
+
+        actions = ctk.CTkFrame(row, fg_color="transparent")
+        actions.grid(row=0, column=2, padx=(0, 14), pady=10, sticky="e")
+        actions.grid_columnconfigure(0, weight=1)
 
         status_text = ctk.CTkLabel(
-            row,
-            text=f"{status.upper()} / {controllable_text}",
-            font=FONTS.body_bold,
-            text_color=status_color
+            actions,
+            text=status_value,
+            font=FONTS.small,
+            text_color=status_color,
+            fg_color=status_background,
+            corner_radius=8,
+            height=28
         )
-        status_text.grid(row=0, column=2, padx=15, pady=12, sticky="e")
+        status_text.grid(row=0, column=0, columnspan=3, pady=(0, 7), sticky="ew")
 
         manage_button = ctk.CTkButton(
-            row,
+            actions,
             text="Manage",
-            width=100,
+            width=94,
+            height=32,
             command=lambda c=client: self._open_manage_callback(c),
             state="normal" if ws_connected else "disabled",
             **primary_button_style()
         )
-        manage_button.grid(row=0, column=3, padx=(0, 8), pady=12, sticky="e")
+        manage_button.grid(row=1, column=0, padx=(0, 6))
 
         group_button = ctk.CTkButton(
-            row,
+            actions,
             text="Group",
-            width=80,
+            width=76,
+            height=32,
             command=lambda c=client: self._open_group_callback(c),
             **secondary_button_style()
         )
-        group_button.grid(row=0, column=4, padx=(0, 8), pady=12, sticky="e")
+        group_button.grid(row=1, column=1, padx=(0, 6))
         
         delete_button = ctk.CTkButton(
-            row,
+            actions,
             text="Delete",
-            width=80,
+            width=76,
+            height=32,
             command=lambda c=client: self._open_delete_callback(c),
             state="disabled" if ws_connected else "normal",
-            fg_color=COLORS.danger,
+            fg_color=COLORS.danger_soft,
             hover_color=COLORS.danger_hover,
-            text_color=COLORS.text_primary
+            text_color="#FF8A8A",
+            border_width=1,
+            border_color=COLORS.danger,
+            corner_radius=SPACING.button_radius,
+            font=FONTS.body_bold
         )
-        delete_button.grid(row=0, column=5, padx=(0, 15), pady=12, sticky="e")
+        delete_button.grid(row=1, column=2)
 
         self.client_rows[str(client_code).strip()] = {
             "frame": row,
             "client": client,
             "status_label": status_label,
-            "info_label": info_label,
+            "name_label": name_label,
+            "group_label": group_label,
+            "identity_label": identity_label,
+            "versions_label": versions_label,
+            "meta_label": meta_label,
             "status_text": status_text,
             "manage_button": manage_button,
             "group_button": group_button,
             "delete_button": delete_button
         }
+
+    def destroy(self) -> None:
+        """Αφαιρεί pending jobs και global shortcuts πριν καταστραφεί η προβολή."""
+
+        for job_name in ("filter_after_job", "_layout_after_job"):
+            job_id = getattr(self, job_name, None)
+            if job_id:
+                try:
+                    self.after_cancel(job_id)
+                except Exception:
+                    pass
+                setattr(self, job_name, None)
+
+        for key, binding_id in self._shortcut_bindings:
+            try:
+                self._shortcut_parent.unbind(key, binding_id)
+            except Exception:
+                pass
+        self._shortcut_bindings.clear()
+        super().destroy()
         
     def _open_manage_callback(self, client: dict) -> None:
         """
