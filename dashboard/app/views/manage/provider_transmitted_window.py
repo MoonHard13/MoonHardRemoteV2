@@ -227,11 +227,11 @@ class TransmittedInvoicesView(ctk.CTkFrame):
             self.tree.heading(name, text=title)
             self.tree.column(name, width=width, minwidth=60, stretch=name == "DocumentType")
         self.tree.grid(row=1, column=0, sticky="nsew")
-        self.vertical_scrollbar = ttk.Scrollbar(
+        self.vertical_scrollbar = ctk.CTkScrollbar(
             self.table_card, orient="vertical", command=self.tree.yview
         )
         self.vertical_scrollbar.grid(row=1, column=1, sticky="ns")
-        horizontal = ttk.Scrollbar(
+        horizontal = ctk.CTkScrollbar(
             self.table_card, orient="horizontal", command=self.tree.xview
         )
         horizontal.grid(row=2, column=0, sticky="ew")
