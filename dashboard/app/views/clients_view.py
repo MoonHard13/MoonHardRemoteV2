@@ -1381,7 +1381,7 @@ class ClientsView(ctk.CTkFrame):
             fg_color=status_background,
             corner_radius=8
         )
-        status_badge.place(x=0, y=0, width=258, height=28)
+        status_badge.place(x=0, y=0)
         status_badge.grid_propagate(False)
         status_badge.grid_columnconfigure(0, weight=1)
         status_badge.grid_rowconfigure(0, weight=1)
@@ -1401,7 +1401,7 @@ class ClientsView(ctk.CTkFrame):
             height=32,
             fg_color="transparent"
         )
-        buttons_frame.place(x=0, y=38, width=258, height=32)
+        buttons_frame.place(x=0, y=38)
         buttons_frame.grid_propagate(False)
 
         manage_button = ctk.CTkButton(
