@@ -10,7 +10,6 @@ from app.ui.theme import (
     FONTS,
     SPACING,
     card_style,
-    danger_button_style,
     primary_button_style,
     secondary_button_style,
 )
@@ -34,6 +33,7 @@ class BackupDestinationForm(ctk.CTkFrame):
         super().__init__(parent, fg_color="transparent")
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
+        self._field_frames: dict[ctk.CTkEntry, ctk.CTkFrame] = {}
         self.compression_var = ctk.BooleanVar(value=True)
         self.copy_only_var = ctk.BooleanVar(value=True)
         self._build()
@@ -52,6 +52,19 @@ class BackupDestinationForm(ctk.CTkFrame):
             row=0,
             column=1,
             command=lambda _value: self._refresh_states(),
+        )
+        self.destination_hint = ctk.CTkLabel(
+            self,
+            text="",
+            font=FONTS.small,
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+            corner_radius=8,
+            height=28,
+            anchor="w",
+        )
+        self.destination_hint.grid(
+            row=1, column=0, columnspan=2, padx=8, pady=(0, 10), sticky="ew"
         )
         self.destination_path = self._entry(
             "Backup folder (SQL Server-visible path)", row=2, column=0, columnspan=2
@@ -73,7 +86,13 @@ class BackupDestinationForm(ctk.CTkFrame):
         self.retention_count = self._entry("Number of backups to keep", row=8, column=0)
         self.retention_count.insert(0, "7")
 
-        options = ctk.CTkFrame(self, fg_color="transparent")
+        options = ctk.CTkFrame(
+            self,
+            fg_color=COLORS.surface_light,
+            corner_radius=10,
+            border_width=1,
+            border_color=COLORS.border_soft,
+        )
         options.grid(row=8, column=1, padx=8, pady=(0, 10), sticky="nsew")
         ctk.CTkCheckBox(
             options,
@@ -83,7 +102,7 @@ class BackupDestinationForm(ctk.CTkFrame):
             hover_color=COLORS.accent_hover,
             text_color=COLORS.text_primary,
             font=FONTS.body,
-        ).pack(anchor="w", pady=(17, 5))
+        ).pack(anchor="w", padx=12, pady=(12, 5))
         ctk.CTkCheckBox(
             options,
             text="COPY_ONLY",
@@ -92,7 +111,7 @@ class BackupDestinationForm(ctk.CTkFrame):
             hover_color=COLORS.accent_hover,
             text_color=COLORS.text_primary,
             font=FONTS.body,
-        ).pack(anchor="w", pady=5)
+        ).pack(anchor="w", padx=12, pady=(5, 12))
         self._refresh_states()
 
     def _entry(
@@ -121,6 +140,7 @@ class BackupDestinationForm(ctk.CTkFrame):
             border_color=COLORS.border,
         )
         entry.grid(row=1, column=0, sticky="ew")
+        self._field_frames[entry] = frame
         return entry
 
     def _option(
@@ -161,6 +181,26 @@ class BackupDestinationForm(ctk.CTkFrame):
         self.destination_path.configure(state=disk_state)
         self.staging_path.configure(state=cloud_state)
         self.cloud_remote.configure(state=cloud_state)
+        if destination == "cloud":
+            self._field_frames[self.destination_path].grid_remove()
+            self._field_frames[self.staging_path].grid()
+            self._field_frames[self.cloud_remote].grid()
+            self.destination_hint.configure(
+                text=(
+                    "  SQL Server creates and verifies locally, then rclone uploads "
+                    "to the remote."
+                )
+            )
+        else:
+            self._field_frames[self.destination_path].grid()
+            self._field_frames[self.staging_path].grid_remove()
+            self._field_frames[self.cloud_remote].grid_remove()
+            hint = (
+                "  Use a UNC path visible to the SQL Server service account."
+                if destination == "unc"
+                else "  The folder must be visible to the SQL Server service account."
+            )
+            self.destination_hint.configure(text=hint)
         retention = self.RETENTION_LABELS.get(self.retention_mode.get(), "keep_last")
         self.retention_count.configure(
             state="normal" if retention == "keep_last" else "disabled"
@@ -273,10 +313,15 @@ class BackupManagerWindow(ctk.CTkToplevel):
         self.schedules: dict[str, dict[str, Any]] = {}
         self.schedule_labels: dict[str, str] = {}
         self.selected_schedule_id = ""
+        self._layout_job: str | None = None
+        self._wide_layout: bool | None = None
+        self._lifecycle_jobs: list[str] = []
+        self._destroying = False
+        self._description_labels: list[ctk.CTkLabel] = []
 
-        self.title("Database Backup & Scheduling")
-        self.geometry("1080x790")
-        self.minsize(960, 700)
+        self.title("Backup Manager")
+        self.geometry("1220x820")
+        self.minsize(940, 680)
         # Κανονικό ανεξάρτητο παράθυρο ώστε τα Windows να εμφανίζουν
         # minimize/maximize και να επιτρέπεται πλήρης αλλαγή μεγέθους.
         self.resizable(True, True)
@@ -284,10 +329,11 @@ class BackupManagerWindow(ctk.CTkToplevel):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         self._build_ui()
+        self.bind("<Configure>", self._schedule_layout, add="+")
         self._bind_shortcuts()
         self.protocol("WM_DELETE_WINDOW", self._close_window)
-        self.after(100, self._bring_to_front)
-        self.after(200, self.refresh_data)
+        self._lifecycle_jobs.append(self.after(100, self._bring_to_front))
+        self._lifecycle_jobs.append(self.after(200, self.refresh_data))
 
     def _build_ui(self) -> None:
         header = ctk.CTkFrame(self, **card_style())
@@ -295,22 +341,39 @@ class BackupManagerWindow(ctk.CTkToplevel):
             row=0,
             column=0,
             padx=SPACING.window_padding,
-            pady=SPACING.window_padding,
+            pady=(SPACING.window_padding, 10),
             sticky="ew",
         )
-        header.grid_columnconfigure(1, weight=1)
+        header.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
             header,
-            text="Database Backup & Scheduling",
-            font=FONTS.subtitle,
+            text="Backup Manager",
+            font=FONTS.title,
             text_color=COLORS.text_primary,
-        ).grid(row=0, column=0, columnspan=4, padx=18, pady=(14, 6), sticky="w")
+        ).grid(row=0, column=0, padx=20, pady=(14, 0), sticky="w")
+
+        self.client_badge = ctk.CTkLabel(
+            header,
+            text=self.client_code,
+            font=FONTS.small,
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+            corner_radius=8,
+            height=28,
+        )
+        self.client_badge.grid(row=0, column=1, padx=20, pady=(14, 0), sticky="e")
+
         ctk.CTkLabel(
             header,
-            text="BOConnection:",
-            font=FONTS.body_bold,
-            text_color=COLORS.text_primary,
-        ).grid(row=1, column=0, padx=(18, 8), pady=(0, 14), sticky="w")
+            text="Verified SQL Server backups, retention rules and automatic schedules",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+        ).grid(row=1, column=0, columnspan=2, padx=20, pady=(2, 10), sticky="ew")
+
+        toolbar = ctk.CTkFrame(header, fg_color="transparent")
+        toolbar.grid(row=2, column=0, columnspan=2, padx=20, pady=(0, 10), sticky="ew")
+        toolbar.grid_columnconfigure(0, weight=1)
         values = self.get_bo_values_callback() or ["No BOConnections"]
         selected_id = self.get_selected_bo_id_callback()
         selected = next(
@@ -318,7 +381,7 @@ class BackupManagerWindow(ctk.CTkToplevel):
             values[0],
         )
         self.bo_option = ctk.CTkOptionMenu(
-            header,
+            toolbar,
             values=values,
             fg_color=COLORS.surface_light,
             button_color=COLORS.accent,
@@ -326,24 +389,34 @@ class BackupManagerWindow(ctk.CTkToplevel):
             text_color=COLORS.text_primary,
             dropdown_fg_color=COLORS.surface,
             dropdown_hover_color=COLORS.surface_hover,
-            width=300,
+            width=340,
+            height=34,
+            dynamic_resizing=False,
         )
-        self.bo_option.grid(row=1, column=1, padx=(0, 10), pady=(0, 14), sticky="w")
+        self.bo_option.grid(row=0, column=0, padx=(0, 10), sticky="ew")
         self.bo_option.set(selected)
         ctk.CTkButton(
-            header,
-            text="Refresh  [Ctrl+R]",
+            toolbar,
+            text="Refresh  ·  Ctrl+R",
             command=self.refresh_data,
-            width=130,
+            width=155,
+            height=34,
             **secondary_button_style(),
-        ).grid(row=1, column=2, padx=6, pady=(0, 14))
+        ).grid(row=0, column=1)
+
         self.status_label = ctk.CTkLabel(
             header,
             text="Ready",
-            font=FONTS.body,
-            text_color=COLORS.text_secondary,
+            font=FONTS.small,
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+            corner_radius=8,
+            height=28,
+            anchor="w",
         )
-        self.status_label.grid(row=1, column=3, padx=(10, 18), pady=(0, 14), sticky="e")
+        self.status_label.grid(
+            row=3, column=0, columnspan=2, padx=20, pady=(0, 16), sticky="ew"
+        )
 
         self.tabs = ctk.CTkTabview(
             self,
@@ -371,61 +444,98 @@ class BackupManagerWindow(ctk.CTkToplevel):
         self._build_now_tab()
         self._build_schedule_tab()
         self._build_history_tab()
+        self._apply_layout()
 
     def _build_now_tab(self) -> None:
-        content = ctk.CTkScrollableFrame(self.now_tab, fg_color="transparent")
-        content.grid(row=0, column=0, sticky="nsew")
-        content.grid_columnconfigure(0, weight=1)
-        card = ctk.CTkFrame(content, **card_style())
-        card.grid(row=0, column=0, padx=12, pady=12, sticky="ew")
-        card.grid_columnconfigure(0, weight=1)
+        self.now_content = ctk.CTkScrollableFrame(
+            self.now_tab, fg_color="transparent", corner_radius=0
+        )
+        self.now_content.grid(row=0, column=0, sticky="nsew")
+
+        self.manual_card = ctk.CTkFrame(self.now_content, **card_style())
+        self.manual_card.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            card,
-            text="Create verified full backup",
+            self.manual_card,
+            text="Create a verified backup",
             font=FONTS.section_title,
             text_color=COLORS.text_primary,
         ).grid(row=0, column=0, padx=16, pady=(14, 4), sticky="w")
-        ctk.CTkLabel(
-            card,
+        description = ctk.CTkLabel(
+            self.manual_card,
             text=(
-                "SQL Server writes the .bak file. Cloud mode verifies it locally before upload. "
-                "The last valid backup is preserved until replacement succeeds."
+                "SQL Server creates and verifies the .bak file. The last valid backup stays "
+                "available until its replacement succeeds."
             ),
-            font=FONTS.body,
+            font=FONTS.small,
             text_color=COLORS.text_secondary,
-            wraplength=920,
+            wraplength=520,
             justify="left",
-        ).grid(row=1, column=0, padx=16, pady=(0, 8), sticky="w")
-        self.manual_form = BackupDestinationForm(card)
+            anchor="w",
+        )
+        description.grid(row=1, column=0, padx=16, pady=(0, 8), sticky="ew")
+        self._description_labels.append(description)
+        self.manual_form = BackupDestinationForm(self.manual_card)
         self.manual_form.grid(row=2, column=0, padx=8, pady=4, sticky="ew")
         ctk.CTkButton(
-            card,
-            text="Start Backup  [Ctrl+B]",
+            self.manual_card,
+            text="Start verified backup  ·  Ctrl+B",
             command=self.run_manual_backup,
             height=38,
             **primary_button_style(),
         ).grid(row=3, column=0, padx=16, pady=(4, 16), sticky="ew")
 
-        activity = ctk.CTkFrame(content, **card_style())
-        activity.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
-        activity.grid_columnconfigure(0, weight=1)
+        self.activity_card = ctk.CTkFrame(self.now_content, **card_style())
+        self.activity_card.grid_columnconfigure(0, weight=1)
+        self.activity_card.grid_rowconfigure(3, weight=1)
         ctk.CTkLabel(
-            activity,
+            self.activity_card,
             text="Backup Activity",
             font=FONTS.section_title,
             text_color=COLORS.text_primary,
-        ).grid(row=0, column=0, padx=16, pady=(14, 6), sticky="w")
+        ).grid(row=0, column=0, padx=16, pady=(14, 4), sticky="w")
+
+        activity_actions = ctk.CTkFrame(self.activity_card, fg_color="transparent")
+        activity_actions.grid(row=0, column=1, padx=14, pady=(10, 2), sticky="e")
+        ctk.CTkButton(
+            activity_actions,
+            text="Copy",
+            command=self.copy_activity,
+            width=72,
+            height=30,
+            **secondary_button_style(),
+        ).grid(row=0, column=0, padx=(0, 6))
+        ctk.CTkButton(
+            activity_actions,
+            text="Clear",
+            command=self.clear_activity,
+            width=72,
+            height=30,
+            **secondary_button_style(),
+        ).grid(row=0, column=1)
+
+        self.activity_hint = ctk.CTkLabel(
+            self.activity_card,
+            text="Waiting for a backup operation",
+            font=FONTS.small,
+            text_color=COLORS.text_muted,
+            anchor="w",
+        )
+        self.activity_hint.grid(
+            row=1, column=0, columnspan=2, padx=16, pady=(0, 10), sticky="ew"
+        )
         self.progress_bar = ctk.CTkProgressBar(
-            activity,
+            self.activity_card,
             height=9,
             fg_color=COLORS.surface_light,
             progress_color=COLORS.accent,
         )
-        self.progress_bar.grid(row=1, column=0, padx=16, pady=(0, 8), sticky="ew")
+        self.progress_bar.grid(
+            row=2, column=0, columnspan=2, padx=16, pady=(0, 10), sticky="ew"
+        )
         self.progress_bar.set(0)
         self.activity_box = ctk.CTkTextbox(
-            activity,
-            height=145,
+            self.activity_card,
+            height=330,
             fg_color=COLORS.background,
             text_color=COLORS.text_primary,
             border_color=COLORS.border,
@@ -433,19 +543,34 @@ class BackupManagerWindow(ctk.CTkToplevel):
             font=FONTS.mono_body,
             wrap="word",
         )
-        self.activity_box.grid(row=2, column=0, padx=16, pady=(0, 16), sticky="ew")
+        self.activity_box.grid(
+            row=3, column=0, columnspan=2, padx=16, pady=(0, 16), sticky="nsew"
+        )
         self._set_activity("Ready. Configure a destination and start the backup.")
 
     def _build_schedule_tab(self) -> None:
-        content = ctk.CTkScrollableFrame(self.schedule_tab, fg_color="transparent")
-        content.grid(row=0, column=0, sticky="nsew")
-        content.grid_columnconfigure(0, weight=1)
+        self.schedule_content = ctk.CTkScrollableFrame(
+            self.schedule_tab, fg_color="transparent", corner_radius=0
+        )
+        self.schedule_content.grid(row=0, column=0, sticky="nsew")
 
-        select_card = ctk.CTkFrame(content, **card_style())
-        select_card.grid(row=0, column=0, padx=12, pady=12, sticky="ew")
-        select_card.grid_columnconfigure(0, weight=1)
+        self.schedule_toolbar = ctk.CTkFrame(self.schedule_content, **card_style())
+        self.schedule_toolbar.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            self.schedule_toolbar,
+            text="Automatic schedules",
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, columnspan=2, padx=16, pady=(14, 3), sticky="w")
+        ctk.CTkLabel(
+            self.schedule_toolbar,
+            text="Create a new schedule or select an existing one to edit, run or delete.",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+        ).grid(row=1, column=0, columnspan=2, padx=16, pady=(0, 10), sticky="ew")
         self.schedule_option = ctk.CTkOptionMenu(
-            select_card,
+            self.schedule_toolbar,
             values=["New schedule"],
             command=self._select_schedule,
             fg_color=COLORS.surface_light,
@@ -455,44 +580,52 @@ class BackupManagerWindow(ctk.CTkToplevel):
             dropdown_fg_color=COLORS.surface,
             dropdown_hover_color=COLORS.surface_hover,
         )
-        self.schedule_option.grid(row=0, column=0, padx=16, pady=14, sticky="ew")
+        self.schedule_option.grid(row=2, column=0, padx=(16, 10), pady=(0, 14), sticky="ew")
+
+        schedule_actions = ctk.CTkFrame(self.schedule_toolbar, fg_color="transparent")
+        schedule_actions.grid(row=2, column=1, padx=(0, 16), pady=(0, 14), sticky="e")
         ctk.CTkButton(
-            select_card,
+            schedule_actions,
             text="New",
             command=self.new_schedule,
             width=90,
             **secondary_button_style(),
-        ).grid(row=0, column=1, padx=(0, 8), pady=14)
+        ).grid(row=0, column=0, padx=(0, 6))
         ctk.CTkButton(
-            select_card,
+            schedule_actions,
             text="Run selected",
             command=self.run_selected_schedule,
             width=125,
             **secondary_button_style(),
-        ).grid(row=0, column=2, padx=(0, 8), pady=14)
+        ).grid(row=0, column=1, padx=(0, 6))
         ctk.CTkButton(
-            select_card,
+            schedule_actions,
             text="Delete",
             command=self.delete_selected_schedule,
             width=90,
-            **danger_button_style(),
-        ).grid(row=0, column=3, padx=(0, 16), pady=14)
+            fg_color=COLORS.danger_soft,
+            hover_color=COLORS.danger,
+            text_color=COLORS.danger,
+            border_width=1,
+            border_color=COLORS.danger,
+            corner_radius=SPACING.button_radius,
+            font=FONTS.body_bold,
+        ).grid(row=0, column=2)
 
-        editor = ctk.CTkFrame(content, **card_style())
-        editor.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
-        editor.grid_columnconfigure(0, weight=1)
-        editor.grid_columnconfigure(1, weight=1)
+        self.schedule_basics_card = ctk.CTkFrame(self.schedule_content, **card_style())
+        self.schedule_basics_card.grid_columnconfigure(0, weight=1)
+        self.schedule_basics_card.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(
-            editor,
-            text="Schedule settings",
+            self.schedule_basics_card,
+            text="When to run",
             font=FONTS.section_title,
             text_color=COLORS.text_primary,
         ).grid(row=0, column=0, columnspan=2, padx=16, pady=(14, 6), sticky="w")
-        self.schedule_name = self._editor_entry(editor, "Name", 1, 0)
-        self.schedule_time = self._editor_entry(editor, "Time (HH:MM)", 1, 1)
+        self.schedule_name = self._editor_entry(self.schedule_basics_card, "Schedule name", 1, 0)
+        self.schedule_time = self._editor_entry(self.schedule_basics_card, "Time  ·  HH:MM", 1, 1)
         self.schedule_time.insert(0, "02:00")
         self.frequency_option = self._editor_option(
-            editor,
+            self.schedule_basics_card,
             "Frequency",
             list(self.FREQUENCIES),
             3,
@@ -500,11 +633,13 @@ class BackupManagerWindow(ctk.CTkToplevel):
             lambda _value: self._refresh_schedule_states(),
         )
         self.weekday_option = self._editor_option(
-            editor, "Weekday", self.WEEKDAYS, 3, 1, lambda _value: None
+            self.schedule_basics_card, "Weekday", self.WEEKDAYS, 3, 1, lambda _value: None
         )
-        self.day_of_month = self._editor_entry(editor, "Day of month (1-31)", 5, 0)
+        self.day_of_month = self._editor_entry(
+            self.schedule_basics_card, "Day of month  ·  1–31", 5, 0
+        )
         self.day_of_month.insert(0, "1")
-        enabled_frame = ctk.CTkFrame(editor, fg_color="transparent")
+        enabled_frame = ctk.CTkFrame(self.schedule_basics_card, fg_color="transparent")
         enabled_frame.grid(row=5, column=1, padx=16, pady=(0, 10), sticky="ew")
         self.enabled_var = ctk.BooleanVar(value=True)
         ctk.CTkCheckBox(
@@ -516,48 +651,106 @@ class BackupManagerWindow(ctk.CTkToplevel):
             text_color=COLORS.text_primary,
             font=FONTS.body,
         ).pack(anchor="w", pady=(20, 8))
-        self.schedule_form = BackupDestinationForm(editor)
+        ctk.CTkLabel(
+            self.schedule_basics_card,
+            text="The schedule uses the selected BOConnection shown at the top of this window.",
+            font=FONTS.small,
+            text_color=COLORS.text_muted,
+            anchor="w",
+            justify="left",
+            wraplength=480,
+        ).grid(row=7, column=0, columnspan=2, padx=16, pady=(4, 16), sticky="ew")
+
+        self.schedule_destination_card = ctk.CTkFrame(
+            self.schedule_content, **card_style()
+        )
+        self.schedule_destination_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            self.schedule_destination_card,
+            text="Backup settings",
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, padx=16, pady=(14, 3), sticky="w")
+        ctk.CTkLabel(
+            self.schedule_destination_card,
+            text="Destination, retention and SQL Server backup options for this schedule.",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+        ).grid(row=1, column=0, padx=16, pady=(0, 8), sticky="ew")
+        self.schedule_form = BackupDestinationForm(self.schedule_destination_card)
         self.schedule_form.grid(
-            row=7, column=0, columnspan=2, padx=8, pady=(2, 4), sticky="ew"
+            row=2, column=0, padx=8, pady=(2, 4), sticky="ew"
         )
         ctk.CTkButton(
-            editor,
-            text="Save Schedule  [Ctrl+S]",
+            self.schedule_destination_card,
+            text="Save schedule  ·  Ctrl+S",
             command=self.save_schedule,
             height=38,
             **primary_button_style(),
-        ).grid(row=8, column=0, columnspan=2, padx=16, pady=(4, 16), sticky="ew")
+        ).grid(row=3, column=0, padx=16, pady=(4, 16), sticky="ew")
         self._refresh_schedule_states()
 
     def _build_history_tab(self) -> None:
-        card = ctk.CTkFrame(self.history_tab, **card_style())
-        card.grid(row=0, column=0, padx=12, pady=12, sticky="nsew")
-        card.grid_columnconfigure(0, weight=1)
-        card.grid_rowconfigure(2, weight=1)
+        self.history_card = ctk.CTkFrame(self.history_tab, **card_style())
+        self.history_card.grid(row=0, column=0, padx=12, pady=12, sticky="nsew")
+        self.history_card.grid_columnconfigure(0, weight=1)
+        self.history_card.grid_rowconfigure(3, weight=1)
         ctk.CTkLabel(
-            card,
+            self.history_card,
             text="Backup History",
             font=FONTS.section_title,
             text_color=COLORS.text_primary,
-        ).grid(row=0, column=0, padx=16, pady=(14, 6), sticky="w")
+        ).grid(row=0, column=0, padx=16, pady=(14, 3), sticky="w")
+
+        history_actions = ctk.CTkFrame(self.history_card, fg_color="transparent")
+        history_actions.grid(row=0, column=1, padx=14, pady=(10, 2), sticky="e")
         ctk.CTkButton(
-            card,
-            text="Retry Pending Cloud Uploads",
+            history_actions,
+            text="Retry cloud uploads",
             command=self.retry_pending,
-            width=240,
+            width=170,
+            height=30,
             **secondary_button_style(),
-        ).grid(row=0, column=1, padx=16, pady=(14, 6), sticky="e")
+        ).grid(row=0, column=0, padx=(0, 6))
+        ctk.CTkButton(
+            history_actions,
+            text="Copy",
+            command=self.copy_history,
+            width=72,
+            height=30,
+            **secondary_button_style(),
+        ).grid(row=0, column=1, padx=(0, 6))
+        ctk.CTkButton(
+            history_actions,
+            text="Clear view",
+            command=self.clear_history,
+            width=92,
+            height=30,
+            **secondary_button_style(),
+        ).grid(row=0, column=2)
         self.cloud_hint = ctk.CTkLabel(
-            card,
+            self.history_card,
             text="Configured cloud remotes: not loaded",
             font=FONTS.small,
             text_color=COLORS.text_secondary,
+            fg_color=COLORS.surface_light,
+            corner_radius=8,
+            height=28,
+            anchor="w",
         )
         self.cloud_hint.grid(
-            row=1, column=0, columnspan=2, padx=16, pady=(0, 8), sticky="w"
+            row=1, column=0, columnspan=2, padx=16, pady=(2, 6), sticky="ew"
         )
+        ctk.CTkLabel(
+            self.history_card,
+            text="Latest 200 backup records from the remote client",
+            font=FONTS.small,
+            text_color=COLORS.text_muted,
+            anchor="w",
+        ).grid(row=2, column=0, columnspan=2, padx=16, pady=(0, 8), sticky="ew")
         self.history_box = ctk.CTkTextbox(
-            card,
+            self.history_card,
             fg_color=COLORS.background,
             text_color=COLORS.text_primary,
             border_color=COLORS.border,
@@ -566,7 +759,7 @@ class BackupManagerWindow(ctk.CTkToplevel):
             wrap="word",
         )
         self.history_box.grid(
-            row=2, column=0, columnspan=2, padx=16, pady=(0, 16), sticky="nsew"
+            row=3, column=0, columnspan=2, padx=16, pady=(0, 16), sticky="nsew"
         )
         self._set_history("No backup history loaded.")
 
@@ -615,6 +808,128 @@ class BackupManagerWindow(ctk.CTkToplevel):
         option.grid(row=1, column=0, sticky="ew")
         return option
 
+    def _schedule_layout(self, event=None) -> None:
+        """Κάνει debounce στα resize events και εφαρμόζει responsive διάταξη.
+
+        """
+
+        if event is not None and event.widget is not self:
+            return
+        if self._layout_job:
+            try:
+                self.after_cancel(self._layout_job)
+            except TclError:
+                pass
+        self._layout_job = self.after(80, self._apply_layout)
+
+    def _apply_layout(self) -> None:
+        """Χρησιμοποιεί δύο στήλες μόνο όταν υπάρχει αρκετό πραγματικό πλάτος.
+
+        """
+
+        self._layout_job = None
+        try:
+            width = self.winfo_width()
+        except TclError:
+            return
+        wide = width >= 1120
+        if wide == self._wide_layout:
+            return
+        self._wide_layout = wide
+
+        for column in (0, 1):
+            self.now_content.grid_columnconfigure(column, weight=0, uniform="")
+            self.schedule_content.grid_columnconfigure(column, weight=0, uniform="")
+
+        self.manual_card.grid_forget()
+        self.activity_card.grid_forget()
+        self.schedule_toolbar.grid_forget()
+        self.schedule_basics_card.grid_forget()
+        self.schedule_destination_card.grid_forget()
+
+        if wide:
+            self.now_content.grid_columnconfigure(0, weight=5, uniform="backup-now")
+            self.now_content.grid_columnconfigure(1, weight=4, uniform="backup-now")
+            self.manual_card.grid(
+                row=0, column=0, padx=(12, 5), pady=12, sticky="nsew"
+            )
+            self.activity_card.grid(
+                row=0, column=1, padx=(5, 12), pady=12, sticky="nsew"
+            )
+
+            self.schedule_content.grid_columnconfigure(
+                0, weight=4, uniform="backup-schedule"
+            )
+            self.schedule_content.grid_columnconfigure(
+                1, weight=5, uniform="backup-schedule"
+            )
+            self.schedule_toolbar.grid(
+                row=0,
+                column=0,
+                columnspan=2,
+                padx=12,
+                pady=(12, 10),
+                sticky="ew",
+            )
+            self.schedule_basics_card.grid(
+                row=1, column=0, padx=(12, 5), pady=(0, 12), sticky="nsew"
+            )
+            self.schedule_destination_card.grid(
+                row=1, column=1, padx=(5, 12), pady=(0, 12), sticky="nsew"
+            )
+            wraplength = 500
+        else:
+            self.now_content.grid_columnconfigure(0, weight=1)
+            self.manual_card.grid(row=0, column=0, padx=12, pady=(12, 10), sticky="ew")
+            self.activity_card.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
+
+            self.schedule_content.grid_columnconfigure(0, weight=1)
+            self.schedule_toolbar.grid(
+                row=0, column=0, padx=12, pady=(12, 10), sticky="ew"
+            )
+            self.schedule_basics_card.grid(
+                row=1, column=0, padx=12, pady=(0, 10), sticky="ew"
+            )
+            self.schedule_destination_card.grid(
+                row=2, column=0, padx=12, pady=(0, 12), sticky="ew"
+            )
+            wraplength = max(520, width - 160)
+
+        for label in self._description_labels:
+            label.configure(wraplength=wraplength)
+
+    def _copy_textbox(self, textbox: ctk.CTkTextbox, success_text: str) -> None:
+        """Αντιγράφει το ορατό read-only κείμενο στο clipboard."""
+
+        text = textbox.get("1.0", "end-1c")
+        if not text.strip():
+            self._set_status("There is no text to copy.", COLORS.warning)
+            return
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.update_idletasks()
+        except TclError:
+            self._set_status("Clipboard is unavailable.", COLORS.danger)
+            return
+        self._set_status(success_text, COLORS.success)
+
+    def copy_activity(self) -> None:
+        self._copy_textbox(self.activity_box, "Backup activity copied.")
+
+    def clear_activity(self) -> None:
+        self.progress_bar.set(0)
+        self.activity_hint.configure(text="Waiting for a backup operation")
+        self._set_activity("Ready. Configure a destination and start the backup.")
+        self._set_status("Activity view cleared.", COLORS.info)
+
+    def copy_history(self) -> None:
+        self._copy_textbox(self.history_box, "Backup history copied.")
+
+    def clear_history(self) -> None:
+        self._set_history("History view cleared. Refresh to load records again.")
+        self._set_status("History view cleared locally.", COLORS.info)
+
     def refresh_data(self) -> None:
         self._request("list", parameters={})
         self._request("list_cloud_remotes", parameters={})
@@ -637,6 +952,7 @@ class BackupManagerWindow(ctk.CTkToplevel):
             return
         self.tabs.set("Backup Now")
         self.progress_bar.set(0)
+        self.activity_hint.configure(text="Backup request sent · Waiting for client")
         self._set_activity("Backup request sent to the remote client...")
         self._request(
             "run",
@@ -679,6 +995,7 @@ class BackupManagerWindow(ctk.CTkToplevel):
             return
         self.tabs.set("Backup Now")
         self.progress_bar.set(0)
+        self.activity_hint.configure(text="Schedule started manually · Waiting for client")
         self._set_activity("Scheduled configuration started manually...")
         self._request(
             "run_schedule",
@@ -691,6 +1008,7 @@ class BackupManagerWindow(ctk.CTkToplevel):
     def retry_pending(self) -> None:
         self.tabs.set("Backup Now")
         self.progress_bar.set(0)
+        self.activity_hint.configure(text="Retrying pending cloud uploads")
         self._set_activity("Retrying verified cloud staging files...")
         self._request("retry_pending", parameters={})
 
@@ -820,6 +1138,12 @@ class BackupManagerWindow(ctk.CTkToplevel):
             self.progress_bar.set(max(0.0, min(float(percent) / 100.0, 1.0)))
         message = str(payload.get("message") or "").strip()
         stage = str(payload.get("stage") or "backup").replace("_", " ").title()
+        progress_text = (
+            f"{stage} · {float(percent):.0f}%"
+            if isinstance(percent, (int, float)) and not isinstance(percent, bool)
+            else stage
+        )
+        self.activity_hint.configure(text=progress_text)
         if message:
             self._append_activity(f"\n[{stage}] {message}")
             self._set_status(message, COLORS.accent)
@@ -901,16 +1225,20 @@ class BackupManagerWindow(ctk.CTkToplevel):
         self._set_activity("\n".join(lines))
         if success:
             self.progress_bar.set(1)
+            self.activity_hint.configure(text="Completed · Verified backup available")
             self._set_status("Backup operation completed.", COLORS.success)
         elif status == "upload_failed" and payload.get("verified"):
+            self.activity_hint.configure(text="Verified · Cloud upload pending retry")
             self._set_status(
                 "Backup verified; cloud upload is pending retry.", COLORS.warning
             )
         else:
+            self.activity_hint.configure(text="Failed · Review the activity details")
             self._set_status("Backup operation failed.", COLORS.danger)
 
     def _show_error(self, payload: dict[str, Any]) -> None:
         error = str(payload.get("error") or "Unknown backup error.")
+        self.activity_hint.configure(text="Failed · Review the activity details")
         self._set_status(error, COLORS.danger)
         self._set_activity(f"Backup operation failed.\n\n{error}")
 
@@ -957,7 +1285,16 @@ class BackupManagerWindow(ctk.CTkToplevel):
             self.bo_option.set(selected)
 
     def _set_status(self, text: str, color: str) -> None:
-        self.status_label.configure(text=str(text)[:160], text_color=color)
+        soft_color = {
+            COLORS.success: COLORS.success_soft,
+            COLORS.warning: COLORS.warning_soft,
+            COLORS.danger: COLORS.danger_soft,
+            COLORS.accent: COLORS.accent_soft,
+            COLORS.info: COLORS.info_soft,
+        }.get(color, COLORS.surface_light)
+        self.status_label.configure(
+            text=str(text)[:160], text_color=color, fg_color=soft_color
+        )
 
     def _set_activity(self, text: str) -> None:
         self.activity_box.configure(state="normal")
@@ -1043,12 +1380,43 @@ class BackupManagerWindow(ctk.CTkToplevel):
     def _close_window(self) -> None:
         """Ακυρώνει UI timers πριν κλείσει το Backup Manager."""
 
+        self.destroy()
+
+    def destroy(self) -> None:
+        """Καθαρίζει callbacks ακόμη και όταν κλείνει από το parent window.
+
+        """
+
+        if self._destroying:
+            return
+        self._destroying = True
+        if self._layout_job:
+            try:
+                self.after_cancel(self._layout_job)
+            except TclError:
+                pass
+            self._layout_job = None
+        for job in self._lifecycle_jobs:
+            try:
+                self.after_cancel(job)
+            except TclError:
+                pass
+        self._lifecycle_jobs.clear()
         for request_id in list(self.pending):
             self._clear_pending_request(request_id)
-        self.destroy()
+        super().destroy()
 
     def _bind_shortcuts(self) -> None:
         self.bind("<Control-b>", lambda _event: self.run_manual_backup())
         self.bind("<Control-s>", lambda _event: self.save_schedule())
         self.bind("<Control-r>", lambda _event: self.refresh_data())
+        self.bind("<Control-Shift-C>", lambda _event: self._copy_active_view())
         self.bind("<Escape>", lambda _event: self._close_window())
+
+    def _copy_active_view(self) -> None:
+        """Αντιγράφει activity ή history ανάλογα με το ενεργό tab."""
+
+        if self.tabs.get() == "History":
+            self.copy_history()
+        elif self.tabs.get() == "Backup Now":
+            self.copy_activity()
