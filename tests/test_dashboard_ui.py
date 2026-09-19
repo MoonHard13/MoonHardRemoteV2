@@ -46,9 +46,11 @@ class DashboardSourceTests(unittest.TestCase):
         source = (PROJECT_ROOT / "dashboard/app/views/clients_view.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("status_badge.place(x=0, y=0)", source)
+        self.assertIn("status_text = tk.Label", source)
+        self.assertIn(
+            "status_text.place(x=0, y=0, width=258, height=28)", source
+        )
         self.assertIn("buttons_frame.place(x=0, y=38)", source)
-        self.assertNotIn("status_badge.place(x=0, y=0, width=", source)
         self.assertNotIn("buttons_frame.place(x=0, y=38, width=", source)
 
     @unittest.skipUnless(
@@ -157,12 +159,12 @@ class DashboardUITests(unittest.TestCase):
         self.assertEqual(row["name_label"].cget("text"), "TEST CLIENT")
         self.assertEqual(row["group_label"].cget("text"), "Athens")
         self.assertEqual(row["status_text"].cget("text"), "ONLINE  ·  CONNECTED")
-        self.assertEqual(row["status_label"].cget("fg_color"), COLORS.success)
-        self.assertEqual(row["status_badge"].cget("fg_color"), COLORS.success_soft)
+        self.assertEqual(row["status_label"].cget("background"), COLORS.success)
+        self.assertEqual(row["status_text"].cget("background"), COLORS.success_soft)
         self.assertTrue(row["status_label"].grid_info())
-        self.assertEqual(row["status_badge"].winfo_manager(), "place")
+        self.assertEqual(row["status_text"].winfo_manager(), "place")
         self.assertEqual(row["buttons_frame"].winfo_manager(), "place")
-        self.assertEqual(int(row["status_badge"].place_info()["y"]), 0)
+        self.assertEqual(int(row["status_text"].place_info()["y"]), 0)
         self.assertEqual(int(row["buttons_frame"].place_info()["y"]), 38)
 
     def test_grouped_offline_client_keeps_red_status_markers(self):
@@ -188,13 +190,13 @@ class DashboardUITests(unittest.TestCase):
         self.root.update()
 
         row = self.view.client_rows["CLIENT-GROUPED"]
-        self.assertEqual(row["status_label"].cget("fg_color"), COLORS.danger)
-        self.assertEqual(row["status_badge"].cget("fg_color"), COLORS.danger_soft)
+        self.assertEqual(row["status_label"].cget("background"), COLORS.danger)
+        self.assertEqual(row["status_text"].cget("background"), COLORS.danger_soft)
         self.assertEqual(row["status_text"].cget("text"), "OFFLINE")
-        self.assertEqual(row["status_text"].cget("text_color"), COLORS.danger)
+        self.assertEqual(row["status_text"].cget("foreground"), COLORS.danger)
         self.assertEqual(row["group_label"].cget("text"), "KASTELORIZO")
         self.assertTrue(row["status_label"].grid_info())
-        self.assertEqual(row["status_badge"].winfo_manager(), "place")
+        self.assertEqual(row["status_text"].winfo_manager(), "place")
         self.assertEqual(row["buttons_frame"].winfo_manager(), "place")
 
     def test_toolbar_stacks_on_compact_window_and_shortcuts_work(self):
