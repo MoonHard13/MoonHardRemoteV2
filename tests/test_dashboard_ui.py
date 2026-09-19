@@ -149,7 +149,10 @@ class DashboardUITests(unittest.TestCase):
         self.assertEqual(row["status_label"].cget("fg_color"), COLORS.success)
         self.assertEqual(row["status_badge"].cget("fg_color"), COLORS.success_soft)
         self.assertTrue(row["status_label"].grid_info())
-        self.assertTrue(row["status_badge"].grid_info())
+        self.assertEqual(row["status_badge"].winfo_manager(), "place")
+        self.assertEqual(row["buttons_frame"].winfo_manager(), "place")
+        self.assertEqual(int(row["status_badge"].place_info()["y"]), 0)
+        self.assertEqual(int(row["buttons_frame"].place_info()["y"]), 38)
 
     def test_grouped_offline_client_keeps_red_status_markers(self):
         """Group badge και scroll position δεν κρύβουν το offline styling."""
@@ -180,7 +183,8 @@ class DashboardUITests(unittest.TestCase):
         self.assertEqual(row["status_text"].cget("text_color"), COLORS.danger)
         self.assertEqual(row["group_label"].cget("text"), "KASTELORIZO")
         self.assertTrue(row["status_label"].grid_info())
-        self.assertTrue(row["status_badge"].grid_info())
+        self.assertEqual(row["status_badge"].winfo_manager(), "place")
+        self.assertEqual(row["buttons_frame"].winfo_manager(), "place")
 
     def test_toolbar_stacks_on_compact_window_and_shortcuts_work(self):
         """Η toolbar γίνεται δεύτερη σειρά χωρίς να χάνονται τα actions."""
