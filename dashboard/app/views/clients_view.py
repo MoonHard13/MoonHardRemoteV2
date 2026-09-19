@@ -1,4 +1,5 @@
 from typing import Any
+import tkinter as tk
 
 import customtkinter as ctk
 
@@ -665,7 +666,6 @@ class ClientsView(ctk.CTkFrame):
             status_value = "OFFLINE"
 
         status_label = row_data.get("status_label")
-        status_badge = row_data.get("status_badge")
         name_label = row_data.get("name_label")
         group_label = row_data.get("group_label")
         identity_label = row_data.get("identity_label")
@@ -678,11 +678,8 @@ class ClientsView(ctk.CTkFrame):
 
         if status_label:
             status_label.configure(
-                fg_color=COLORS.success if status == "online" else COLORS.danger
+                bg=COLORS.success if status == "online" else COLORS.danger
             )
-
-        if status_badge:
-            status_badge.configure(fg_color=status_background)
 
         if name_label:
             name_label.configure(text=presentation["name"])
@@ -698,7 +695,8 @@ class ClientsView(ctk.CTkFrame):
         if status_text:
             status_text.configure(
                 text=status_value,
-                text_color=status_color,
+                fg=status_color,
+                bg=status_background
             )
 
         if manage_button:
@@ -1295,15 +1293,15 @@ class ClientsView(ctk.CTkFrame):
         row.grid(row=row_index, column=0, padx=4, pady=5, sticky="ew")
         row.grid_columnconfigure(1, weight=1)
 
-        # Fixed-size frames are used for the visual status markers. Empty
-        # CTkLabel widgets can occasionally fail to repaint after an item that
-        # started outside the visible scroll area is brought into view.
-        status_label = ctk.CTkFrame(
+        # Τα native Tk widgets αποδίδονται αξιόπιστα ακόμη και όταν η κάρτα
+        # δημιουργείται αρχικά εκτός του ορατού τμήματος της scroll λίστας.
+        status_label = tk.Frame(
             row,
             width=8,
             height=72,
-            corner_radius=4,
-            fg_color=COLORS.success if status == "online" else COLORS.danger
+            bg=COLORS.success if status == "online" else COLORS.danger,
+            borderwidth=0,
+            highlightthickness=0
         )
         status_label.grid(row=0, column=0, padx=(14, 12), pady=14, sticky="ns")
         status_label.grid_propagate(False)
@@ -1374,26 +1372,17 @@ class ClientsView(ctk.CTkFrame):
         actions.grid(row=0, column=2, padx=(0, 14), pady=10, sticky="e")
         actions.grid_propagate(False)
 
-        status_badge = ctk.CTkFrame(
+        status_text = tk.Label(
             actions,
-            width=258,
-            height=28,
-            fg_color=status_background,
-            corner_radius=8
-        )
-        status_badge.place(x=0, y=0)
-        status_badge.grid_propagate(False)
-        status_badge.grid_columnconfigure(0, weight=1)
-        status_badge.grid_rowconfigure(0, weight=1)
-
-        status_text = ctk.CTkLabel(
-            status_badge,
             text=status_value,
             font=FONTS.small,
-            text_color=status_color,
-            fg_color="transparent"
+            fg=status_color,
+            bg=status_background,
+            anchor="center",
+            borderwidth=0,
+            highlightthickness=0
         )
-        status_text.grid(row=0, column=0, sticky="nsew")
+        status_text.place(x=0, y=0, width=258, height=28)
 
         buttons_frame = ctk.CTkFrame(
             actions,
@@ -1446,7 +1435,6 @@ class ClientsView(ctk.CTkFrame):
             "frame": row,
             "client": client,
             "status_label": status_label,
-            "status_badge": status_badge,
             "buttons_frame": buttons_frame,
             "name_label": name_label,
             "group_label": group_label,
