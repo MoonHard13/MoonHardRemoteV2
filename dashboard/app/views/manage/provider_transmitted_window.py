@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import uuid
 import webbrowser
@@ -6,7 +8,15 @@ from urllib.parse import urlsplit
 
 import customtkinter as ctk
 
-from app.ui.theme import COLORS, FONTS, apply_treeview_style, primary_button_style, secondary_button_style
+from app.ui.theme import (
+    COLORS,
+    FONTS,
+    SPACING,
+    apply_treeview_style,
+    card_style,
+    primary_button_style,
+    secondary_button_style,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -60,79 +70,303 @@ class TransmittedInvoicesView(ctk.CTkFrame):
         self.next_before_oid = None
         self.active_filters = {}
         self.busy = False
+        self._layout_job = None
+        self._wide_layout = None
+        self._filter_frames = []
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
         self._build_ui()
+        self.bind("<Configure>", self._schedule_layout, add="+")
         self._bind_shortcuts()
         self._initial_load_after_id = self.after(100, self._load_types)
 
     def _build_ui(self) -> None:
-        """Χρησιμοποιεί το υπάρχον θέμα και προσθέτει μόνο τα νέα χειριστήρια."""
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.grid(row=0, column=0, padx=18, pady=(12, 8), sticky="ew")
-        header.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(header, text=f"Διαβιβασμένα παραστατικά · BOConnection {self.bo_connection_id}",
-                     font=FONTS.subtitle, text_color=COLORS.text_primary).grid(row=0, column=0, sticky="w")
-        ctk.CTkButton(header, text="← Provider", width=120, command=self.back_callback,
-                      **secondary_button_style()).grid(row=0, column=1, padx=(12, 0), sticky="e")
-        form = ctk.CTkFrame(self, fg_color=COLORS.surface)
-        form.grid(row=1, column=0, padx=18, pady=(0, 10), sticky="ew")
-        for column in (1, 3, 5):
-            form.grid_columnconfigure(column, weight=1)
+        """Δημιουργεί διακριτά header, φίλτρα, αποτελέσματα και URL actions."""
+
+        self.header_card = ctk.CTkFrame(self, **card_style())
+        self.header_card.grid(row=0, column=0, padx=16, pady=(12, 10), sticky="ew")
+        self.header_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            self.header_card,
+            text="Διαβιβασμένα παραστατικά",
+            font=FONTS.title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, padx=20, pady=(14, 0), sticky="w")
+        self.connection_badge = ctk.CTkLabel(
+            self.header_card,
+            text=f"BOConnection {self.bo_connection_id}",
+            font=FONTS.small,
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+            corner_radius=8,
+            height=28,
+        )
+        self.connection_badge.grid(row=0, column=1, padx=(8, 10), pady=(14, 0))
+        ctk.CTkButton(
+            self.header_card,
+            text="← Provider  ·  Esc",
+            width=145,
+            height=30,
+            command=self.back_callback,
+            **secondary_button_style(),
+        ).grid(row=0, column=2, padx=(0, 20), pady=(14, 0), sticky="e")
+        ctk.CTkLabel(
+            self.header_card,
+            text="Αναζήτηση επιτυχημένων διαβιβάσεων και ασφαλές άνοιγμα του URL παραστατικού",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+        ).grid(row=1, column=0, columnspan=3, padx=20, pady=(2, 14), sticky="ew")
+
+        self.filter_card = ctk.CTkFrame(self, **card_style())
+        self.filter_card.grid(row=1, column=0, padx=16, pady=(0, 10), sticky="ew")
+        self.filter_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            self.filter_card,
+            text="Φίλτρα αναζήτησης",
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, padx=16, pady=(14, 3), sticky="w")
+        filter_actions = ctk.CTkFrame(self.filter_card, fg_color="transparent")
+        filter_actions.grid(row=0, column=1, padx=16, pady=(10, 3), sticky="e")
+        self.search_button = ctk.CTkButton(
+            filter_actions,
+            text="Αναζήτηση  ·  F5",
+            width=145,
+            height=30,
+            command=self.search,
+            **primary_button_style(),
+        )
+        self.search_button.grid(row=0, column=0, padx=(0, 6))
+        self.clear_button = ctk.CTkButton(
+            filter_actions,
+            text="Καθαρισμός  ·  Ctrl+L",
+            width=165,
+            height=30,
+            command=self.clear,
+            **secondary_button_style(),
+        )
+        self.clear_button.grid(row=0, column=1)
+
+        self.filter_grid = ctk.CTkFrame(self.filter_card, fg_color="transparent")
+        self.filter_grid.grid(
+            row=1, column=0, columnspan=2, padx=8, pady=(6, 4), sticky="ew"
+        )
         self.entries = {}
-        fields = (("start_date", "Από", "YYYYMMDD", 0, 0),
-                  ("end_date", "Έως", "YYYYMMDD", 0, 2),
-                  ("number", "Αριθμός", "Ακριβής αριθμός", 1, 0),
-                  ("mark", "MARK", "Ακριβές MARK", 1, 2))
-        for key, label, placeholder, row, column in fields:
-            ctk.CTkLabel(form, text=label, font=FONTS.body_bold).grid(row=row, column=column, padx=(12, 8), pady=8, sticky="w")
-            entry = ctk.CTkEntry(form, placeholder_text=placeholder, fg_color=COLORS.surface_light,
-                               border_color=COLORS.border, text_color=COLORS.text_primary)
-            entry.grid(row=row, column=column + 1, padx=(0, 12), pady=8, sticky="ew")
-            self.entries[key] = entry
-        ctk.CTkLabel(form, text="Τύπος", font=FONTS.body_bold).grid(row=0, column=4, padx=8, pady=8)
-        self.type_option = ctk.CTkOptionMenu(form, values=list(self.type_values), width=220,
-            fg_color=COLORS.surface_light, button_color=COLORS.accent, text_color=COLORS.text_primary,
-            dropdown_fg_color=COLORS.surface, dropdown_hover_color=COLORS.surface_hover)
-        self.type_option.grid(row=0, column=5, padx=(0, 12), pady=8, sticky="ew")
-        buttons = ctk.CTkFrame(form, fg_color="transparent")
-        buttons.grid(row=1, column=4, columnspan=2, padx=12, pady=8, sticky="e")
-        self.search_button = ctk.CTkButton(buttons, text="Αναζήτηση", width=105, command=self.search, **primary_button_style())
-        self.search_button.pack(side="left", padx=4)
-        self.clear_button = ctk.CTkButton(buttons, text="Καθαρισμός", width=105, command=self.clear, **secondary_button_style())
-        self.clear_button.pack(side="left", padx=4)
-        ctk.CTkLabel(form, text="Ημερομηνίες YYYYMMDD (π.χ. 20260901), με συμπερίληψη της ημέρας Έως. Κενό πεδίο = χωρίς φίλτρο.",
-            font=FONTS.small, text_color=COLORS.text_secondary).grid(row=2, column=0, columnspan=6, padx=12, pady=(0, 8), sticky="w")
-        table = ctk.CTkFrame(self, fg_color=COLORS.surface)
-        table.grid(row=2, column=0, padx=18, sticky="nsew")
-        table.grid_columnconfigure(0, weight=1)
-        table.grid_rowconfigure(0, weight=1)
-        self.tree = ttk.Treeview(table, columns=[c[0] for c in self.COLUMNS], show="headings", selectmode="browse",
-                                style=apply_treeview_style("MoonHard.Transmitted.Treeview"))
+        self.entries["start_date"] = self._filter_entry(
+            "Από  ·  YYYYMMDD", "π.χ. 20260901"
+        )
+        self.entries["end_date"] = self._filter_entry(
+            "Έως  ·  YYYYMMDD", "π.χ. 20260930"
+        )
+
+        self.type_frame = ctk.CTkFrame(self.filter_grid, fg_color="transparent")
+        self.type_frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            self.type_frame,
+            text="Τύπος παραστατικού",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+        ).grid(row=0, column=0, pady=(0, 4), sticky="w")
+        self.type_option = ctk.CTkOptionMenu(
+            self.type_frame,
+            values=list(self.type_values),
+            fg_color=COLORS.surface_light,
+            button_color=COLORS.accent,
+            button_hover_color=COLORS.accent_hover,
+            text_color=COLORS.text_primary,
+            dropdown_fg_color=COLORS.surface,
+            dropdown_hover_color=COLORS.surface_hover,
+        )
+        self.type_option.grid(row=1, column=0, sticky="ew")
+        self._filter_frames.append(self.type_frame)
+
+        self.entries["number"] = self._filter_entry(
+            "Αριθμός", "Ακριβής αριθμός"
+        )
+        self.entries["mark"] = self._filter_entry("MARK", "Ακριβές MARK")
+        ctk.CTkLabel(
+            self.filter_card,
+            text=(
+                "Η ημέρα «Έως» συμπεριλαμβάνεται. Κενό πεδίο σημαίνει χωρίς φίλτρο. "
+                "Το Enter εκτελεί αναζήτηση."
+            ),
+            font=FONTS.small,
+            text_color=COLORS.text_muted,
+            anchor="w",
+        ).grid(row=2, column=0, columnspan=2, padx=16, pady=(0, 12), sticky="ew")
+
+        self.table_card = ctk.CTkFrame(self, **card_style())
+        self.table_card.grid(row=2, column=0, padx=16, pady=(0, 10), sticky="nsew")
+        self.table_card.grid_columnconfigure(0, weight=1)
+        self.table_card.grid_rowconfigure(1, weight=1)
+        ctk.CTkLabel(
+            self.table_card,
+            text="Αποτελέσματα",
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, padx=16, pady=(12, 8), sticky="w")
+        self.result_count_label = ctk.CTkLabel(
+            self.table_card,
+            text="0 εγγραφές",
+            font=FONTS.small,
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+            corner_radius=8,
+            height=28,
+        )
+        self.result_count_label.grid(row=0, column=1, padx=16, pady=(10, 6), sticky="e")
+        self.tree = ttk.Treeview(
+            self.table_card,
+            columns=[column[0] for column in self.COLUMNS],
+            show="headings",
+            selectmode="browse",
+            style=apply_treeview_style("MoonHard.Transmitted.Treeview"),
+        )
         for name, title, width in self.COLUMNS:
             self.tree.heading(name, text=title)
             self.tree.column(name, width=width, minwidth=60, stretch=name == "DocumentType")
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        self.vertical_scrollbar = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
-        self.vertical_scrollbar.grid(row=0, column=1, sticky="ns")
-        horizontal = ttk.Scrollbar(table, orient="horizontal", command=self.tree.xview)
-        horizontal.grid(row=1, column=0, sticky="ew")
+        self.tree.grid(row=1, column=0, sticky="nsew")
+        self.vertical_scrollbar = ttk.Scrollbar(
+            self.table_card, orient="vertical", command=self.tree.yview
+        )
+        self.vertical_scrollbar.grid(row=1, column=1, sticky="ns")
+        horizontal = ttk.Scrollbar(
+            self.table_card, orient="horizontal", command=self.tree.xview
+        )
+        horizontal.grid(row=2, column=0, sticky="ew")
         self.tree.configure(yscrollcommand=self._tree_scrolled, xscrollcommand=horizontal.set)
         self.tree.bind("<<TreeviewSelect>>", self._selection_changed)
         self.tree.bind("<Double-1>", self._double_click)
         self.tree.bind("<Return>", lambda event: self._shortcut(self.open_url))
+
+        self.selection_card = ctk.CTkFrame(self, **card_style())
+        self.selection_card.grid(row=3, column=0, padx=16, pady=(0, 12), sticky="ew")
+        self.selection_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            self.selection_card,
+            text="Επιλεγμένο URL παραστατικού",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+        ).grid(row=0, column=0, columnspan=2, padx=14, pady=(10, 4), sticky="w")
         self.url_text = ctk.StringVar(value="")
-        self.url_entry = ctk.CTkEntry(self, textvariable=self.url_text, state="readonly", fg_color=COLORS.surface_light)
-        self.url_entry.grid(row=3, column=0, padx=18, pady=8, sticky="ew")
-        actions = ctk.CTkFrame(self, fg_color="transparent")
-        actions.grid(row=4, column=0, padx=18, pady=(0, 8), sticky="ew")
-        self.open_button = ctk.CTkButton(actions, text="Άνοιγμα URL", width=135, state="disabled", command=self.open_url, **primary_button_style())
-        self.open_button.pack(side="left")
-        self.copy_button = ctk.CTkButton(actions, text="Αντιγραφή URL", width=140, state="disabled", command=self.copy_url, **secondary_button_style())
-        self.copy_button.pack(side="left", padx=8)
-        self.status = ctk.CTkLabel(self, text="Συμπληρώστε τα επιθυμητά φίλτρα και πατήστε Αναζήτηση.",
-                                  font=FONTS.body, anchor="w", wraplength=870, text_color=COLORS.text_secondary)
-        self.status.grid(row=5, column=0, padx=18, pady=(0, 14), sticky="ew")
+        self.url_entry = ctk.CTkEntry(
+            self.selection_card,
+            textvariable=self.url_text,
+            state="readonly",
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+        )
+        self.url_entry.grid(row=1, column=0, padx=(14, 8), pady=(0, 8), sticky="ew")
+        url_actions = ctk.CTkFrame(self.selection_card, fg_color="transparent")
+        url_actions.grid(row=1, column=1, padx=(0, 14), pady=(0, 8), sticky="e")
+        self.open_button = ctk.CTkButton(
+            url_actions,
+            text="Άνοιγμα  ·  Ctrl+O",
+            width=155,
+            state="disabled",
+            command=self.open_url,
+            **primary_button_style(),
+        )
+        self.open_button.grid(row=0, column=0, padx=(0, 6))
+        self.copy_button = ctk.CTkButton(
+            url_actions,
+            text="Αντιγραφή  ·  Ctrl+Shift+C",
+            width=205,
+            state="disabled",
+            command=self.copy_url,
+            **secondary_button_style(),
+        )
+        self.copy_button.grid(row=0, column=1)
+        self.status = ctk.CTkLabel(
+            self.selection_card,
+            text="Συμπληρώστε φίλτρα και πατήστε Αναζήτηση.",
+            font=FONTS.small,
+            anchor="w",
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+            corner_radius=8,
+            height=28,
+        )
+        self.status.grid(
+            row=2, column=0, columnspan=2, padx=14, pady=(0, 10), sticky="ew"
+        )
+        self._apply_layout()
+
+    def _filter_entry(self, label: str, placeholder: str) -> ctk.CTkEntry:
+        """Δημιουργεί πεδίο φίλτρου που μπορεί να μετακινηθεί στο responsive grid."""
+
+        frame = ctk.CTkFrame(self.filter_grid, fg_color="transparent")
+        frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            frame,
+            text=label,
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+        ).grid(row=0, column=0, pady=(0, 4), sticky="w")
+        entry = ctk.CTkEntry(
+            frame,
+            placeholder_text=placeholder,
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+            placeholder_text_color=COLORS.text_muted,
+        )
+        entry.grid(row=1, column=0, sticky="ew")
+        self._filter_frames.append(frame)
+        return entry
+
+    def _schedule_layout(self, event=None) -> None:
+        """Κάνει debounce στα resize events της ενσωματωμένης προβολής."""
+
+        if event is not None and event.widget is not self:
+            return
+        if self._layout_job:
+            try:
+                self.after_cancel(self._layout_job)
+            except Exception:
+                pass
+        self._layout_job = self.after(80, self._apply_layout)
+
+    def _apply_layout(self) -> None:
+        """Προσαρμόζει τα φίλτρα σε τρεις ή δύο στήλες ανάλογα με το πλάτος."""
+
+        self._layout_job = None
+        try:
+            wide = self.winfo_width() >= 1180
+        except Exception:
+            return
+        if wide == self._wide_layout:
+            return
+        self._wide_layout = wide
+        for frame in self._filter_frames:
+            frame.grid_forget()
+        for column in range(3):
+            self.filter_grid.grid_columnconfigure(column, weight=0, uniform="")
+        columns = 3 if wide else 2
+        for column in range(columns):
+            self.filter_grid.grid_columnconfigure(
+                column, weight=1, uniform="transmitted-filter"
+            )
+        for index, frame in enumerate(self._filter_frames):
+            frame.grid(
+                row=index // columns,
+                column=index % columns,
+                padx=8,
+                pady=(0, 8),
+                sticky="ew",
+            )
+
+    def _set_status(self, text: str, tone: str = "info") -> None:
+        """Ενημερώνει το status pill με συνεπή χρωματική σημασία."""
+
+        if COLORS is None:
+            self.status.configure(text=text)
+            return
+        color = getattr(COLORS, tone, COLORS.info)
+        soft_color = getattr(COLORS, f"{tone}_soft", COLORS.surface_light)
+        self.status.configure(text=text, text_color=color, fg_color=soft_color)
 
     def _bind_shortcuts(self) -> None:
         """Ενεργοποιεί τις συντομεύσεις μόνο όταν η ενσωματωμένη προβολή είναι ορατή."""
@@ -172,7 +406,10 @@ class TransmittedInvoicesView(ctk.CTkFrame):
             self.after_cancel(timer)
             self.pending.pop(request_id, None)
             self._set_busy(False)
-            self.status.configure(text="Αποτυχία αποστολής. Ελέγξτε τη σύνδεση του dashboard.")
+            self._set_status(
+                "Αποτυχία αποστολής. Ελέγξτε τη σύνδεση του dashboard.",
+                "danger",
+            )
 
     def _load_types(self) -> None:
         """Φορτώνει τους τύπους χωρίς να εκτελεί αναζήτηση παραστατικών."""
@@ -185,7 +422,10 @@ class TransmittedInvoicesView(ctk.CTkFrame):
         if pending and pending[0] == "provider_transmitted_search":
             self._set_busy(False)
         if pending:
-            self.status.configure(text="Δεν ελήφθη απάντηση. Ελέγξτε σύνδεση και ενημέρωση server/client.")
+            self._set_status(
+                "Δεν ελήφθη απάντηση. Ελέγξτε σύνδεση και ενημέρωση server/client.",
+                "danger",
+            )
 
     def search(self) -> None:
         """Ξεκινά νέα αναζήτηση και εμφανίζει τα αποτελέσματα σε μία συνεχή λίστα."""
@@ -199,8 +439,12 @@ class TransmittedInvoicesView(ctk.CTkFrame):
     def _fetch_batch(self, before_oid) -> None:
         """Ζητά την επόμενη ασφαλή παρτίδα και την προσθέτει στην ίδια λίστα."""
         self._set_busy(True)
-        self.status.configure(text="Αναζήτηση διαβιβασμένων..." if not self.rows
-                              else f"Φόρτωση περισσότερων... ({len(self.rows)} ήδη εμφανίζονται)")
+        self._set_status(
+            "Αναζήτηση διαβιβασμένων..."
+            if not self.rows
+            else f"Φόρτωση περισσότερων... ({len(self.rows)} ήδη εμφανίζονται)",
+            "accent",
+        )
         self._send("provider_transmitted_search", {**self.active_filters, "limit": 100,
                    "before_oid": before_oid})
 
@@ -221,11 +465,16 @@ class TransmittedInvoicesView(ctk.CTkFrame):
                     self.type_values[item["label"]] = item["value"]
                 self.type_option.configure(values=list(self.type_values))
             else:
-                self.status.configure(text=payload.get("error") or "Δεν φορτώθηκαν οι τύποι.")
+                self._set_status(
+                    payload.get("error") or "Δεν φορτώθηκαν οι τύποι.",
+                    "warning",
+                )
             return
         if not payload.get("success"):
             self._set_busy(False)
-            self.status.configure(text=payload.get("error") or "Η αναζήτηση απέτυχε.")
+            self._set_status(
+                payload.get("error") or "Η αναζήτηση απέτυχε.", "danger"
+            )
             return
         for invoice in payload.get("invoices", []):
             iid = str(invoice["ResponseOID"])
@@ -248,7 +497,12 @@ class TransmittedInvoicesView(ctk.CTkFrame):
             message = f"Εμφανίζονται {len(self.rows)} εγγραφές. Κυλήστε προς τα κάτω για περισσότερες."
         else:
             message = f"Βρέθηκαν συνολικά {len(self.rows)} εγγραφές."
-        self.status.configure(text=message)
+        if hasattr(self, "result_count_label"):
+            self.result_count_label.configure(text=f"{len(self.rows)} εγγραφές")
+        self._set_status(
+            message,
+            "warning" if not self.rows else "success",
+        )
         logger.info("Εμφάνιση διαβιβασμένων. count=%s", len(self.rows))
 
     def _tree_scrolled(self, first, last) -> None:
@@ -288,6 +542,8 @@ class TransmittedInvoicesView(ctk.CTkFrame):
         self.url_text.set("")
         self.open_button.configure(state="disabled")
         self.copy_button.configure(state="disabled")
+        if hasattr(self, "result_count_label"):
+            self.result_count_label.configure(text="0 εγγραφές")
 
     def clear(self) -> None:
         """Μηδενίζει όλα τα φίλτρα και τα προσωρινά αποτελέσματα."""
@@ -299,7 +555,7 @@ class TransmittedInvoicesView(ctk.CTkFrame):
         self.active_filters = {}
         self._clear_rows()
         self._set_busy(False)
-        self.status.configure(text="Τα φίλτρα καθαρίστηκαν.")
+        self._set_status("Τα φίλτρα και τα αποτελέσματα καθαρίστηκαν.", "info")
         self.entries["mark"].focus_set()
         logger.info("Καθαρισμός φίλτρων διαβιβασμένων.")
 
@@ -319,7 +575,7 @@ class TransmittedInvoicesView(ctk.CTkFrame):
             self.open_button.configure(state="disabled")
             self.copy_button.configure(state="disabled")
             if self.tree.selection():
-                self.status.configure(text=str(exc))
+                self._set_status(str(exc), "warning")
             return
         self.url_text.set(url)
         self.open_button.configure(state="normal")
@@ -341,9 +597,14 @@ class TransmittedInvoicesView(ctk.CTkFrame):
             if not webbrowser.open(url, new=2):
                 raise ValueError("Δεν άνοιξε ο browser. Χρησιμοποιήστε Αντιγραφή URL.")
             logger.info("Άνοιγμα συνδέσμου διαβιβασμένου στον browser.")
-            self.status.configure(text="Ο σύνδεσμος δόθηκε στον browser.")
+            self._set_status("Ο σύνδεσμος δόθηκε στον browser.", "success")
         except Exception as exc:
-            self.status.configure(text=str(exc) if isinstance(exc, ValueError) else "Αποτυχία ανοίγματος browser.")
+            self._set_status(
+                str(exc)
+                if isinstance(exc, ValueError)
+                else "Αποτυχία ανοίγματος browser.",
+                "danger",
+            )
 
     def copy_url(self) -> None:
         """Αντιγράφει τον επιλεγμένο σύνδεσμο χωρίς καταγραφή του στα logs."""
@@ -351,13 +612,22 @@ class TransmittedInvoicesView(ctk.CTkFrame):
             url = self._selected_url()
             self.clipboard_clear()
             self.clipboard_append(url)
-            self.status.configure(text="Το URL αντιγράφηκε.")
+            self._set_status("Το URL αντιγράφηκε.", "success")
             logger.info("Αντιγραφή συνδέσμου διαβιβασμένου.")
         except Exception as exc:
-            self.status.configure(text=str(exc) if isinstance(exc, ValueError) else "Αποτυχία αντιγραφής URL.")
+            self._set_status(
+                str(exc)
+                if isinstance(exc, ValueError)
+                else "Αποτυχία αντιγραφής URL.",
+                "danger",
+            )
 
     def destroy(self) -> None:
         """Ακυρώνει χρονόμετρα και αποδεσμεύει αποτελέσματα και συντομεύσεις."""
+        layout_job = getattr(self, "_layout_job", None)
+        if layout_job is not None:
+            self.after_cancel(layout_job)
+            self._layout_job = None
         if self._initial_load_after_id is not None:
             self.after_cancel(self._initial_load_after_id)
         for key, binding_id in self._shortcut_bindings:

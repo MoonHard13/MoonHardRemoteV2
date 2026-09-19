@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from datetime import datetime, timedelta
 from typing import Callable
@@ -52,6 +54,10 @@ class ProviderTab(ctk.CTkFrame):
         self.current_payways_invoice_id = ""
         self.current_payways_columns: list[str] = []
         self.transmitted_view = None
+        self._shortcut_bindings: list[tuple[str, str | None]] = []
+        self._shortcut_parent = self.winfo_toplevel()
+        self._layout_job: str | None = None
+        self._wide_layout: bool | None = None
         
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -59,222 +65,272 @@ class ProviderTab(ctk.CTkFrame):
         self.main_content = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
         self.main_content.grid(row=0, column=0, sticky="nsew")
         self.main_content.grid_columnconfigure(0, weight=1)
-        self.main_content.grid_rowconfigure(1, weight=1)
+        self.main_content.grid_rowconfigure(2, weight=1)
 
         self._build_ui()
+        self.bind("<Configure>", self._schedule_layout, add="+")
+        self._bind_shortcuts()
 
     def _build_ui(self) -> None:
         """
         Δημιουργεί το βασικό UI του Provider/MUPT tab.
         """
 
-        top_frame = ctk.CTkFrame(self.main_content, **card_style())
-        top_frame.grid(
+        self.provider_header = ctk.CTkFrame(self.main_content, **card_style())
+        self.provider_header.grid(
             row=0,
             column=0,
             padx=SPACING.card_padding,
-            pady=SPACING.card_padding,
-            sticky="ew"
+            pady=(SPACING.card_padding, 10),
+            sticky="ew",
         )
-        top_frame.grid_columnconfigure(1, weight=1)
-        top_frame.grid_columnconfigure(3, weight=1)
+        self.provider_header.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            self.provider_header,
+            text="Provider",
+            font=FONTS.title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, padx=20, pady=(14, 0), sticky="w")
 
-        title = ctk.CTkLabel(
-            top_frame,
-            text="Universal Provider Tool",
-            font=FONTS.subtitle,
-            text_color=COLORS.text_primary
+        self.provider_connection_badge = ctk.CTkLabel(
+            self.provider_header,
+            text="BOConnection 1",
+            font=FONTS.small,
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+            corner_radius=8,
+            height=28,
         )
-        title.grid(row=0, column=0, columnspan=4, padx=18, pady=(18, 8), sticky="w")
-        transmitted_button = ctk.CTkButton(
-            top_frame, text="Διαβιβασμένα", width=160,
-            command=self._open_transmitted, **secondary_button_style()
+        self.provider_connection_badge.grid(
+            row=0, column=1, padx=20, pady=(14, 0), sticky="e"
         )
-        transmitted_button.grid(row=0, column=4, columnspan=2, padx=18, pady=(18, 8), sticky="e")
-        transmitted_button.bind("<Return>", lambda event: self._open_transmitted())
-        self.winfo_toplevel().bind("<Control-Shift-D>", lambda event: self._open_transmitted(), add="+")
+        ctk.CTkLabel(
+            self.provider_header,
+            text="Search pending invoices, send them to the tax provider and inspect MyDATA results",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+        ).grid(row=1, column=0, columnspan=2, padx=20, pady=(2, 10), sticky="ew")
 
-        bo_label = ctk.CTkLabel(
-            top_frame,
-            text="BOConnection:",
-            font=FONTS.body_bold,
-            text_color=COLORS.text_primary
+        header_toolbar = ctk.CTkFrame(self.provider_header, fg_color="transparent")
+        header_toolbar.grid(
+            row=2, column=0, columnspan=2, padx=20, pady=(0, 16), sticky="ew"
         )
-        bo_label.grid(row=1, column=0, padx=(18, 8), pady=6, sticky="w")
-
+        header_toolbar.grid_columnconfigure(0, weight=1)
         self.provider_bo_option = ctk.CTkOptionMenu(
-            top_frame,
+            header_toolbar,
             values=["ID 1"],
             command=self._on_provider_bo_selected,
+            width=340,
+            height=34,
+            dynamic_resizing=False,
             fg_color=COLORS.surface_light,
             button_color=COLORS.accent,
             button_hover_color=COLORS.accent_hover,
             text_color=COLORS.text_primary,
             dropdown_fg_color=COLORS.surface,
-            dropdown_hover_color=COLORS.surface_hover
+            dropdown_hover_color=COLORS.surface_hover,
         )
         self.provider_bo_option.set("ID 1")
-        self.provider_bo_option.grid(row=1, column=1, padx=(0, 12), pady=6, sticky="w")
+        self.provider_bo_option.grid(row=0, column=0, padx=(0, 10), sticky="ew")
 
-        api_label = ctk.CTkLabel(
-            top_frame,
-            text="API URL:",
-            font=FONTS.body_bold,
-            text_color=COLORS.text_primary
+        self.transmitted_button = ctk.CTkButton(
+            header_toolbar,
+            text="Transmitted invoices  ·  Ctrl+Shift+D",
+            width=245,
+            height=34,
+            command=self._open_transmitted,
+            **secondary_button_style(),
         )
-        api_label.grid(row=2, column=0, padx=(18, 8), pady=6, sticky="w")
+        self.transmitted_button.grid(row=0, column=1)
+        self.transmitted_button.bind("<Return>", lambda _event: self._open_transmitted())
 
+        self.search_card = ctk.CTkFrame(self.main_content, **card_style())
+        self.search_card.grid(
+            row=1,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, 10),
+            sticky="ew",
+        )
+        self.search_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            self.search_card,
+            text="Pending invoice search",
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, padx=16, pady=(14, 3), sticky="w")
+        ctk.CTkLabel(
+            self.search_card,
+            text="The query runs on the selected client database; results remain only in this session.",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+        ).grid(row=1, column=0, padx=16, pady=(0, 10), sticky="ew")
+
+        api_frame = ctk.CTkFrame(self.search_card, fg_color="transparent")
+        api_frame.grid(row=2, column=0, padx=16, pady=(0, 8), sticky="ew")
+        api_frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            api_frame,
+            text="Provider endpoint  ·  must contain invoiceid",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+        ).grid(row=0, column=0, pady=(0, 4), sticky="w")
         self.provider_api_url_entry = ctk.CTkEntry(
-            top_frame,
+            api_frame,
             placeholder_text="Provider API URL with invoiceid placeholder",
             fg_color=COLORS.surface_light,
             border_color=COLORS.border,
             text_color=COLORS.text_primary,
-            placeholder_text_color=COLORS.text_muted
+            placeholder_text_color=COLORS.text_muted,
         )
-        self.provider_api_url_entry.grid(row=2, column=1, columnspan=5, padx=(0, 18), pady=6, sticky="ew")
+        self.provider_api_url_entry.grid(row=1, column=0, sticky="ew")
         self.provider_api_url_entry.insert(
             0,
-            "http://localhost/External.Tax.Provider/api/TaxProvider/SendInvoice/1/0/1/1/0?id=invoiceid&userId=3"
+            "http://localhost/External.Tax.Provider/api/TaxProvider/SendInvoice/1/0/1/1/0?id=invoiceid&userId=3",
         )
 
-        start_label = ctk.CTkLabel(
-            top_frame,
-            text="Date From:",
-            font=FONTS.body_bold,
-            text_color=COLORS.text_primary
+        self.provider_filters = ctk.CTkFrame(self.search_card, fg_color="transparent")
+        self.provider_filters.grid(row=3, column=0, padx=8, pady=(0, 6), sticky="ew")
+        self.provider_filter_frames: list[ctk.CTkFrame] = []
+        self.provider_start_entry = self._provider_field(
+            self.provider_filters, "Date from  ·  YYYYMMDD"
         )
-        start_label.grid(row=3, column=0, padx=(18, 8), pady=6, sticky="w")
-
-        self.provider_start_entry = ctk.CTkEntry(
-            top_frame,
-            width=120,
-            fg_color=COLORS.surface_light,
-            border_color=COLORS.border,
-            text_color=COLORS.text_primary
-        )
-        self.provider_start_entry.grid(row=3, column=1, padx=(0, 12), pady=6, sticky="w")
         self.provider_start_entry.insert(0, self._today_yyyymmdd())
-
-        end_label = ctk.CTkLabel(
-            top_frame,
-            text="Date To:",
-            font=FONTS.body_bold,
-            text_color=COLORS.text_primary
+        self.provider_end_entry = self._provider_field(
+            self.provider_filters, "Date to  ·  YYYYMMDD"
         )
-        end_label.grid(row=3, column=2, padx=(8, 8), pady=6, sticky="w")
-
-        self.provider_end_entry = ctk.CTkEntry(
-            top_frame,
-            width=120,
-            fg_color=COLORS.surface_light,
-            border_color=COLORS.border,
-            text_color=COLORS.text_primary
-        )
-        self.provider_end_entry.grid(row=3, column=3, padx=(0, 12), pady=6, sticky="w")
         self.provider_end_entry.insert(0, self._tomorrow_yyyymmdd())
+        self.provider_afm_entry = self._provider_field(
+            self.provider_filters, "Customer AFM", "e.g. 123456789"
+        )
+        self.provider_invoice_type_entry = self._provider_field(
+            self.provider_filters, "Invoice type", "e.g. 1.1"
+        )
 
-        today_button = ctk.CTkButton(
-            top_frame,
+        self.search_actions = ctk.CTkFrame(self.search_card, fg_color="transparent")
+        self.search_actions.grid(row=4, column=0, padx=16, pady=(0, 16), sticky="ew")
+        self.search_actions.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            self.search_actions,
+            text="Enter in any filter starts the search",
+            font=FONTS.small,
+            text_color=COLORS.text_muted,
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkButton(
+            self.search_actions,
             text="Today",
-            width=80,
+            width=88,
+            height=32,
             command=self._preset_today,
-            **secondary_button_style()
-        )
-        today_button.grid(row=3, column=4, padx=(0, 8), pady=6)
-
-        month_button = ctk.CTkButton(
-            top_frame,
-            text="This Month",
-            width=100,
+            **secondary_button_style(),
+        ).grid(row=0, column=1, padx=(8, 6))
+        ctk.CTkButton(
+            self.search_actions,
+            text="This month",
+            width=110,
+            height=32,
             command=self._preset_month,
-            **secondary_button_style()
-        )
-        month_button.grid(row=3, column=5, padx=(0, 18), pady=6)
-
-        afm_label = ctk.CTkLabel(
-            top_frame,
-            text="AFM:",
-            font=FONTS.body_bold,
-            text_color=COLORS.text_primary
-        )
-        afm_label.grid(row=4, column=0, padx=(18, 8), pady=(6, 18), sticky="w")
-
-        self.provider_afm_entry = ctk.CTkEntry(
-            top_frame,
-            width=160,
-            placeholder_text="e.g. 123456789",
-            fg_color=COLORS.surface_light,
-            border_color=COLORS.border,
-            text_color=COLORS.text_primary,
-            placeholder_text_color=COLORS.text_muted
-        )
-        self.provider_afm_entry.grid(row=4, column=1, padx=(0, 12), pady=(6, 18), sticky="w")
-
-        type_label = ctk.CTkLabel(
-            top_frame,
-            text="Invoice Type:",
-            font=FONTS.body_bold,
-            text_color=COLORS.text_primary
-        )
-        type_label.grid(row=4, column=2, padx=(8, 8), pady=(6, 18), sticky="w")
-
-        self.provider_invoice_type_entry = ctk.CTkEntry(
-            top_frame,
-            width=160,
-            placeholder_text="e.g. 1.1",
-            fg_color=COLORS.surface_light,
-            border_color=COLORS.border,
-            text_color=COLORS.text_primary,
-            placeholder_text_color=COLORS.text_muted
-        )
-        self.provider_invoice_type_entry.grid(row=4, column=3, padx=(0, 12), pady=(6, 18), sticky="w")
-
-        search_button = ctk.CTkButton(
-            top_frame,
-            text="Search",
-            width=100,
+            **secondary_button_style(),
+        ).grid(row=0, column=2, padx=(0, 8))
+        self.search_button = ctk.CTkButton(
+            self.search_actions,
+            text="Search  ·  Ctrl+F",
+            width=145,
+            height=32,
             command=self._search_invoices,
-            **primary_button_style()
+            **primary_button_style(),
         )
-        search_button.grid(row=4, column=4, padx=(0, 8), pady=(6, 18))
+        self.search_button.grid(row=0, column=3)
 
-        self.provider_count_label = ctk.CTkLabel(
-            top_frame,
-            text="Count: 0",
-            font=FONTS.body_bold,
-            text_color=COLORS.accent
-        )
-        self.provider_count_label.grid(row=4, column=5, padx=(0, 18), pady=(6, 18), sticky="e")
+        for entry in (
+            self.provider_start_entry,
+            self.provider_end_entry,
+            self.provider_afm_entry,
+            self.provider_invoice_type_entry,
+        ):
+            entry.bind("<Return>", lambda _event: self._shortcut(self._search_invoices))
 
         self._build_invoice_table()
         self._build_actions()
+        self._apply_layout()
+
+    def _provider_field(
+        self,
+        parent,
+        label: str,
+        placeholder: str = "",
+    ) -> ctk.CTkEntry:
+        """Δημιουργεί ομοιόμορφο πεδίο φίλτρου και κρατά το frame για resize."""
+
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            frame,
+            text=label,
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+        ).grid(row=0, column=0, pady=(0, 4), sticky="w")
+        entry = ctk.CTkEntry(
+            frame,
+            placeholder_text=placeholder,
+            fg_color=COLORS.surface_light,
+            border_color=COLORS.border,
+            text_color=COLORS.text_primary,
+            placeholder_text_color=COLORS.text_muted,
+        )
+        entry.grid(row=1, column=0, sticky="ew")
+        self.provider_filter_frames.append(frame)
+        return entry
 
     def _build_invoice_table(self) -> None:
         """
         Δημιουργεί τον πίνακα παραστατικών.
         """
 
-        table_frame = ctk.CTkFrame(self.main_content, **card_style())
-        table_frame.grid(
-            row=1,
+        self.provider_table_card = ctk.CTkFrame(self.main_content, **card_style())
+        self.provider_table_card.grid(
+            row=2,
             column=0,
             padx=SPACING.card_padding,
             pady=(0, SPACING.inner_padding),
             sticky="nsew"
         )
-        table_frame.grid_columnconfigure(0, weight=1)
-        table_frame.grid_rowconfigure(1, weight=1)
+        self.provider_table_card.grid_columnconfigure(0, weight=1)
+        self.provider_table_card.grid_rowconfigure(2, weight=1)
 
-        filter_frame = ctk.CTkFrame(table_frame, fg_color="transparent")
-        filter_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 6), sticky="ew")
+        ctk.CTkLabel(
+            self.provider_table_card,
+            text="Invoices ready to send",
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, padx=16, pady=(14, 3), sticky="w")
+
+        self.provider_count_label = ctk.CTkLabel(
+            self.provider_table_card,
+            text="0 invoices",
+            font=FONTS.small,
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+            corner_radius=8,
+            height=28,
+        )
+        self.provider_count_label.grid(
+            row=0, column=1, padx=16, pady=(10, 3), sticky="e"
+        )
+
+        filter_frame = ctk.CTkFrame(self.provider_table_card, fg_color="transparent")
+        filter_frame.grid(
+            row=1, column=0, columnspan=2, padx=16, pady=(4, 8), sticky="ew"
+        )
         filter_frame.grid_columnconfigure(1, weight=1)
 
         filter_label = ctk.CTkLabel(
             filter_frame,
-            text="Local Filter:",
-            font=FONTS.body_bold,
-            text_color=COLORS.text_primary
+            text="Local filter",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary
         )
         filter_label.grid(row=0, column=0, padx=(0, 8), sticky="w")
 
@@ -295,8 +351,8 @@ class ProviderTab(ctk.CTkFrame):
 
         clear_filter_button = ctk.CTkButton(
             filter_frame,
-            text="Clear",
-            width=70,
+            text="Clear  ·  Ctrl+L",
+            width=125,
             command=self._clear_local_filter,
             **secondary_button_style()
         )
@@ -305,27 +361,27 @@ class ProviderTab(ctk.CTkFrame):
         tree_style = apply_treeview_style("MoonHard.Provider.Treeview")
 
         self.provider_tree = ttk.Treeview(
-            table_frame,
+            self.provider_table_card,
             columns=("Select", "Type", "Name", "Date", "Number", "AFM", "ID"),
             show="headings",
             height=16,
             style=tree_style
         )
-        self.provider_tree.grid(row=1, column=0, sticky="nsew")
+        self.provider_tree.grid(row=2, column=0, sticky="nsew")
 
         y_scroll = ttk.Scrollbar(
-            table_frame,
+            self.provider_table_card,
             orient="vertical",
             command=self.provider_tree.yview
         )
-        y_scroll.grid(row=1, column=1, sticky="ns")
+        y_scroll.grid(row=2, column=1, sticky="ns")
 
         x_scroll = ttk.Scrollbar(
-            table_frame,
+            self.provider_table_card,
             orient="horizontal",
             command=self.provider_tree.xview
         )
-        x_scroll.grid(row=2, column=0, sticky="ew")
+        x_scroll.grid(row=3, column=0, sticky="ew")
 
         self.provider_tree.configure(
             yscrollcommand=y_scroll.set,
@@ -360,68 +416,193 @@ class ProviderTab(ctk.CTkFrame):
         Δημιουργεί τα action buttons του Provider tab.
         """
 
-        actions_frame = ctk.CTkFrame(self.main_content, **card_style())
-        actions_frame.grid(
-            row=2,
+        self.provider_actions_card = ctk.CTkFrame(self.main_content, **card_style())
+        self.provider_actions_card.grid(
+            row=3,
             column=0,
             padx=SPACING.card_padding,
             pady=(0, SPACING.card_padding),
             sticky="ew"
         )
+        self.provider_actions_card.grid_columnconfigure(0, weight=1)
 
-        send_selected_button = ctk.CTkButton(
+        self.provider_action_frame = ctk.CTkFrame(
+            self.provider_actions_card, fg_color="transparent"
+        )
+        self.provider_action_frame.grid(
+            row=0, column=0, padx=12, pady=(10, 6), sticky="w"
+        )
+        actions_frame = self.provider_action_frame
+
+        self.send_selected_button = ctk.CTkButton(
             actions_frame,
-            text="Send Selected",
-            width=130,
+            text="Send selected  ·  Ctrl+Enter",
+            width=205,
             command=self._send_selected,
             **primary_button_style()
         )
-        send_selected_button.pack(side="left", padx=(12, 6), pady=12)
+        self.send_selected_button.grid(row=0, column=0, padx=(0, 6))
 
-        send_all_button = ctk.CTkButton(
+        self.send_all_button = ctk.CTkButton(
             actions_frame,
-            text="Send All",
-            width=110,
+            text="Send all  ·  Ctrl+Shift+Enter",
+            width=205,
             command=self._send_all,
             **primary_button_style()
         )
-        send_all_button.pack(side="left", padx=6, pady=12)
+        self.send_all_button.grid(row=0, column=1, padx=6)
 
-        errors_button = ctk.CTkButton(
+        self.errors_button = ctk.CTkButton(
             actions_frame,
-            text="Show Errors",
-            width=120,
+            text="Errors  ·  Ctrl+E",
+            width=125,
             command=self._show_errors,
             **secondary_button_style()
         )
-        errors_button.pack(side="left", padx=6, pady=12)
+        self.errors_button.grid(row=0, column=2, padx=6)
 
-        mydata_button = ctk.CTkButton(
+        self.mydata_button = ctk.CTkButton(
             actions_frame,
-            text="Delete MyDATA",
-            width=130,
+            text="Delete MyDATA  ·  Ctrl+Shift+Del",
+            width=205,
             command=self._delete_mydata,
-            **danger_button_style()
+            fg_color=COLORS.danger_soft,
+            hover_color=COLORS.danger,
+            text_color=COLORS.danger,
+            border_width=1,
+            border_color=COLORS.danger,
+            corner_radius=SPACING.button_radius,
+            font=FONTS.body_bold,
         )
-        mydata_button.pack(side="left", padx=6, pady=12)
+        self.mydata_button.grid(row=0, column=4, padx=6)
 
-        payways_button = ctk.CTkButton(
+        self.payways_button = ctk.CTkButton(
             actions_frame,
-            text="Payways",
-            width=110,
+            text="Payways  ·  Ctrl+P",
+            width=135,
             command=self._show_payways,
             **secondary_button_style()
         )
-        payways_button.pack(side="left", padx=6, pady=12)
+        self.payways_button.grid(row=0, column=3, padx=6)
 
         self.provider_status_label = ctk.CTkLabel(
-            actions_frame,
+            self.provider_actions_card,
             text="Ready",
-            font=FONTS.body,
-            text_color=COLORS.text_secondary,
+            font=FONTS.small,
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+            corner_radius=8,
+            height=28,
             anchor="w"
         )
-        self.provider_status_label.pack(side="right", padx=12, pady=12)
+        self.provider_status_label.grid(
+            row=1, column=0, padx=12, pady=(0, 10), sticky="ew"
+        )
+        self.provider_action_buttons = [
+            self.send_selected_button,
+            self.send_all_button,
+            self.errors_button,
+            self.payways_button,
+            self.mydata_button,
+        ]
+
+    def _schedule_layout(self, event=None) -> None:
+        """Εφαρμόζει responsive διάταξη στα φίλτρα χωρίς resize thrashing."""
+
+        if event is not None and event.widget is not self:
+            return
+        if self._layout_job:
+            try:
+                self.after_cancel(self._layout_job)
+            except Exception:
+                pass
+        self._layout_job = self.after(80, self._apply_layout)
+
+    def _apply_layout(self) -> None:
+        """Κρατά τέσσερα φίλτρα σε wide mode και δύο ανά σειρά σε compact mode."""
+
+        self._layout_job = None
+        try:
+            wide = self.winfo_width() >= 1180
+        except Exception:
+            return
+        if wide == self._wide_layout:
+            return
+        self._wide_layout = wide
+        for frame in self.provider_filter_frames:
+            frame.grid_forget()
+        for column in range(4):
+            self.provider_filters.grid_columnconfigure(column, weight=0, uniform="")
+
+        columns = 4 if wide else 2
+        for column in range(columns):
+            self.provider_filters.grid_columnconfigure(
+                column, weight=1, uniform="provider-filter"
+            )
+        for index, frame in enumerate(self.provider_filter_frames):
+            frame.grid(
+                row=index // columns,
+                column=index % columns,
+                padx=8,
+                pady=(0, 8),
+                sticky="ew",
+            )
+        for button in self.provider_action_buttons:
+            button.grid_forget()
+        if wide:
+            for column, button in enumerate(self.provider_action_buttons):
+                button.grid(row=0, column=column, padx=6)
+        else:
+            compact_positions = ((0, 0), (0, 1), (0, 2), (1, 0), (1, 1))
+            for button, (row, column) in zip(
+                self.provider_action_buttons, compact_positions
+            ):
+                button.grid(row=row, column=column, padx=6, pady=(0, 6))
+
+    def _bind_shortcuts(self) -> None:
+        """Δεσμεύει shortcuts που λειτουργούν μόνο στην κύρια Provider προβολή."""
+
+        shortcuts = (
+            ("<Control-f>", self._search_invoices),
+            ("<F5>", self._search_invoices),
+            ("<Control-Return>", self._send_selected),
+            ("<Control-Shift-Return>", self._send_all),
+            ("<Control-e>", self._show_errors),
+            ("<Control-p>", self._show_payways),
+            ("<Control-l>", self._clear_local_filter),
+            ("<Control-Shift-Delete>", self._delete_mydata),
+            ("<Control-Shift-D>", self._open_transmitted),
+        )
+        for key, callback in shortcuts:
+            binding_id = self._shortcut_parent.bind(
+                key,
+                lambda _event, action=callback: self._visible_shortcut(action),
+                add="+",
+            )
+            self._shortcut_bindings.append((key, binding_id))
+
+    @staticmethod
+    def _shortcut(action):
+        """Εκτελεί μία ενέργεια και σταματά την περαιτέρω επεξεργασία του event."""
+
+        action()
+        return "break"
+
+    def _visible_shortcut(self, action):
+        """Αποτρέπει την ενεργοποίηση shortcuts όταν προβάλλονται Διαβιβασμένα."""
+
+        if self.main_content.winfo_viewable():
+            return self._shortcut(action)
+        return None
+
+    def _update_connection_badge(self) -> None:
+        """Συγχρονίζει το badge με την ενεργή σύνδεση βάσης."""
+
+        self.provider_connection_badge.configure(
+            text=f"BOConnection {self.selected_bo_connection_id}",
+            text_color=COLORS.info,
+            fg_color=COLORS.info_soft,
+        )
 
     def _open_transmitted(self) -> None:
         """Εναλλάσσει την προβολή μέσα στο Provider, διατηρώντας τα προηγούμενα δεδομένα."""
@@ -466,10 +647,16 @@ class ProviderTab(ctk.CTkFrame):
 
             if connection_id is not None:
                 self.selected_bo_connection_id = connection_id
+                self._update_connection_badge()
 
         else:
             self.provider_bo_option.configure(values=["No BOConnections"])
             self.provider_bo_option.set("No BOConnections")
+            self.provider_connection_badge.configure(
+                text="No BOConnection",
+                text_color=COLORS.warning,
+                fg_color=COLORS.warning_soft,
+            )
 
     def _on_provider_bo_selected(self, selected_value: str) -> None:
         """
@@ -480,6 +667,11 @@ class ProviderTab(ctk.CTkFrame):
 
         if connection_id is not None:
             self.selected_bo_connection_id = connection_id
+            self.provider_connection_badge.configure(
+                text=f"BOConnection {connection_id}",
+                text_color=COLORS.info,
+                fg_color=COLORS.info_soft,
+            )
 
     def _search_invoices(self) -> None:
         """
@@ -858,7 +1050,7 @@ class ProviderTab(ctk.CTkFrame):
             )
 
         self.provider_count_label.configure(
-            text=f"Count: {len(invoices)} / {len(self.provider_invoices)}"
+            text=f"{len(invoices)} of {len(self.provider_invoices)} invoices"
         )
 
 
@@ -928,7 +1120,7 @@ class ProviderTab(ctk.CTkFrame):
         for item in self.provider_tree.get_children():
             self.provider_tree.delete(item)
 
-        self.provider_count_label.configure(text="Count: 0")
+        self.provider_count_label.configure(text="0 invoices")
 
     def _toggle_invoice_selection(self, event) -> None:
         """
@@ -963,7 +1155,24 @@ class ProviderTab(ctk.CTkFrame):
         Ενημερώνει το status του Provider tab.
         """
 
-        self.provider_status_label.configure(text=text)
+        lowered = text.lower()
+        if any(word in lowered for word in ("failed", "error", "invalid")):
+            color, soft_color = COLORS.danger, COLORS.danger_soft
+        elif any(
+            phrase in lowered
+            for phrase in ("no ", "select ", "empty", "must contain", "exactly one")
+        ):
+            color, soft_color = COLORS.warning, COLORS.warning_soft
+        elif any(
+            word in lowered
+            for word in ("loaded", "finished", "deleted", "success", "copied")
+        ):
+            color, soft_color = COLORS.success, COLORS.success_soft
+        else:
+            color, soft_color = COLORS.info, COLORS.info_soft
+        self.provider_status_label.configure(
+            text=text, text_color=color, fg_color=soft_color
+        )
 
     def _extract_bo_id_from_option(self, selected_value: str) -> int | None:
         """
@@ -1697,3 +1906,22 @@ class ProviderTab(ctk.CTkFrame):
 
         if self.on_provider_request_callback:
             self.on_provider_request_callback(payload)
+
+    def destroy(self) -> None:
+        """Αποδεσμεύει τα global shortcuts και την ενσωματωμένη προβολή."""
+
+        if self._layout_job:
+            try:
+                self.after_cancel(self._layout_job)
+            except Exception:
+                pass
+            self._layout_job = None
+        for key, binding_id in self._shortcut_bindings:
+            try:
+                self._shortcut_parent.unbind(key, binding_id)
+            except Exception:
+                pass
+        self._shortcut_bindings.clear()
+        if self.transmitted_view and self.transmitted_view.winfo_exists():
+            self.transmitted_view.destroy()
+        super().destroy()
