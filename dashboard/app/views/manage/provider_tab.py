@@ -369,14 +369,14 @@ class ProviderTab(ctk.CTkFrame):
         )
         self.provider_tree.grid(row=2, column=0, sticky="nsew")
 
-        y_scroll = ttk.Scrollbar(
+        y_scroll = ctk.CTkScrollbar(
             self.provider_table_card,
             orient="vertical",
             command=self.provider_tree.yview
         )
         y_scroll.grid(row=2, column=1, sticky="ns")
 
-        x_scroll = ttk.Scrollbar(
+        x_scroll = ctk.CTkScrollbar(
             self.provider_table_card,
             orient="horizontal",
             command=self.provider_tree.xview
@@ -1387,14 +1387,14 @@ class ProviderTab(ctk.CTkFrame):
         )
         tree.grid(row=0, column=0, sticky="nsew")
 
-        y_scroll = ttk.Scrollbar(
+        y_scroll = ctk.CTkScrollbar(
             table_frame,
             orient="vertical",
             command=tree.yview
         )
         y_scroll.grid(row=0, column=1, sticky="ns")
 
-        x_scroll = ttk.Scrollbar(
+        x_scroll = ctk.CTkScrollbar(
             table_frame,
             orient="horizontal",
             command=tree.xview
@@ -1533,14 +1533,14 @@ class ProviderTab(ctk.CTkFrame):
 
         tree.grid(row=0, column=0, sticky="nsew")
 
-        y_scroll = ttk.Scrollbar(
+        y_scroll = ctk.CTkScrollbar(
             table_frame,
             orient="vertical",
             command=tree.yview
         )
         y_scroll.grid(row=0, column=1, sticky="ns")
 
-        x_scroll = ttk.Scrollbar(
+        x_scroll = ctk.CTkScrollbar(
             table_frame,
             orient="horizontal",
             command=tree.xview
