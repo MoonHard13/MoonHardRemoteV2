@@ -1,5 +1,6 @@
 """Δοκιμές της responsive διεπαφής Provider και Διαβιβασμένων."""
 
+import ast
 import importlib.util
 import os
 import sys
@@ -9,6 +10,35 @@ from unittest.mock import Mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dashboard"))
+
+
+class ProviderScrollbarSourceTests(unittest.TestCase):
+    """Ελέγχει τη συμβατότητα των scrollbars χωρίς να απαιτεί γραφικό περιβάλλον."""
+
+    def test_customtkinter_scrollbars_use_orientation_argument(self):
+        """Το CTkScrollbar δέχεται orientation και όχι το ttk όρισμα orient."""
+
+        project_root = Path(__file__).resolve().parents[1]
+        source_files = (
+            project_root / "dashboard/app/views/manage/provider_tab.py",
+            project_root / "dashboard/app/views/manage/provider_transmitted_window.py",
+        )
+        scrollbar_calls = []
+        for source_file in source_files:
+            tree = ast.parse(source_file.read_text(encoding="utf-8"))
+            scrollbar_calls.extend(
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "CTkScrollbar"
+            )
+
+        self.assertEqual(len(scrollbar_calls), 8)
+        for call in scrollbar_calls:
+            keywords = {keyword.arg for keyword in call.keywords}
+            self.assertIn("orientation", keywords)
+            self.assertNotIn("orient", keywords)
 
 
 @unittest.skipUnless(
