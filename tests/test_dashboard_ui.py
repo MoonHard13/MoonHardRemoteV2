@@ -3,6 +3,7 @@
 import importlib.util
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
@@ -46,20 +47,25 @@ class DashboardSourceTests(unittest.TestCase):
         source = (PROJECT_ROOT / "dashboard/app/views/clients_view.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("status_text = ctk.CTkButton", source)
-        self.assertIn("status_text.place(x=0, y=0)", source)
+        self.assertIn("status_text = tk.Label", source)
+        self.assertIn(
+            "status_text.place(x=0, y=0, width=258, height=28)", source
+        )
         self.assertIn("buttons_frame.place(x=0, y=38)", source)
-        self.assertNotIn("status_text.place(x=0, y=0, width=", source)
         self.assertNotIn("buttons_frame.place(x=0, y=38, width=", source)
 
-    def test_group_filter_forces_clean_visible_row_render(self):
-        """Η αλλαγή group δεν επαναχρησιμοποιεί rows από παλιά scroll θέση."""
+    def test_filter_change_forces_clean_paginated_render(self):
+        """Η αλλαγή φίλτρου ξεκινά καθαρά από την πρώτη σελίδα."""
 
         source = (PROJECT_ROOT / "dashboard/app/views/clients_view.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("group_changed = selected_group != self.group_filter", source)
-        self.assertIn("if group_changed:\n            self._render_clients", source)
+        self.assertIn("self.page_size: int = 25", source)
+        self.assertIn("if filters_changed:\n            self.current_page = 0", source)
+        self.assertIn(
+            "self._render_clients(page_clients, len(filtered_clients))",
+            source,
+        )
 
     @unittest.skipUnless(
         importlib.util.find_spec("customtkinter"),
@@ -167,8 +173,8 @@ class DashboardUITests(unittest.TestCase):
         self.assertEqual(row["name_label"].cget("text"), "TEST CLIENT")
         self.assertEqual(row["group_label"].cget("text"), "Athens")
         self.assertEqual(row["status_text"].cget("text"), "ONLINE  ·  CONNECTED")
-        self.assertEqual(row["status_label"].cget("fg_color"), COLORS.success)
-        self.assertEqual(row["status_text"].cget("fg_color"), COLORS.success_soft)
+        self.assertEqual(row["status_label"].cget("background"), COLORS.success)
+        self.assertEqual(row["status_text"].cget("background"), COLORS.success_soft)
         self.assertTrue(row["status_label"].grid_info())
         self.assertEqual(row["status_text"].winfo_manager(), "place")
         self.assertEqual(row["buttons_frame"].winfo_manager(), "place")
@@ -198,10 +204,10 @@ class DashboardUITests(unittest.TestCase):
         self.root.update()
 
         row = self.view.client_rows["CLIENT-GROUPED"]
-        self.assertEqual(row["status_label"].cget("fg_color"), COLORS.danger)
-        self.assertEqual(row["status_text"].cget("fg_color"), COLORS.danger_soft)
+        self.assertEqual(row["status_label"].cget("background"), COLORS.danger)
+        self.assertEqual(row["status_text"].cget("background"), COLORS.danger_soft)
         self.assertEqual(row["status_text"].cget("text"), "OFFLINE")
-        self.assertEqual(row["status_text"].cget("text_color"), COLORS.danger)
+        self.assertEqual(row["status_text"].cget("foreground"), COLORS.danger)
         self.assertEqual(row["group_label"].cget("text"), "KASTELORIZO")
         self.assertTrue(row["status_label"].grid_info())
         self.assertEqual(row["status_text"].winfo_manager(), "place")
@@ -256,14 +262,14 @@ class DashboardUITests(unittest.TestCase):
         )
 
         online_row = self.view.client_rows["CLIENT-GROUP-ONLINE"]
-        self.assertEqual(online_row["status_label"].cget("fg_color"), COLORS.success)
+        self.assertEqual(online_row["status_label"].cget("background"), COLORS.success)
         self.assertEqual(online_row["status_text"].cget("text"), "ONLINE  ·  CONNECTED")
-        self.assertEqual(online_row["status_text"].cget("fg_color"), COLORS.success_soft)
+        self.assertEqual(online_row["status_text"].cget("background"), COLORS.success_soft)
 
         offline_row = self.view.client_rows["CLIENT-GROUP-OFFLINE"]
-        self.assertEqual(offline_row["status_label"].cget("fg_color"), COLORS.danger)
+        self.assertEqual(offline_row["status_label"].cget("background"), COLORS.danger)
         self.assertEqual(offline_row["status_text"].cget("text"), "OFFLINE")
-        self.assertEqual(offline_row["status_text"].cget("fg_color"), COLORS.danger_soft)
+        self.assertEqual(offline_row["status_text"].cget("background"), COLORS.danger_soft)
 
         for row in (online_row, offline_row):
             self.assertTrue(row["status_label"].winfo_ismapped())
@@ -287,6 +293,94 @@ class DashboardUITests(unittest.TestCase):
         self.root.event_generate("<F5>", when="tail")
         self.root.update()
         self.refresh.assert_called_once()
+
+    def test_client_list_uses_pages_of_twenty_five_rows(self):
+        """Η μεγάλη λίστα δημιουργεί μόνο τα rows της ενεργής σελίδας."""
+
+        clients = [
+            {
+                "display_name": f"CLIENT {index:03d}",
+                "pc_name": f"PC-{index:03d}",
+                "username": "user",
+                "client_code": f"CLIENT-{index:03d}",
+                "status": "online" if index % 2 == 0 else "offline",
+                "ws_connected": index % 2 == 0,
+                "group_name": "Ungrouped",
+                "app_version": "1.0.13",
+            }
+            for index in range(60)
+        ]
+
+        self.view.update_clients(clients, force=True)
+        self.root.update()
+        self.assertEqual(len(self.view.client_rows), 25)
+        self.assertEqual(self.view.page_label.cget("text"), "Page 1 / 3")
+        self.assertEqual(self.view.count_label.cget("text"), "60 / 60 shown")
+
+        self.view._change_page(1)
+        self.root.update()
+        self.assertEqual(len(self.view.client_rows), 25)
+        self.assertEqual(self.view.page_label.cget("text"), "Page 2 / 3")
+        self.assertIn("CLIENT-025", self.view.client_rows)
+
+        self.view._change_page(1)
+        self.root.update()
+        self.assertEqual(len(self.view.client_rows), 10)
+        self.assertEqual(self.view.page_label.cget("text"), "Page 3 / 3")
+        self.assertIn("CLIENT-050", self.view.client_rows)
+        self.assertEqual(self.view.next_page_button.cget("state"), "disabled")
+
+    def test_manage_tabs_remain_visible_after_large_client_list(self):
+        """Τα tabs μετά το Provider αποδίδονται ενώ υπάρχει μεγάλη λίστα."""
+
+        from app.views.client_manage_window import ClientManageWindow
+
+        clients = [
+            {
+                "display_name": f"CLIENT {index:03d}",
+                "pc_name": f"PC-{index:03d}",
+                "username": "user",
+                "client_code": f"CLIENT-{index:03d}",
+                "status": "online" if index % 3 else "offline",
+                "ws_connected": index % 3 != 0,
+                "group_name": "BAIRAKTARIS" if index < 8 else "Ungrouped",
+                "app_version": "1.0.13",
+            }
+            for index in range(248)
+        ]
+        self.view.update_clients(clients, force=True)
+        self.root.update()
+        self.assertEqual(len(self.view.client_rows), 25)
+
+        manage = ClientManageWindow(self.root, clients[1])
+        manage.geometry("1600x900")
+        self.root.update()
+
+        try:
+            tabs = (
+                ("Provider", manage.provider_tab, manage.provider_tab_view),
+                ("Services", manage.services_tab, manage.services_tab_view),
+                ("Processes", manage.processes_tab, manage.processes_tab_view),
+                ("Updates", manage.updates_tab, manage.updates_tab_view),
+                (
+                    "Senario Prosorinon",
+                    manage.senario_prosorinon_tab,
+                    manage.senario_prosorinon_tab_view,
+                ),
+            )
+            for tab_name, tab, tab_view in tabs:
+                with self.subTest(tab=tab_name):
+                    manage.tabs.set(tab_name)
+                    for _ in range(5):
+                        self.root.update()
+                        time.sleep(0.05)
+                    self.assertEqual(manage.tabs.get(), tab_name)
+                    self.assertTrue(tab.winfo_ismapped())
+                    self.assertTrue(tab_view.winfo_ismapped())
+                    self.assertGreater(len(tab_view.winfo_children()), 0)
+        finally:
+            manage.destroy()
+            self.root.update()
 
 
 if __name__ == "__main__":

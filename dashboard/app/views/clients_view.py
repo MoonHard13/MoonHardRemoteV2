@@ -1,4 +1,5 @@
 from typing import Any
+import tkinter as tk
 
 import customtkinter as ctk
 
@@ -41,6 +42,8 @@ class ClientsView(ctk.CTkFrame):
         self.filter_text: str = ""
         self.status_filter: str = "All"
         self.group_filter: str = "All Groups"
+        self.page_size: int = 25
+        self.current_page: int = 0
         self.filter_after_job = None
         self.groups: list[dict] = []
         self.manage_groups_window = None
@@ -266,10 +269,49 @@ class ClientsView(ctk.CTkFrame):
             row=2,
             column=0,
             padx=SPACING.card_padding,
-            pady=(0, SPACING.card_padding),
+            pady=(0, 8),
             sticky="nsew"
         )
         self.scroll_frame.grid_columnconfigure(0, weight=1)
+
+        self.pagination_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.pagination_frame.grid(
+            row=3,
+            column=0,
+            padx=SPACING.card_padding,
+            pady=(0, SPACING.card_padding),
+            sticky="e"
+        )
+
+        self.previous_page_button = ctk.CTkButton(
+            self.pagination_frame,
+            text="← Previous  ·  Alt+Left",
+            width=170,
+            height=34,
+            command=lambda: self._change_page(-1),
+            **secondary_button_style()
+        )
+        self.previous_page_button.grid(row=0, column=0, padx=(0, 8))
+
+        self.page_label = ctk.CTkLabel(
+            self.pagination_frame,
+            text="Page 1 / 1",
+            width=110,
+            font=FONTS.small,
+            text_color=COLORS.text_secondary
+        )
+        self.page_label.grid(row=0, column=1, padx=(0, 8))
+
+        self.next_page_button = ctk.CTkButton(
+            self.pagination_frame,
+            text="Next  ·  Alt+Right →",
+            width=170,
+            height=34,
+            command=lambda: self._change_page(1),
+            **secondary_button_style()
+        )
+        self.next_page_button.grid(row=0, column=2)
+        self._update_pagination_controls(0)
 
     def _schedule_layout(self, _event=None) -> None:
         """Συγχωνεύει τα διαδοχικά resize events πριν αλλάξει τη διάταξη."""
@@ -350,6 +392,8 @@ class ClientsView(ctk.CTkFrame):
             ("<Control-g>", self._open_manage_groups_window),
             ("<Control-u>", self.request_bulk_update),
             ("<F5>", self.request_refresh),
+            ("<Alt-Left>", lambda: self._change_page(-1)),
+            ("<Alt-Right>", lambda: self._change_page(1)),
         )
         for key, callback in shortcuts:
             binding_id = self._shortcut_parent.bind(
@@ -479,6 +523,61 @@ class ClientsView(ctk.CTkFrame):
             if self._client_matches_current_filters(client)
         ]
 
+    def _get_page_clients(self, filtered_clients: list[dict]) -> list[dict]:
+        """Επιστρέφει μόνο τους clients της ενεργής σελίδας."""
+
+        total_pages = max(
+            1,
+            (len(filtered_clients) + self.page_size - 1) // self.page_size
+        )
+        self.current_page = min(max(self.current_page, 0), total_pages - 1)
+        start = self.current_page * self.page_size
+        return filtered_clients[start:start + self.page_size]
+
+    def _update_pagination_controls(self, filtered_count: int) -> None:
+        """Ενημερώνει την ένδειξη σελίδας και τα navigation buttons."""
+
+        total_pages = max(
+            1,
+            (filtered_count + self.page_size - 1) // self.page_size
+        )
+        self.current_page = min(max(self.current_page, 0), total_pages - 1)
+        self.page_label.configure(
+            text=f"Page {self.current_page + 1} / {total_pages}"
+        )
+        self.previous_page_button.configure(
+            state="normal" if self.current_page > 0 else "disabled"
+        )
+        self.next_page_button.configure(
+            state="normal" if self.current_page < total_pages - 1 else "disabled"
+        )
+
+    def _change_page(self, step: int) -> None:
+        """Μετακινεί τη λίστα στην προηγούμενη ή επόμενη σελίδα."""
+
+        filtered_clients = self._get_filtered_clients()
+        total_pages = max(
+            1,
+            (len(filtered_clients) + self.page_size - 1) // self.page_size
+        )
+        target_page = min(
+            max(self.current_page + step, 0),
+            total_pages - 1
+        )
+
+        if target_page == self.current_page:
+            return
+
+        self.current_page = target_page
+        page_clients = self._get_page_clients(filtered_clients)
+        self._render_clients(page_clients, len(filtered_clients))
+        self._update_pagination_controls(len(filtered_clients))
+
+        try:
+            self.scroll_frame._parent_canvas.yview_moveto(0)
+        except (AttributeError, tk.TclError):
+            pass
+
 
     def _update_count_label(self, visible_count: int) -> None:
         """
@@ -561,8 +660,9 @@ class ClientsView(ctk.CTkFrame):
         Δεν καταστρέφει όλη τη λίστα.
         """
 
-        visible_clients = self._get_filtered_clients()
-        visible_count = len(visible_clients)
+        filtered_clients = self._get_filtered_clients()
+        visible_clients = self._get_page_clients(filtered_clients)
+        filtered_count = len(filtered_clients)
         visible_codes = {
             str(visible_client.get("client_code", "")).strip()
             for visible_client in visible_clients
@@ -580,8 +680,9 @@ class ClientsView(ctk.CTkFrame):
                 self.client_rows.pop(client_code, None)
 
             self._regrid_visible_client_rows(visible_clients)
-            self._update_count_label(visible_count)
-            self._show_empty_label_if_needed(visible_count)
+            self._update_count_label(filtered_count)
+            self._update_pagination_controls(filtered_count)
+            self._show_empty_label_if_needed(filtered_count)
             return
 
         self._hide_empty_label()
@@ -589,10 +690,11 @@ class ClientsView(ctk.CTkFrame):
         if row_data:
             self._update_client_row_widgets(client_code, client)
         else:
-            self._add_client_row(visible_count - 1, client)
+            self._add_client_row(max(len(visible_clients) - 1, 0), client)
 
         self._regrid_visible_client_rows(visible_clients)
-        self._update_count_label(visible_count)
+        self._update_count_label(filtered_count)
+        self._update_pagination_controls(filtered_count)
 
 
     def _build_client_main_text(self, client: dict) -> str:
@@ -677,8 +779,7 @@ class ClientsView(ctk.CTkFrame):
 
         if status_label:
             status_label.configure(
-                fg_color=COLORS.success if status == "online" else COLORS.danger,
-                hover_color=COLORS.success if status == "online" else COLORS.danger
+                bg=COLORS.success if status == "online" else COLORS.danger
             )
 
         if name_label:
@@ -695,9 +796,8 @@ class ClientsView(ctk.CTkFrame):
         if status_text:
             status_text.configure(
                 text=status_value,
-                text_color=status_color,
-                fg_color=status_background,
-                hover_color=status_background
+                fg=status_color,
+                bg=status_background
             )
 
         if manage_button:
@@ -1155,7 +1255,11 @@ class ClientsView(ctk.CTkFrame):
 
         self.filter_after_job = self.after(150, self._apply_filters)
 
-    def _apply_visible_client_rows(self, visible_clients: list[dict]) -> None:
+    def _apply_visible_client_rows(
+        self,
+        visible_clients: list[dict],
+        filtered_count: int
+    ) -> None:
         """
         Εμφανίζει μόνο τα rows που περνάνε τα φίλτρα.
         Δεν καταστρέφει και δεν ξαναχτίζει όλη τη λίστα.
@@ -1186,7 +1290,10 @@ class ClientsView(ctk.CTkFrame):
                 continue
 
             if client_code not in visible_codes:
-                row.grid_remove()
+                # Τα rows εκτός ενεργής σελίδας καταστρέφονται, ώστε η λίστα
+                # να μη συσσωρεύει κρυφά widgets μετά από live ανανεώσεις.
+                row.destroy()
+                self.client_rows.pop(client_code, None)
 
         for row_index, client in enumerate(visible_clients):
             client_code = str(client.get("client_code", "")).strip()
@@ -1212,8 +1319,8 @@ class ClientsView(ctk.CTkFrame):
 
             row.grid(row=row_index, column=0, padx=4, pady=6, sticky="ew")
 
-        self._update_count_label(len(visible_clients))
-        self._show_empty_label_if_needed(len(visible_clients))
+        self._update_count_label(filtered_count)
+        self._show_empty_label_if_needed(filtered_count)
 
     def _apply_filters(self) -> None:
         """
@@ -1222,21 +1329,38 @@ class ClientsView(ctk.CTkFrame):
 
         self.filter_after_job = None
 
+        previous_filters = (
+            self.filter_text,
+            self.status_filter,
+            self.group_filter
+        )
         self.filter_text = self.search_entry.get().strip().lower()
         self.status_filter = self.status_option.get()
-        selected_group = self.group_option.get()
-        group_changed = selected_group != self.group_filter
-        self.group_filter = selected_group
+        self.group_filter = self.group_option.get()
+        current_filters = (
+            self.filter_text,
+            self.status_filter,
+            self.group_filter
+        )
+        filters_changed = current_filters != previous_filters
 
-        visible_clients = self._get_filtered_clients()
+        if filters_changed:
+            self.current_page = 0
 
-        # Η αλλαγή group μεταφέρει συνήθως rows που είχαν δημιουργηθεί χαμηλά
-        # στη scroll λίστα. Το καθαρό render αποτρέπει προβλήματα γεωμετρίας
-        # και repaint κατά την επαναχρησιμοποίησή τους σε νέα θέση.
-        if group_changed:
-            self._render_clients(visible_clients)
+        filtered_clients = self._get_filtered_clients()
+        page_clients = self._get_page_clients(filtered_clients)
+
+        # Κάθε αλλαγή φίλτρου ξεκινά καθαρή σελίδα, ώστε οι status ενδείξεις
+        # να μη διατηρούν geometry από παλιότερη θέση στη scroll λίστα.
+        if filters_changed:
+            self._render_clients(page_clients, len(filtered_clients))
         else:
-            self._apply_visible_client_rows(visible_clients)
+            self._apply_visible_client_rows(
+                page_clients,
+                len(filtered_clients)
+            )
+
+        self._update_pagination_controls(len(filtered_clients))
 
     def _clear_filters(self) -> None:
         """
@@ -1248,7 +1372,11 @@ class ClientsView(ctk.CTkFrame):
         self.group_option.set("All Groups")
         self._apply_filters()
 
-    def _render_clients(self, clients: list[dict]) -> None:
+    def _render_clients(
+        self,
+        clients: list[dict],
+        filtered_count: int | None = None
+    ) -> None:
         """
         Κάνει render τους filtered clients.
         """
@@ -1260,10 +1388,13 @@ class ClientsView(ctk.CTkFrame):
 
         self.empty_label = None
 
-        self._update_count_label(len(clients))
+        if filtered_count is None:
+            filtered_count = len(clients)
+
+        self._update_count_label(filtered_count)
 
         if not clients:
-            self._show_empty_label_if_needed(0)
+            self._show_empty_label_if_needed(filtered_count)
             return
 
         for row_index, client in enumerate(clients):
@@ -1303,20 +1434,18 @@ class ClientsView(ctk.CTkFrame):
         row.grid(row=row_index, column=0, padx=4, pady=5, sticky="ew")
         row.grid_columnconfigure(1, weight=1)
 
-        # Χρησιμοποιείται button χωρίς ενέργεια, επειδή το CTkButton αποδίδεται
-        # σταθερά μέσα στη scroll λίστα ακόμη και μετά από αλλαγή group.
-        status_label = ctk.CTkButton(
+        # Οι status ενδείξεις παραμένουν ελαφριές, επειδή η λίστα μπορεί να
+        # περιέχει εκατοντάδες clients και κάθε CTkButton δημιουργεί canvas.
+        status_label = tk.Frame(
             row,
-            text="",
             width=8,
             height=72,
-            command=None,
-            fg_color=COLORS.success if status == "online" else COLORS.danger,
-            hover_color=COLORS.success if status == "online" else COLORS.danger,
-            border_width=0,
-            corner_radius=4
+            bg=COLORS.success if status == "online" else COLORS.danger,
+            borderwidth=0,
+            highlightthickness=0
         )
         status_label.grid(row=0, column=0, padx=(14, 12), pady=14, sticky="ns")
+        status_label.grid_propagate(False)
 
         info_frame = ctk.CTkFrame(row, fg_color="transparent")
         info_frame.grid(row=0, column=1, padx=(0, 12), pady=10, sticky="ew")
@@ -1384,20 +1513,17 @@ class ClientsView(ctk.CTkFrame):
         actions.grid(row=0, column=2, padx=(0, 14), pady=10, sticky="e")
         actions.grid_propagate(False)
 
-        status_text = ctk.CTkButton(
+        status_text = tk.Label(
             actions,
             text=status_value,
-            width=258,
-            height=28,
-            command=None,
             font=FONTS.small,
-            text_color=status_color,
-            fg_color=status_background,
-            hover_color=status_background,
-            border_width=0,
-            corner_radius=8
+            fg=status_color,
+            bg=status_background,
+            anchor="center",
+            borderwidth=0,
+            highlightthickness=0
         )
-        status_text.place(x=0, y=0)
+        status_text.place(x=0, y=0, width=258, height=28)
 
         buttons_frame = ctk.CTkFrame(
             actions,
