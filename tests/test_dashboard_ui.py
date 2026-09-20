@@ -46,12 +46,20 @@ class DashboardSourceTests(unittest.TestCase):
         source = (PROJECT_ROOT / "dashboard/app/views/clients_view.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("status_text = tk.Label", source)
-        self.assertIn(
-            "status_text.place(x=0, y=0, width=258, height=28)", source
-        )
+        self.assertIn("status_text = ctk.CTkButton", source)
+        self.assertIn("status_text.place(x=0, y=0)", source)
         self.assertIn("buttons_frame.place(x=0, y=38)", source)
+        self.assertNotIn("status_text.place(x=0, y=0, width=", source)
         self.assertNotIn("buttons_frame.place(x=0, y=38, width=", source)
+
+    def test_group_filter_forces_clean_visible_row_render(self):
+        """Η αλλαγή group δεν επαναχρησιμοποιεί rows από παλιά scroll θέση."""
+
+        source = (PROJECT_ROOT / "dashboard/app/views/clients_view.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("group_changed = selected_group != self.group_filter", source)
+        self.assertIn("if group_changed:\n            self._render_clients", source)
 
     @unittest.skipUnless(
         importlib.util.find_spec("customtkinter"),
@@ -159,8 +167,8 @@ class DashboardUITests(unittest.TestCase):
         self.assertEqual(row["name_label"].cget("text"), "TEST CLIENT")
         self.assertEqual(row["group_label"].cget("text"), "Athens")
         self.assertEqual(row["status_text"].cget("text"), "ONLINE  ·  CONNECTED")
-        self.assertEqual(row["status_label"].cget("background"), COLORS.success)
-        self.assertEqual(row["status_text"].cget("background"), COLORS.success_soft)
+        self.assertEqual(row["status_label"].cget("fg_color"), COLORS.success)
+        self.assertEqual(row["status_text"].cget("fg_color"), COLORS.success_soft)
         self.assertTrue(row["status_label"].grid_info())
         self.assertEqual(row["status_text"].winfo_manager(), "place")
         self.assertEqual(row["buttons_frame"].winfo_manager(), "place")
@@ -190,14 +198,78 @@ class DashboardUITests(unittest.TestCase):
         self.root.update()
 
         row = self.view.client_rows["CLIENT-GROUPED"]
-        self.assertEqual(row["status_label"].cget("background"), COLORS.danger)
-        self.assertEqual(row["status_text"].cget("background"), COLORS.danger_soft)
+        self.assertEqual(row["status_label"].cget("fg_color"), COLORS.danger)
+        self.assertEqual(row["status_text"].cget("fg_color"), COLORS.danger_soft)
         self.assertEqual(row["status_text"].cget("text"), "OFFLINE")
-        self.assertEqual(row["status_text"].cget("foreground"), COLORS.danger)
+        self.assertEqual(row["status_text"].cget("text_color"), COLORS.danger)
         self.assertEqual(row["group_label"].cget("text"), "KASTELORIZO")
         self.assertTrue(row["status_label"].grid_info())
         self.assertEqual(row["status_text"].winfo_manager(), "place")
         self.assertEqual(row["buttons_frame"].winfo_manager(), "place")
+
+    def test_selecting_group_recreates_visible_online_and_offline_rows(self):
+        """Το group filter εμφανίζει σωστά και τις δύο καταστάσεις."""
+
+        from app.ui.theme import COLORS
+
+        grouped_clients = [
+            {
+                "display_name": "GROUPED ONLINE",
+                "pc_name": "ONLINE-PC",
+                "username": "online-user",
+                "client_code": "CLIENT-GROUP-ONLINE",
+                "status": "online",
+                "ws_connected": True,
+                "group_name": "BAIRAKTARIS",
+                "app_version": "1.0.13",
+            },
+            {
+                "display_name": "GROUPED OFFLINE",
+                "pc_name": "OFFLINE-PC",
+                "username": "offline-user",
+                "client_code": "CLIENT-GROUP-OFFLINE",
+                "status": "offline",
+                "ws_connected": False,
+                "group_name": "BAIRAKTARIS",
+                "app_version": "1.0.13",
+            },
+            {
+                "display_name": "UNGROUPED CLIENT",
+                "pc_name": "OTHER-PC",
+                "username": "other-user",
+                "client_code": "CLIENT-OTHER",
+                "status": "online",
+                "ws_connected": True,
+                "group_name": "Ungrouped",
+                "app_version": "1.0.13",
+            },
+        ]
+        self.view.update_clients(grouped_clients, force=True)
+        self.view.group_option.configure(values=["All Groups", "BAIRAKTARIS"])
+        self.view.group_option.set("BAIRAKTARIS")
+        self.view._apply_filters()
+        self.root.update()
+
+        self.assertEqual(
+            set(self.view.client_rows),
+            {"CLIENT-GROUP-ONLINE", "CLIENT-GROUP-OFFLINE"},
+        )
+
+        online_row = self.view.client_rows["CLIENT-GROUP-ONLINE"]
+        self.assertEqual(online_row["status_label"].cget("fg_color"), COLORS.success)
+        self.assertEqual(online_row["status_text"].cget("text"), "ONLINE  ·  CONNECTED")
+        self.assertEqual(online_row["status_text"].cget("fg_color"), COLORS.success_soft)
+
+        offline_row = self.view.client_rows["CLIENT-GROUP-OFFLINE"]
+        self.assertEqual(offline_row["status_label"].cget("fg_color"), COLORS.danger)
+        self.assertEqual(offline_row["status_text"].cget("text"), "OFFLINE")
+        self.assertEqual(offline_row["status_text"].cget("fg_color"), COLORS.danger_soft)
+
+        for row in (online_row, offline_row):
+            self.assertTrue(row["status_label"].winfo_ismapped())
+            self.assertTrue(row["status_text"].winfo_ismapped())
+            self.assertEqual(row["status_text"].winfo_y(), 0)
+            self.assertEqual(row["buttons_frame"].winfo_y(), 38)
 
     def test_toolbar_stacks_on_compact_window_and_shortcuts_work(self):
         """Η toolbar γίνεται δεύτερη σειρά χωρίς να χάνονται τα actions."""
