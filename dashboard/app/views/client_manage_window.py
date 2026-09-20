@@ -14,6 +14,7 @@ from app.views.manage.services_tab import ServicesTab
 from app.views.manage.processes_tab import ProcessesTab
 from app.views.manage.updates_tab import UpdatesTab
 from app.views.manage.senario_prosorinon_tab import SenarioProsorinonTab
+from app.views.manage.tab_navigation import ManageTabView
 
 
 class ClientManageWindow(ctk.CTkToplevel):
@@ -120,20 +121,7 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        self.tabs = ctk.CTkTabview(
-            self,
-            corner_radius=SPACING.small_radius,
-            border_width=1,
-            border_color=COLORS.border_soft,
-            fg_color=COLORS.surface,
-            segmented_button_fg_color=COLORS.background,
-            segmented_button_selected_color=COLORS.accent_soft,
-            segmented_button_selected_hover_color=COLORS.accent_soft,
-            segmented_button_unselected_color=COLORS.surface_light,
-            segmented_button_unselected_hover_color=COLORS.surface_hover,
-            text_color=COLORS.text_primary,
-            anchor="w"
-        )
+        self.tabs = ManageTabView(self)
         self.tabs.grid(
             row=0,
             column=0,
