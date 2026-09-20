@@ -3,7 +3,7 @@ from typing import Callable, Any
 import customtkinter as ctk
 
 from app.appsettings_presenter import AppSettingsPresenter
-from app.ui.theme import COLORS, SPACING
+from app.ui.theme import COLORS, FONTS, SPACING
 from app.views.manage.provider_tab import ProviderTab
 from app.views.manage.overview_tab import OverviewTab
 from app.views.manage.terminal_tab import TerminalTab
@@ -21,6 +21,19 @@ class ClientManageWindow(ctk.CTkToplevel):
     Παράθυρο διαχείρισης ενός συγκεκριμένου client.
     Οι λειτουργίες είναι οργανωμένες σε tabs.
     """
+
+    TAB_NAMES = (
+        "Overview",
+        "Terminal",
+        "AppSettings",
+        "SSMS",
+        "Database",
+        "Provider",
+        "Services",
+        "Processes",
+        "Updates",
+        "Senario Prosorinon"
+    )
 
     def __init__(
         self,
@@ -109,14 +122,18 @@ class ClientManageWindow(ctk.CTkToplevel):
 
         self.tabs = ctk.CTkTabview(
             self,
-            corner_radius=SPACING.card_radius,
+            corner_radius=SPACING.small_radius,
+            border_width=1,
+            border_color=COLORS.border_soft,
             fg_color=COLORS.surface,
-            segmented_button_fg_color=COLORS.surface_light,
-            segmented_button_selected_color=COLORS.accent,
-            segmented_button_selected_hover_color=COLORS.accent_hover,
+            segmented_button_fg_color=COLORS.background,
+            segmented_button_selected_color=COLORS.accent_soft,
+            segmented_button_selected_hover_color=COLORS.accent_soft,
             segmented_button_unselected_color=COLORS.surface_light,
             segmented_button_unselected_hover_color=COLORS.surface_hover,
-            text_color=COLORS.text_primary
+            segmented_button_font=FONTS.body_bold,
+            text_color=COLORS.text_primary,
+            anchor="w"
         )
         self.tabs.grid(
             row=0,
@@ -158,6 +175,9 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.senario_prosorinon_tab.grid_columnconfigure(0, weight=1)
         self.senario_prosorinon_tab.grid_rowconfigure(0, weight=1)
 
+        self._style_tab_navigation()
+        self._bind_tab_shortcuts()
+
         self._build_overview_tab()
         self._build_terminal_tab()
         self._build_appsettings_tab()
@@ -168,6 +188,52 @@ class ClientManageWindow(ctk.CTkToplevel):
         self._build_processes_tab()
         self._build_updates_tab()
         self._build_senario_prosorinon_tab()
+
+    def _style_tab_navigation(self) -> None:
+        """Μετατρέπει το default segmented control σε πλήρες navigation bar."""
+
+        navigation = self.tabs._segmented_button
+        navigation.configure(
+            height=42,
+            corner_radius=SPACING.small_radius,
+            border_width=0,
+            dynamic_resizing=False,
+            font=FONTS.body_bold
+        )
+        navigation.grid_configure(
+            padx=SPACING.small_radius,
+            pady=(0, 4),
+            sticky="ew"
+        )
+
+        for column, (tab_name, button) in enumerate(
+            navigation._buttons_dict.items()
+        ):
+            button.configure(
+                height=42,
+                border_spacing=8,
+                font=FONTS.body_bold
+            )
+            navigation.grid_columnconfigure(
+                column,
+                weight=2 if tab_name in {"AppSettings", "Senario Prosorinon"} else 1
+            )
+
+    def _bind_tab_shortcuts(self) -> None:
+        """Συνδέει Alt+1 έως Alt+0 με τα tabs του Manage window."""
+
+        shortcut_keys = tuple(str(index) for index in range(1, 10)) + ("0",)
+        for key, tab_name in zip(shortcut_keys, self.TAB_NAMES):
+            self.bind(
+                f"<Alt-Key-{key}>",
+                lambda _event, name=tab_name: self._select_tab(name)
+            )
+
+    def _select_tab(self, tab_name: str) -> str:
+        """Ενεργοποιεί tab από navigation shortcut."""
+
+        self.tabs.set(tab_name)
+        return "break"
         
     def update_client_data(self, client: dict) -> None:
         """
