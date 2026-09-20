@@ -1,5 +1,4 @@
 from typing import Any
-import tkinter as tk
 
 import customtkinter as ctk
 
@@ -678,7 +677,8 @@ class ClientsView(ctk.CTkFrame):
 
         if status_label:
             status_label.configure(
-                bg=COLORS.success if status == "online" else COLORS.danger
+                fg_color=COLORS.success if status == "online" else COLORS.danger,
+                hover_color=COLORS.success if status == "online" else COLORS.danger
             )
 
         if name_label:
@@ -695,8 +695,9 @@ class ClientsView(ctk.CTkFrame):
         if status_text:
             status_text.configure(
                 text=status_value,
-                fg=status_color,
-                bg=status_background
+                text_color=status_color,
+                fg_color=status_background,
+                hover_color=status_background
             )
 
         if manage_button:
@@ -1223,10 +1224,19 @@ class ClientsView(ctk.CTkFrame):
 
         self.filter_text = self.search_entry.get().strip().lower()
         self.status_filter = self.status_option.get()
-        self.group_filter = self.group_option.get()
+        selected_group = self.group_option.get()
+        group_changed = selected_group != self.group_filter
+        self.group_filter = selected_group
 
         visible_clients = self._get_filtered_clients()
-        self._apply_visible_client_rows(visible_clients)
+
+        # Η αλλαγή group μεταφέρει συνήθως rows που είχαν δημιουργηθεί χαμηλά
+        # στη scroll λίστα. Το καθαρό render αποτρέπει προβλήματα γεωμετρίας
+        # και repaint κατά την επαναχρησιμοποίησή τους σε νέα θέση.
+        if group_changed:
+            self._render_clients(visible_clients)
+        else:
+            self._apply_visible_client_rows(visible_clients)
 
     def _clear_filters(self) -> None:
         """
@@ -1293,18 +1303,20 @@ class ClientsView(ctk.CTkFrame):
         row.grid(row=row_index, column=0, padx=4, pady=5, sticky="ew")
         row.grid_columnconfigure(1, weight=1)
 
-        # Τα native Tk widgets αποδίδονται αξιόπιστα ακόμη και όταν η κάρτα
-        # δημιουργείται αρχικά εκτός του ορατού τμήματος της scroll λίστας.
-        status_label = tk.Frame(
+        # Χρησιμοποιείται button χωρίς ενέργεια, επειδή το CTkButton αποδίδεται
+        # σταθερά μέσα στη scroll λίστα ακόμη και μετά από αλλαγή group.
+        status_label = ctk.CTkButton(
             row,
+            text="",
             width=8,
             height=72,
-            bg=COLORS.success if status == "online" else COLORS.danger,
-            borderwidth=0,
-            highlightthickness=0
+            command=None,
+            fg_color=COLORS.success if status == "online" else COLORS.danger,
+            hover_color=COLORS.success if status == "online" else COLORS.danger,
+            border_width=0,
+            corner_radius=4
         )
         status_label.grid(row=0, column=0, padx=(14, 12), pady=14, sticky="ns")
-        status_label.grid_propagate(False)
 
         info_frame = ctk.CTkFrame(row, fg_color="transparent")
         info_frame.grid(row=0, column=1, padx=(0, 12), pady=10, sticky="ew")
@@ -1372,17 +1384,20 @@ class ClientsView(ctk.CTkFrame):
         actions.grid(row=0, column=2, padx=(0, 14), pady=10, sticky="e")
         actions.grid_propagate(False)
 
-        status_text = tk.Label(
+        status_text = ctk.CTkButton(
             actions,
             text=status_value,
+            width=258,
+            height=28,
+            command=None,
             font=FONTS.small,
-            fg=status_color,
-            bg=status_background,
-            anchor="center",
-            borderwidth=0,
-            highlightthickness=0
+            text_color=status_color,
+            fg_color=status_background,
+            hover_color=status_background,
+            border_width=0,
+            corner_radius=8
         )
-        status_text.place(x=0, y=0, width=258, height=28)
+        status_text.place(x=0, y=0)
 
         buttons_frame = ctk.CTkFrame(
             actions,
