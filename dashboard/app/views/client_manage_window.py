@@ -175,7 +175,6 @@ class ClientManageWindow(ctk.CTkToplevel):
         self.senario_prosorinon_tab.grid_columnconfigure(0, weight=1)
         self.senario_prosorinon_tab.grid_rowconfigure(0, weight=1)
 
-        self._style_tab_navigation()
         self._bind_tab_shortcuts()
 
         self._build_overview_tab()
@@ -188,36 +187,6 @@ class ClientManageWindow(ctk.CTkToplevel):
         self._build_processes_tab()
         self._build_updates_tab()
         self._build_senario_prosorinon_tab()
-
-    def _style_tab_navigation(self) -> None:
-        """Μετατρέπει το default segmented control σε πλήρες navigation bar."""
-
-        navigation = self.tabs._segmented_button
-        navigation.configure(
-            height=42,
-            corner_radius=SPACING.small_radius,
-            border_width=0,
-            dynamic_resizing=False,
-            font=FONTS.body_bold
-        )
-        navigation.grid_configure(
-            padx=SPACING.small_radius,
-            pady=(0, 4),
-            sticky="ew"
-        )
-
-        for column, (tab_name, button) in enumerate(
-            navigation._buttons_dict.items()
-        ):
-            button.configure(
-                height=42,
-                border_spacing=8,
-                font=FONTS.body_bold
-            )
-            navigation.grid_columnconfigure(
-                column,
-                weight=2 if tab_name in {"AppSettings", "Senario Prosorinon"} else 1
-            )
 
     def _bind_tab_shortcuts(self) -> None:
         """Συνδέει Alt+1 έως Alt+0 με τα tabs του Manage window."""
