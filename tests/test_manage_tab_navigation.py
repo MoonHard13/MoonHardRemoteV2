@@ -20,7 +20,7 @@ class ManageTabNavigationSourceTests(unittest.TestCase):
         source = (
             PROJECT_ROOT / "dashboard/app/views/client_manage_window.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("segmented_button_font=FONTS.body_bold", source)
+        self.assertNotIn("segmented_button_font", source)
         self.assertIn("segmented_button_selected_color=COLORS.accent_soft", source)
         self.assertIn("border_color=COLORS.border_soft", source)
         self.assertIn('anchor="w"', source)
