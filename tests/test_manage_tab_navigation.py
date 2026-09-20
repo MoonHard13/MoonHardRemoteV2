@@ -22,9 +22,10 @@ class ManageTabNavigationSourceTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("segmented_button_font=FONTS.body_bold", source)
         self.assertIn("segmented_button_selected_color=COLORS.accent_soft", source)
-        self.assertIn("def _style_tab_navigation", source)
-        self.assertIn("dynamic_resizing=False", source)
-        self.assertIn('sticky="ew"', source)
+        self.assertIn("border_color=COLORS.border_soft", source)
+        self.assertIn('anchor="w"', source)
+        self.assertNotIn("self.tabs._segmented_button", source)
+        self.assertNotIn("navigation._buttons_dict", source)
 
     def test_manage_tabs_have_keyboard_shortcuts(self):
         """Κάθε tab διαθέτει shortcut από Alt+1 έως Alt+0."""
@@ -71,16 +72,16 @@ class ManageTabNavigationUITests(unittest.TestCase):
             self.window.destroy()
         self.root.destroy()
 
-    def test_navigation_is_full_width_and_switches_tabs(self):
-        """Το navigation γεμίζει το πλάτος και διατηρεί tab switching."""
+    def test_navigation_styling_and_tab_switching_are_available(self):
+        """Το navigation χρησιμοποιεί public styling και αλλάζει tabs."""
 
-        navigation = self.window.tabs._segmented_button
-        self.assertEqual(int(navigation.cget("height")), 42)
-        self.assertEqual(navigation.grid_info()["sticky"], "ew")
+        from app.ui.theme import COLORS
+
         self.assertEqual(
-            tuple(navigation.cget("values")),
-            self.window.TAB_NAMES
+            self.window.tabs.cget("segmented_button_selected_color"),
+            COLORS.accent_soft
         )
+        self.assertEqual(self.window.tabs.cget("anchor"), "w")
 
         result = self.window._select_tab("Provider")
         self.root.update()
