@@ -3,7 +3,7 @@ from typing import Callable, Any
 import customtkinter as ctk
 
 from app.appsettings_presenter import AppSettingsPresenter
-from app.ui.theme import COLORS, FONTS, SPACING
+from app.ui.theme import COLORS, SPACING
 from app.views.manage.provider_tab import ProviderTab
 from app.views.manage.overview_tab import OverviewTab
 from app.views.manage.terminal_tab import TerminalTab
@@ -131,7 +131,6 @@ class ClientManageWindow(ctk.CTkToplevel):
             segmented_button_selected_hover_color=COLORS.accent_soft,
             segmented_button_unselected_color=COLORS.surface_light,
             segmented_button_unselected_hover_color=COLORS.surface_hover,
-            segmented_button_font=FONTS.body_bold,
             text_color=COLORS.text_primary,
             anchor="w"
         )
