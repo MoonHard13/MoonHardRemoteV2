@@ -52,12 +52,29 @@ class RegistryCompareService(SafeRegistryService):
             self.MAX_SNAPSHOT_ENTRIES,
             "max_entries",
         )
-        tree, count, truncated = self._capture_tree(hive, path, view, limit)
+        normalized_hive = self._normalize_hive(hive)
+        normalized_path = self._normalize_path(path)
+        normalized_view = self._normalize_view(view)
+        exists = True
+        try:
+            tree, count, truncated = self._capture_tree(
+                normalized_hive,
+                normalized_path,
+                normalized_view,
+                limit,
+            )
+        except FileNotFoundError:
+            exists = False
+            tree = {"values": [], "subkeys": {}}
+            count = 0
+            truncated = False
+
         return {
-            "hive": self._normalize_hive(hive),
-            "path": self._normalize_path(path),
-            "view": self._normalize_view(view),
+            "hive": normalized_hive,
+            "path": normalized_path,
+            "view": normalized_view,
             "entry_count": count,
             "truncated": truncated,
+            "exists": exists,
             "tree": tree,
         }
