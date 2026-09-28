@@ -6,6 +6,7 @@ from typing import Any
 
 from app.websocket.connection_manager import connection_manager
 from app.websocket.registry_requests import RegistryRequestRouter
+from app.websocket.registry_compare_requests import RegistryCompareRequestRouter
 
 
 class _RegistryAwareServerWebSocket:
@@ -65,7 +66,7 @@ def install_registry_extension(websocket_routes_instance) -> RegistryRequestRout
     if isinstance(existing, RegistryRequestRouter):
         return existing
 
-    registry_requests = RegistryRequestRouter(connection_manager)
+    registry_requests = RegistryCompareRequestRouter(connection_manager)
     websocket_routes_instance.registry_requests = registry_requests
 
     original_client_socket = websocket_routes_instance.client_socket
