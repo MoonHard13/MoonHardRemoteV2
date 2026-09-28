@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from app.views.client_manage_window import ClientManageWindow as BaseClientManageWindow
-from app.views.manage.registry_ergonomic_compat import ErgonomicRegistryTab
+from app.views.manage.registry_polished_navigation import PolishedRegistryTab
 
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ class RegistryEnabledClientManageWindow(BaseClientManageWindow):
         self.registry_tab = self.tabs.add("Registry")
         self.registry_tab.grid_columnconfigure(0, weight=1)
         self.registry_tab.grid_rowconfigure(0, weight=1)
-        self.registry_tab_view = ErgonomicRegistryTab(
+        self.registry_tab_view = PolishedRegistryTab(
             self.registry_tab,
             client_code=self.client_code,
             on_registry_request_callback=self._send_registry_request,
