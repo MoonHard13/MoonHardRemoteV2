@@ -74,14 +74,14 @@ class RegistryUiPolishTests(unittest.TestCase):
         text = "Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Software\\MoonHard]\r\n\"Test\"=\"OK\"\r\n"
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "sample.reg"
-            path.write_text(text, encoding="utf-16")
+            path.write_bytes(text.encode("utf-16"))
             self.assertEqual(PolishedRegistryTab._read_reg_text_file(path), text)
 
     def test_read_reg_file_utf8_bom(self) -> None:
         text = "Windows Registry Editor Version 5.00\n[HKEY_CURRENT_USER\\Software\\MoonHard]\n"
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "sample.reg"
-            path.write_text(text, encoding="utf-8-sig")
+            path.write_bytes(text.encode("utf-8-sig"))
             self.assertEqual(PolishedRegistryTab._read_reg_text_file(path), text)
 
 
