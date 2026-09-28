@@ -17,11 +17,11 @@ from app.ui.theme import (
     primary_button_style,
     secondary_button_style,
 )
-from app.views.manage.registry_tab import RegistryTab
+from app.views.manage.registry_tab import RegistryTab, RegistryValueDialog
 
 
 class RegeditRegistryTab(RegistryTab):
-    """Registry tab με διάταξη παρόμοια με το Windows Registry Editor."""
+    """Registry tab με διάταξη και πλοήγηση παρόμοια με το Windows Regedit."""
 
     HIVES = (
         ("HKCR", "HKEY_CLASSES_ROOT"),
@@ -38,6 +38,7 @@ class RegeditRegistryTab(RegistryTab):
         self.tree_scope: dict[str, dict[str, Any]] = {}
         self._tree_request_items: dict[str, str] = {}
         self._selected_tree_item = ""
+        self.active_scope: dict[str, str] = {"hive": "HKLM", "path": ""}
         super().__init__(
             parent,
             client_code=client_code,
@@ -79,7 +80,7 @@ class RegeditRegistryTab(RegistryTab):
         ).grid(row=1, column=0, columnspan=2, padx=20, pady=(2, 10), sticky="ew")
 
         toolbar = ctk.CTkFrame(header, fg_color="transparent")
-        toolbar.grid(row=2, column=0, columnspan=2, padx=20, pady=(0, 16), sticky="ew")
+        toolbar.grid(row=2, column=0, columnspan=2, padx=20, pady=(0, 12), sticky="ew")
         toolbar.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
@@ -98,6 +99,15 @@ class RegeditRegistryTab(RegistryTab):
         self.path_entry.grid(row=0, column=1, padx=(0, 8), sticky="ew")
         self.path_entry.bind("<Return>", lambda _event: self.navigate_address())
 
+        ctk.CTkButton(
+            toolbar,
+            text="Back",
+            width=72,
+            height=34,
+            command=self.go_back,
+            **secondary_button_style(),
+        ).grid(row=0, column=2, padx=(0, 8))
+
         self.view_menu = ctk.CTkOptionMenu(
             toolbar,
             values=["default", "64", "32"],
@@ -112,7 +122,7 @@ class RegeditRegistryTab(RegistryTab):
             dropdown_fg_color=COLORS.surface,
             dropdown_hover_color=COLORS.surface_hover,
         )
-        self.view_menu.grid(row=0, column=2, padx=(0, 8))
+        self.view_menu.grid(row=0, column=3, padx=(0, 8))
         self.view_menu.set("default")
 
         ctk.CTkButton(
@@ -122,7 +132,7 @@ class RegeditRegistryTab(RegistryTab):
             height=34,
             command=self.refresh_current_key,
             **secondary_button_style(),
-        ).grid(row=0, column=3, padx=(0, 8))
+        ).grid(row=0, column=4, padx=(0, 8))
 
         ctk.CTkButton(
             toolbar,
@@ -131,7 +141,7 @@ class RegeditRegistryTab(RegistryTab):
             height=34,
             command=self.run_diagnostics,
             **primary_button_style(),
-        ).grid(row=0, column=4)
+        ).grid(row=0, column=5)
 
         self.status_label = ctk.CTkLabel(
             header,
@@ -192,30 +202,41 @@ class RegeditRegistryTab(RegistryTab):
             height=34,
             placeholder_text="Search key, value name or data...",
         )
-        self.search_entry.grid(row=0, column=0, padx=(16, 8), pady=14, sticky="ew")
+        self.search_entry.grid(row=0, column=0, columnspan=5, padx=(16, 8), pady=(14, 7), sticky="ew")
         self.search_entry.bind("<Return>", lambda _event: self.search_registry())
 
-        for column, (text, command, style, width) in enumerate(
-            (
-                ("Search", self.search_registry, "secondary", 88),
-                ("New Key", self.create_key, "secondary", 92),
-                ("New Value", self.create_value, "secondary", 100),
-                ("Edit", self.edit_value, "secondary", 72),
-                ("Delete", self.delete_selected, "danger", 82),
-                ("Export", self.export_current, "secondary", 82),
-                ("Import", self.open_import_dialog, "secondary", 82),
-            ),
-            start=1,
-        ):
-            button_style = danger_button_style() if style == "danger" else secondary_button_style()
+        ctk.CTkButton(
+            actions_card,
+            text="Search  ·  Ctrl+F",
+            width=135,
+            height=34,
+            command=self.search_registry,
+            **secondary_button_style(),
+        ).grid(row=0, column=5, padx=(0, 16), pady=(14, 7))
+
+        action_specs = (
+            ("New Key", self.create_key, secondary_button_style()),
+            ("New Value", self.create_value, secondary_button_style()),
+            ("Edit", self.edit_value, secondary_button_style()),
+            ("Delete", self.delete_selected, danger_button_style()),
+            ("Export", self.export_current, secondary_button_style()),
+            ("Import", self.open_import_dialog, secondary_button_style()),
+        )
+        for index, (text, command, style) in enumerate(action_specs):
+            actions_card.grid_columnconfigure(index, weight=1)
             ctk.CTkButton(
                 actions_card,
                 text=text,
-                width=width,
                 height=34,
                 command=command,
-                **button_style,
-            ).grid(row=0, column=column, padx=(0, 6 if column < 7 else 16), pady=14)
+                **style,
+            ).grid(
+                row=1,
+                column=index,
+                padx=(16 if index == 0 else 4, 16 if index == len(action_specs) - 1 else 4),
+                pady=(0, 14),
+                sticky="ew",
+            )
 
         explorer_card = ctk.CTkFrame(frame, **card_style())
         explorer_card.grid(row=1, column=0, sticky="nsew")
@@ -299,6 +320,140 @@ class RegeditRegistryTab(RegistryTab):
         self._insert_registry_roots()
         self._bind_regedit_shortcuts()
 
+    def _build_diagnostics(self, frame) -> None:
+        card = ctk.CTkFrame(frame, **card_style())
+        card.grid(row=0, column=0, pady=(8, 0), sticky="nsew")
+        card.grid_columnconfigure(0, weight=1)
+        card.grid_rowconfigure(3, weight=1)
+
+        ctk.CTkLabel(
+            card,
+            text="Registry diagnostics",
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, padx=16, pady=(14, 3), sticky="w")
+        ctk.CTkLabel(
+            card,
+            text="Check Windows, SQL Server and MoonHard-related Registry configuration without modifying values.",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+        ).grid(row=1, column=0, padx=16, pady=(0, 10), sticky="ew")
+        ctk.CTkButton(
+            card,
+            text="Run Registry Diagnostics",
+            width=220,
+            height=36,
+            command=self.run_diagnostics,
+            **primary_button_style(),
+        ).grid(row=2, column=0, padx=16, pady=(0, 12), sticky="w")
+
+        style = apply_treeview_style("Registry.Diagnostics.Treeview")
+        self.diagnostics_tree = ttk.Treeview(
+            card,
+            columns=("check", "status", "details"),
+            show="headings",
+            style=style,
+        )
+        for col, text, width in (
+            ("check", "Check", 230),
+            ("status", "Status", 110),
+            ("details", "Details", 700),
+        ):
+            self.diagnostics_tree.heading(col, text=text)
+            self.diagnostics_tree.column(col, width=width, anchor="w")
+        self.diagnostics_tree.grid(row=3, column=0, padx=16, pady=(0, 16), sticky="nsew")
+
+    def _build_snapshots(self, frame) -> None:
+        card = ctk.CTkFrame(frame, **card_style())
+        card.grid(row=0, column=0, pady=(8, 0), sticky="nsew")
+        card.grid_columnconfigure(0, weight=1)
+        card.grid_rowconfigure(3, weight=1)
+
+        ctk.CTkLabel(
+            card,
+            text="Snapshots & Restore",
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, padx=16, pady=(14, 3), sticky="w")
+        ctk.CTkLabel(
+            card,
+            text="Capture a scoped Registry snapshot, compare changes and restore a previous state safely.",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+        ).grid(row=1, column=0, padx=16, pady=(0, 10), sticky="ew")
+
+        toolbar = ctk.CTkFrame(card, fg_color="transparent")
+        toolbar.grid(row=2, column=0, padx=16, pady=(0, 12), sticky="ew")
+        ctk.CTkButton(toolbar, text="Create Snapshot", command=self.create_snapshot, **primary_button_style()).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(toolbar, text="Refresh History", command=self.refresh_history, **secondary_button_style()).pack(side="left", padx=6)
+        ctk.CTkButton(toolbar, text="Compare", command=self.compare_selected_snapshot, **secondary_button_style()).pack(side="left", padx=6)
+        ctk.CTkButton(toolbar, text="Restore", command=self.restore_selected_snapshot, **danger_button_style()).pack(side="left", padx=6)
+
+        style = apply_treeview_style("Registry.History.Treeview")
+        self.history_tree = ttk.Treeview(
+            card,
+            columns=("created", "reason", "hive", "path", "view", "entries"),
+            show="headings",
+            style=style,
+        )
+        for col, text, width in (
+            ("created", "Created", 180),
+            ("reason", "Reason", 150),
+            ("hive", "Hive", 80),
+            ("path", "Path", 390),
+            ("view", "View", 65),
+            ("entries", "Entries", 80),
+        ):
+            self.history_tree.heading(col, text=text)
+            self.history_tree.column(col, width=width, anchor="w")
+        self.history_tree.grid(row=3, column=0, padx=16, pady=(0, 16), sticky="nsew")
+
+    def _build_profiles(self, frame) -> None:
+        card = ctk.CTkFrame(frame, **card_style())
+        card.grid(row=0, column=0, pady=(8, 0), sticky="nsew")
+        card.grid_columnconfigure(0, weight=1)
+        card.grid_rowconfigure(3, weight=1)
+
+        ctk.CTkLabel(
+            card,
+            text="Registry profiles",
+            font=FONTS.section_title,
+            text_color=COLORS.text_primary,
+        ).grid(row=0, column=0, padx=16, pady=(14, 3), sticky="w")
+        ctk.CTkLabel(
+            card,
+            text="Save known-good Registry values, check differences and apply controlled repairs.",
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+        ).grid(row=1, column=0, padx=16, pady=(0, 10), sticky="ew")
+
+        toolbar = ctk.CTkFrame(card, fg_color="transparent")
+        toolbar.grid(row=2, column=0, padx=16, pady=(0, 12), sticky="ew")
+        ctk.CTkButton(toolbar, text="Refresh", command=self.refresh_profiles, **secondary_button_style()).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(toolbar, text="New from selected value", command=self.create_profile_from_selected, **secondary_button_style()).pack(side="left", padx=6)
+        ctk.CTkButton(toolbar, text="Check", command=self.check_selected_profile, **primary_button_style()).pack(side="left", padx=6)
+        ctk.CTkButton(toolbar, text="Dry Run", command=lambda: self.apply_selected_profile(True), **secondary_button_style()).pack(side="left", padx=6)
+        ctk.CTkButton(toolbar, text="Apply", command=lambda: self.apply_selected_profile(False), **danger_button_style()).pack(side="left", padx=6)
+        ctk.CTkButton(toolbar, text="Delete", command=self.delete_selected_profile, **danger_button_style()).pack(side="left", padx=6)
+
+        style = apply_treeview_style("Registry.Profiles.Treeview")
+        self.profiles_tree = ttk.Treeview(
+            card,
+            columns=("name", "description", "entries"),
+            show="headings",
+            style=style,
+        )
+        self.profiles_tree.heading("name", text="Profile")
+        self.profiles_tree.heading("description", text="Description")
+        self.profiles_tree.heading("entries", text="Entries")
+        self.profiles_tree.column("name", width=260, anchor="w")
+        self.profiles_tree.column("description", width=650, anchor="w")
+        self.profiles_tree.column("entries", width=80, anchor="center")
+        self.profiles_tree.grid(row=3, column=0, padx=16, pady=(0, 16), sticky="nsew")
+
     def _insert_registry_roots(self) -> None:
         for item in self.registry_tree.get_children():
             self.registry_tree.delete(item)
@@ -307,6 +462,7 @@ class RegeditRegistryTab(RegistryTab):
         computer = self.registry_tree.insert("", "end", text="Computer", open=True)
         self.tree_scope[computer] = {"kind": "computer"}
 
+        hklm_item = ""
         for hive, display_name in self.HIVES:
             item = self.registry_tree.insert(computer, "end", text=display_name, open=False)
             self.tree_scope[item] = {
@@ -316,16 +472,14 @@ class RegeditRegistryTab(RegistryTab):
                 "loaded": False,
             }
             self.registry_tree.insert(item, "end", text="Loading...", tags=("placeholder",))
+            if hive == "HKLM":
+                hklm_item = item
 
-        hklm_item = next(
-            item
-            for item, scope in self.tree_scope.items()
-            if scope.get("hive") == "HKLM"
-        )
-        self.registry_tree.selection_set(hklm_item)
-        self.registry_tree.focus(hklm_item)
-        self._selected_tree_item = hklm_item
-        self._sync_scope_from_tree(hklm_item)
+        if hklm_item:
+            self.registry_tree.selection_set(hklm_item)
+            self.registry_tree.focus(hklm_item)
+            self._selected_tree_item = hklm_item
+            self._sync_scope_from_tree(hklm_item)
 
     def _bind_regedit_shortcuts(self) -> None:
         top = self.winfo_toplevel()
@@ -356,7 +510,11 @@ class RegeditRegistryTab(RegistryTab):
         scope = self.tree_scope.get(item) or {}
         hive = str(scope.get("hive") or "HKLM")
         path = str(scope.get("path") or "")
+        self.active_scope = {"hive": hive, "path": path}
         self.hive_menu.set(hive)
+        self._show_address(hive, path)
+
+    def _show_address(self, hive: str, path: str) -> None:
         self.path_entry.delete(0, "end")
         display_hive = self.HIVE_TO_DISPLAY.get(hive, hive)
         address = f"Computer\\{display_hive}"
@@ -384,6 +542,13 @@ class RegeditRegistryTab(RegistryTab):
         if request_id:
             self._tree_request_items[request_id] = item
 
+    def _current_scope(self) -> dict[str, str] | None:
+        hive = str(self.active_scope.get("hive") or "")
+        path = str(self.active_scope.get("path") or "")
+        if not hive:
+            return None
+        return {"hive": hive, "path": path}
+
     def refresh_current_key(self) -> None:
         scope = self._current_scope()
         if not scope:
@@ -398,24 +563,14 @@ class RegeditRegistryTab(RegistryTab):
             meta={"purpose": "values", "tree_item": self._selected_tree_item},
         )
 
-    def _current_scope(self) -> dict[str, str] | None:
-        item = self._selected_tree_item
-        scope = self.tree_scope.get(item) or {}
-        if scope.get("kind") == "key":
-            return {"hive": str(scope["hive"]), "path": str(scope["path"])}
-
-        hive, path = self._parse_address(self.path_entry.get())
-        if hive:
-            return {"hive": hive, "path": path}
-        return None
-
     def _on_view_changed(self) -> None:
-        for item, scope in self.tree_scope.items():
-            if scope.get("kind") == "key":
-                scope["loaded"] = False
-                for child in self.registry_tree.get_children(item):
-                    self.registry_tree.delete(child)
-                self.registry_tree.insert(item, "end", text="Loading...", tags=("placeholder",))
+        for item, scope in tuple(self.tree_scope.items()):
+            if scope.get("kind") != "key":
+                continue
+            scope["loaded"] = False
+            for child in self.registry_tree.get_children(item):
+                self.registry_tree.delete(child)
+            self.registry_tree.insert(item, "end", text="Loading...", tags=("placeholder",))
         self.refresh_current_key()
 
     def navigate_address(self) -> None:
@@ -423,7 +578,9 @@ class RegeditRegistryTab(RegistryTab):
         if not hive:
             self._set_status("Invalid Registry address.", error=True)
             return
+        self.active_scope = {"hive": hive, "path": path}
         self.hive_menu.set(hive)
+        self._show_address(hive, path)
         self._request(
             "list_key",
             {"hive": hive, "path": path, "view": self.view_menu.get()},
@@ -448,32 +605,148 @@ class RegeditRegistryTab(RegistryTab):
         if not scope:
             return
         path = scope["path"].strip("\\")
+        if not path:
+            return
         parent_path = path.rsplit("\\", 1)[0] if "\\" in path else ""
         parent_item = self.registry_tree.parent(self._selected_tree_item)
-        if parent_item and (self.tree_scope.get(parent_item) or {}).get("kind") == "key":
+        parent_scope = self.tree_scope.get(parent_item) or {}
+        if parent_scope.get("kind") == "key" and parent_scope.get("hive") == scope["hive"]:
             self.registry_tree.selection_set(parent_item)
             self.registry_tree.focus(parent_item)
             self._selected_tree_item = parent_item
             self._sync_scope_from_tree(parent_item)
             self.refresh_current_key()
             return
-        self._request(
-            "list_key",
-            {"hive": scope["hive"], "path": parent_path, "view": self.view_menu.get()},
-            meta={"purpose": "address", "hive": scope["hive"], "path": parent_path},
-        )
+
+        self.active_scope = {"hive": scope["hive"], "path": parent_path}
+        self._show_address(scope["hive"], parent_path)
+        self.refresh_current_key()
 
     def _open_selected_subkey(self, _event=None) -> None:
         return
 
+    def search_registry(self) -> None:
+        query = self.search_entry.get().strip()
+        scope = self._current_scope()
+        if not query or not scope:
+            return
+        self._request(
+            "search",
+            {
+                "query": query,
+                "hive": scope["hive"],
+                "path": scope["path"],
+                "view": self.view_menu.get(),
+                "search_keys": True,
+                "search_names": True,
+                "search_data": True,
+                "max_results": 300,
+                "max_depth": 14,
+            },
+        )
+
+    def add_favorite(self) -> None:
+        scope = self._current_scope()
+        if not scope:
+            return
+        item = (scope["hive"], scope["path"], self.view_menu.get())
+        if item not in self.session_favorites:
+            self.session_favorites.append(item)
+        self._set_status(f"Favorite added for this session: {item[0]}\\{item[1]}")
+
+    def create_key(self) -> None:
+        scope = self._current_scope()
+        if not scope:
+            return
+        name = ctk.CTkInputDialog(
+            text="New key name (under current key):",
+            title="Create Registry Key",
+        ).get_input()
+        if not name:
+            return
+        clean_name = name.strip().strip("\\")
+        if not clean_name:
+            return
+        path = f"{scope['path']}\\{clean_name}" if scope["path"] else clean_name
+        self._request(
+            "create_key",
+            {"hive": scope["hive"], "path": path, "view": self.view_menu.get()},
+        )
+
+    def create_value(self) -> None:
+        scope = self._current_scope()
+        if not scope:
+            return
+        dialog = RegistryValueDialog(self, title="Create Registry Value")
+        self.wait_window(dialog)
+        if not dialog.result:
+            return
+        self._request(
+            "set_value",
+            {
+                "hive": scope["hive"],
+                "path": scope["path"],
+                "view": self.view_menu.get(),
+                **dialog.result,
+            },
+        )
+
+    def edit_value(self) -> None:
+        scope = self._current_scope()
+        value = self._selected_value_payload()
+        if not scope or not value:
+            self._set_status("Select a Registry value first.", error=True)
+            return
+        dialog = RegistryValueDialog(
+            self,
+            title="Edit Registry Value",
+            value_name=str(value.get("name") or ""),
+            value_type=str(value.get("type") or "REG_SZ"),
+            value_text=self._editable_data(value),
+            allow_name_edit=False,
+        )
+        self.wait_window(dialog)
+        if not dialog.result:
+            return
+        self._request(
+            "set_value",
+            {
+                "hive": scope["hive"],
+                "path": scope["path"],
+                "view": self.view_menu.get(),
+                **dialog.result,
+            },
+        )
+
     def delete_selected(self) -> None:
+        scope = self._current_scope()
+        if not scope:
+            return
+
         value = self._selected_value_payload()
         if value:
-            return super().delete_selected()
+            answer = ctk.CTkInputDialog(
+                text=(
+                    f"Type DELETE to remove value '{value.get('name') or '(Default)'}'.\n"
+                    "An automatic backup will be created first."
+                ),
+                title="Confirm Registry Delete",
+            ).get_input()
+            if answer != "DELETE":
+                return
+            self._request(
+                "delete_value",
+                {
+                    "hive": scope["hive"],
+                    "path": scope["path"],
+                    "view": self.view_menu.get(),
+                    "value_name": str(value.get("name") or ""),
+                },
+            )
+            return
 
-        scope = self._current_scope()
-        if not scope or not scope["path"]:
-            self._set_status("Select a Registry value or a non-root key first.", error=True)
+        if not scope["path"]:
+            self._set_status("Root Registry hives cannot be deleted.", error=True)
             return
 
         answer = ctk.CTkInputDialog(
@@ -486,7 +759,6 @@ class RegeditRegistryTab(RegistryTab):
         ).get_input()
         if answer != "DELETE TREE":
             return
-
         self._request(
             "delete_key",
             {
@@ -494,6 +766,62 @@ class RegeditRegistryTab(RegistryTab):
                 "path": scope["path"],
                 "view": self.view_menu.get(),
                 "recursive": True,
+            },
+        )
+
+    def create_snapshot(self) -> None:
+        scope = self._current_scope()
+        if not scope:
+            return
+        self.sections.set("Snapshots & Restore")
+        self._request(
+            "snapshot",
+            {
+                "hive": scope["hive"],
+                "path": scope["path"],
+                "view": self.view_menu.get(),
+                "max_entries": 10000,
+            },
+        )
+
+    def create_profile_from_selected(self) -> None:
+        scope = self._current_scope()
+        value = self._selected_value_payload()
+        if not scope or not value:
+            self.sections.set("Explorer")
+            self._set_status("Select a Registry value in Explorer first.", error=True)
+            return
+        name = ctk.CTkInputDialog(text="Profile name:", title="Create Registry Profile").get_input()
+        if not name:
+            return
+        entry = {
+            "hive": scope["hive"],
+            "path": scope["path"],
+            "view": self.view_menu.get(),
+            "value_name": str(value.get("name") or ""),
+            "value_type": str(value.get("type") or "REG_SZ"),
+            "value": value.get("data"),
+        }
+        self._request(
+            "profile_save",
+            {
+                "name": name.strip(),
+                "description": f"Created from {scope['hive']}\\{scope['path']}",
+                "entries": [entry],
+            },
+        )
+
+    def export_current(self) -> None:
+        scope = self._current_scope()
+        if not scope:
+            return
+        self._request(
+            "export_reg",
+            {
+                "hive": scope["hive"],
+                "path": scope["path"],
+                "view": self.view_menu.get(),
+                "max_entries": 10000,
             },
         )
 
@@ -524,11 +852,9 @@ class RegeditRegistryTab(RegistryTab):
         if purpose == "address":
             hive = str(pending_meta.get("hive") or payload.get("hive") or "HKLM")
             path = str(pending_meta.get("path") or payload.get("path") or "")
+            self.active_scope = {"hive": hive, "path": path}
             self.hive_menu.set(hive)
-            self.path_entry.delete(0, "end")
-            display_hive = self.HIVE_TO_DISPLAY.get(hive, hive)
-            address = f"Computer\\{display_hive}" + (f"\\{path}" if path else "")
-            self.path_entry.insert(0, address)
+            self._show_address(hive, path)
 
         self._handle_list_key(payload)
 
