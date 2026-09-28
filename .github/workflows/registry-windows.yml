@@ -13,6 +13,7 @@ on:
       - 'server/app/websocket/registry_*.py'
       - 'server/app/main.py'
       - 'tests/test_registry_feature.py'
+      - 'tests/test_registry_ui_polish.py'
       - '.github/workflows/registry-windows.yml'
 
 permissions:
@@ -46,6 +47,9 @@ jobs:
           python -m py_compile dashboard/app/views/manage/registry_regedit_tab.py
           python -m py_compile dashboard/app/views/manage/registry_ergonomic_tab.py
           python -m py_compile dashboard/app/views/manage/registry_ergonomic_compat.py
+          python -m py_compile dashboard/app/views/manage/registry_polished_tab.py
           python -m py_compile dashboard/app/views/manage/tab_navigation.py
-      - name: Run Registry unit and HKCU integration tests
+      - name: Run Registry core tests
         run: python -m unittest tests.test_registry_feature -v
+      - name: Run Registry UI polish tests
+        run: python -m unittest tests.test_registry_ui_polish -v
