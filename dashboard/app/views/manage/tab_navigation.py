@@ -82,7 +82,7 @@ class ManageTabView(ctk.CTkFrame):
         tab = ctk.CTkFrame(self.content, fg_color="transparent", corner_radius=0)
         button = ctk.CTkButton(
             self.navigation,
-            text=f"{shortcut}  {name}",
+            text=name,
             height=40,
             corner_radius=SPACING.button_radius,
             border_width=1,
@@ -92,6 +92,7 @@ class ManageTabView(ctk.CTkFrame):
 
         self._tabs[name] = tab
         self._buttons[name] = button
+        # Τα shortcuts παραμένουν λειτουργικά, αλλά δεν εμφανίζονται πάνω στα tabs.
         self._shortcuts[name] = shortcut
         self._style_button(name, selected=False)
         self._layout_navigation(force=True)
