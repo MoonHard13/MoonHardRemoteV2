@@ -97,6 +97,27 @@ class RegistryCompareUiTests(unittest.TestCase):
         )
         self.assertEqual(text, "REG_BINARY: <binary 4 bytes>")
 
+    def test_export_rows_strip_raw_registry_payloads(self) -> None:
+        rows = [
+            {
+                "status": "Different",
+                "kind": "Value",
+                "path": r"SOFTWARE\MoonHard",
+                "name": "Blob",
+                "left": "REG_BINARY: <binary 4 bytes>",
+                "right": "REG_BINARY: <binary 4 bytes>",
+                "left_raw": {"type": "REG_BINARY", "data": {"value": "SECRET_BASE64"}},
+                "right_raw": {"type": "REG_BINARY", "data": {"value": "OTHER_SECRET"}},
+            }
+        ]
+        public_rows = RegistryCompareTab._public_compare_rows(rows)
+        self.assertEqual(
+            set(public_rows[0]),
+            {"status", "kind", "path", "name", "left", "right"},
+        )
+        self.assertNotIn("SECRET_BASE64", str(public_rows))
+        self.assertNotIn("OTHER_SECRET", str(public_rows))
+
 
 if __name__ == "__main__":
     unittest.main()
