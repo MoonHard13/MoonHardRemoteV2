@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 from app.client_agent import MoonHardClientAgent
-from app.registry_service_safe import SafeRegistryService
+from app.registry_compare_service import RegistryCompareService
 
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class RegistryEnabledClientAgent(MoonHardClientAgent):
 
     def __init__(self) -> None:
         super().__init__()
-        self.registry_service = SafeRegistryService()
+        self.registry_service = RegistryCompareService()
 
     def _create_register_message(self) -> dict:
         message = super()._create_register_message()
