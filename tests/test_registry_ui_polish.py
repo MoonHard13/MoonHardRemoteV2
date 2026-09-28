@@ -11,7 +11,7 @@ DASHBOARD_ROOT = ROOT / "dashboard"
 if str(DASHBOARD_ROOT) not in sys.path:
     sys.path.insert(0, str(DASHBOARD_ROOT))
 
-from app.views.manage.registry_polished_tab import PolishedRegistryTab  # noqa: E402
+from app.views.manage.registry_polished_navigation import PolishedRegistryTab  # noqa: E402
 
 
 class RegistryUiPolishTests(unittest.TestCase):
@@ -58,7 +58,7 @@ class RegistryUiPolishTests(unittest.TestCase):
         ):
             self.assertIn(label, PolishedRegistryTab.VALUE_CONTEXT_ACTIONS)
 
-    def test_polish_overrides_navigation_and_import(self) -> None:
+    def test_polish_navigation_and_import_contract(self) -> None:
         for method_name in (
             "_on_view_changed",
             "navigate_address",
@@ -67,8 +67,10 @@ class RegistryUiPolishTests(unittest.TestCase):
             "open_import_dialog",
             "_show_key_context_menu",
             "_show_value_context_menu",
+            "_continue_tree_navigation",
         ):
-            self.assertIn(method_name, PolishedRegistryTab.__dict__)
+            self.assertTrue(callable(getattr(PolishedRegistryTab, method_name, None)))
+        self.assertIn("_continue_tree_navigation", PolishedRegistryTab.__dict__)
 
     def test_read_reg_file_utf16(self) -> None:
         text = "Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Software\\MoonHard]\r\n\"Test\"=\"OK\"\r\n"
