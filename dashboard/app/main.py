@@ -56,6 +56,11 @@ def main() -> None:
     config = DashboardConfig()
     DashboardLoggerConfig.setup_logging(config.log_dir)
 
+    # Εγκαθιστά το Registry tab και το Registry WebSocket result routing
+    # πριν δημιουργηθεί το κύριο Dashboard instance.
+    from app.registry_dashboard_extension import install_registry_dashboard_extension
+    install_registry_dashboard_extension()
+
     from app.dashboard_app import MoonHardDashboardApp
     app = MoonHardDashboardApp()
     app.protocol("WM_DELETE_WINDOW", app.on_close)
