@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from app.views.client_manage_window import ClientManageWindow as BaseClientManageWindow
-from app.views.manage.registry_compare_tab import RegistryCompareTab
+from app.views.manage.registry_compare_center import RegistryCompareTab
 
 
 logger = logging.getLogger(__name__)
