@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from app.views.client_manage_window import ClientManageWindow as BaseClientManageWindow
-from app.views.manage.registry_ergonomic_tab import ErgonomicRegistryTab
+from app.views.manage.registry_ergonomic_compat import ErgonomicRegistryTab
 
 
 logger = logging.getLogger(__name__)
