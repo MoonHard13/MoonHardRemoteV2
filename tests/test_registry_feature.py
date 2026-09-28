@@ -2,22 +2,40 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
+import importlib.util
 import sys
 import tempfile
+import types
 import unittest
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "client"))
-sys.path.insert(0, str(ROOT / "server"))
 
-from app.registry_service_safe import SafeRegistryService  # noqa: E402
-from app.websocket.registry_requests import RegistryRequestRouter  # noqa: E402
+
+def load_module(name: str, relative_path: str):
+    """Φορτώνει module απευθείας ώστε client/server `app` packages να μη συγκρούονται."""
+
+    spec = importlib.util.spec_from_file_location(name, ROOT / relative_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# Το SafeRegistryService κάνει absolute import app.registry_service στην κανονική εφαρμογή.
+# Στα tests δημιουργούμε μόνο το ελάχιστο package namespace που χρειάζεται.
+client_app = types.ModuleType("app")
+client_app.__path__ = []
+sys.modules["app"] = client_app
+base_registry_module = load_module("app.registry_service", "client/app/registry_service.py")
+safe_registry_module = load_module("app.registry_service_safe", "client/app/registry_service_safe.py")
+SafeRegistryService = safe_registry_module.SafeRegistryService
+
+# Ο server router δεν εξαρτάται από το server `app` package, άρα φορτώνεται με unique name.
+router_module = load_module("registry_requests_test", "server/app/websocket/registry_requests.py")
+RegistryRequestRouter = router_module.RegistryRequestRouter
 
 try:
     import winreg
