@@ -25,8 +25,10 @@ def main() -> None:
     logger = logging.getLogger(__name__)
     logger.info("Εκκίνηση MoonHard Remote Client.")
 
-    from app.client_agent import MoonHardClientAgent
-    agent = MoonHardClientAgent()
+    # Η Registry extension κληρονομεί όλο το υπάρχον agent και προσθέτει
+    # registry_v1 χωρίς να αλλάζει τα legacy Terminal/SQL/Provider flows.
+    from app.registry_client_extension import RegistryEnabledClientAgent
+    agent = RegistryEnabledClientAgent()
 
     asyncio.run(agent.run_forever())
 
