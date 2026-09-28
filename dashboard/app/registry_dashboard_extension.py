@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from app.views.client_manage_window import ClientManageWindow as BaseClientManageWindow
-from app.views.manage.registry_polished_navigation import PolishedRegistryTab
+from app.views.manage.registry_compare_tab import RegistryCompareTab
 
 
 logger = logging.getLogger(__name__)
@@ -27,10 +27,11 @@ class RegistryEnabledClientManageWindow(BaseClientManageWindow):
         self.registry_tab = self.tabs.add("Registry")
         self.registry_tab.grid_columnconfigure(0, weight=1)
         self.registry_tab.grid_rowconfigure(0, weight=1)
-        self.registry_tab_view = PolishedRegistryTab(
+        self.registry_tab_view = RegistryCompareTab(
             self.registry_tab,
             client_code=self.client_code,
             on_registry_request_callback=self._send_registry_request,
+            get_compare_clients_callback=self._get_registry_compare_clients,
         )
         self.registry_tab_view.grid(row=0, column=0, sticky="nsew")
 
@@ -50,11 +51,30 @@ class RegistryEnabledClientManageWindow(BaseClientManageWindow):
         except Exception:
             logger.exception("Could not reorder Registry tab navigation.")
 
+    def _get_registry_compare_clients(self) -> list[dict[str, Any]]:
+        clients_view = getattr(self._registry_parent_app, "clients_view", None)
+        clients = getattr(clients_view, "clients", None)
+        if not isinstance(clients, list):
+            return []
+        return [dict(client) for client in clients if isinstance(client, dict)]
+
     def _send_registry_request(self, payload: dict[str, Any]) -> bool:
         websocket_client = getattr(self._registry_parent_app, "websocket_client", None)
         if not websocket_client or not websocket_client.is_connected():
             return False
-        return bool(websocket_client.send_message(payload))
+
+        request_id = str(payload.get("request_id") or "")
+        routes = getattr(self._registry_parent_app, "_registry_request_routes", None)
+        if not isinstance(routes, dict):
+            routes = {}
+            setattr(self._registry_parent_app, "_registry_request_routes", routes)
+        if request_id:
+            routes[request_id] = self
+
+        sent = bool(websocket_client.send_message(payload))
+        if not sent and request_id:
+            routes.pop(request_id, None)
+        return sent
 
     def handle_registry_result(self, payload: dict[str, Any]) -> None:
         if hasattr(self, "registry_tab_view"):
@@ -82,13 +102,25 @@ def install_registry_dashboard_extension() -> None:
     def handle_websocket_message(self, payload: dict[str, Any]) -> None:
         message_type = payload.get("type")
         if message_type in {"registry_result", "registry_progress"}:
-            client_code = str(payload.get("client_code") or "")
-            manage_window = self.manage_windows.get(client_code)
+            request_id = str(payload.get("request_id") or "")
+            routes = getattr(self, "_registry_request_routes", None)
+            if not isinstance(routes, dict):
+                routes = {}
+                setattr(self, "_registry_request_routes", routes)
+
+            manage_window = routes.get(request_id)
+            if not manage_window or not manage_window.winfo_exists():
+                client_code = str(payload.get("client_code") or "")
+                manage_window = self.manage_windows.get(client_code)
+
             if manage_window and manage_window.winfo_exists():
                 if message_type == "registry_result" and hasattr(manage_window, "handle_registry_result"):
                     manage_window.handle_registry_result(payload)
                 elif message_type == "registry_progress" and hasattr(manage_window, "handle_registry_progress"):
                     manage_window.handle_registry_progress(payload)
+
+            if message_type == "registry_result" and request_id:
+                routes.pop(request_id, None)
             return
         original_handle(self, payload)
 
