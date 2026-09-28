@@ -7,7 +7,7 @@ on:
       - 'client/app/registry_*.py'
       - 'client/app/main.py'
       - 'dashboard/app/registry_dashboard_extension.py'
-      - 'dashboard/app/views/manage/registry_tab.py'
+      - 'dashboard/app/views/manage/registry_*.py'
       - 'dashboard/app/main.py'
       - 'server/app/websocket/registry_*.py'
       - 'server/app/main.py'
@@ -38,5 +38,6 @@ jobs:
           python -m py_compile server/app/websocket/registry_extension.py
           python -m py_compile dashboard/app/registry_dashboard_extension.py
           python -m py_compile dashboard/app/views/manage/registry_tab.py
+          python -m py_compile dashboard/app/views/manage/registry_regedit_tab.py
       - name: Run Registry unit and HKCU integration tests
         run: python -m unittest tests.test_registry_feature -v
