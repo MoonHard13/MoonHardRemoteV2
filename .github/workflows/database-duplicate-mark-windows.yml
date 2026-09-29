@@ -13,8 +13,10 @@ on:
       - "dashboard/app/main.py"
       - "scripts/build_client_exe.ps1"
       - "scripts/build_client_installer.ps1"
+      - "scripts/build_client_update_package_resources.ps1"
       - "tests/test_database_duplicate_mark.py"
       - "tests/test_database_duplicate_mark_router.py"
+      - "tests/test_database_duplicate_mark_ui_contract.py"
       - ".github/workflows/database-duplicate-mark-windows.yml"
 
 jobs:
@@ -48,6 +50,9 @@ jobs:
 
       - name: Run duplicate MARK router tests
         run: python -m unittest tests.test_database_duplicate_mark_router -v
+
+      - name: Run duplicate MARK UI contract tests
+        run: python -m unittest tests.test_database_duplicate_mark_ui_contract -v
 
       - name: Verify SQL resources exist
         shell: pwsh
