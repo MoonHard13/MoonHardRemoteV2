@@ -17,6 +17,7 @@ on:
       - "tests/test_database_duplicate_mark.py"
       - "tests/test_database_duplicate_mark_router.py"
       - "tests/test_database_duplicate_mark_ui_contract.py"
+      - "tests/test_database_duplicate_mark_resources.py"
       - ".github/workflows/database-duplicate-mark-windows.yml"
 
 jobs:
@@ -53,6 +54,9 @@ jobs:
 
       - name: Run duplicate MARK UI contract tests
         run: python -m unittest tests.test_database_duplicate_mark_ui_contract -v
+
+      - name: Run duplicate MARK resource tests
+        run: python -m unittest tests.test_database_duplicate_mark_resources -v
 
       - name: Verify SQL resources exist
         shell: pwsh
