@@ -40,11 +40,19 @@ class MovementTransferDocumentsUiTests(unittest.TestCase):
         self.assertNotIn('source_label = "Current"', source)
         self.assertNotIn('else "History"', source)
 
-    def test_movement_feature_spans_two_columns_in_wide_layout(self):
+    def test_only_movement_feature_spans_two_columns(self):
         source = WIDE_UI.read_text(encoding="utf-8")
-        self.assertIn("columnspan=2", source)
-        self.assertIn("in_=self.left_stack", source)
+        self.assertIn('if title == "Μεταφορά κινήσεων"', source)
+        self.assertIn("parent = self.operations", source)
         self.assertIn("self.movement_card.grid_configure", source)
+        self.assertIn("columnspan=2", source)
+        self.assertNotIn("in_=self.left_stack", source)
+        self.assertNotIn("self.right_stack.grid_forget()", source)
+
+    def test_document_description_is_before_document_number(self):
+        source = WIDE_UI.read_text(encoding="utf-8")
+        self.assertIn('"Περιγραφή παραστατικού",\n            "Αρ. παραστατικού"', source)
+        self.assertIn('document.get("document_descr")', source)
 
     def test_extension_uses_wide_document_tab(self):
         source = EXTENSION.read_text(encoding="utf-8")

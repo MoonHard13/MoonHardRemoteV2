@@ -1,88 +1,137 @@
 from __future__ import annotations
 
+import tkinter as tk
+
+import customtkinter as ctk
+
+from app.ui.theme import COLORS, FONTS
 from app.views.manage.database_movement_transfer_documents_tab import MovementTransferDocumentsTab
 
 
 class MovementTransferWideDocumentsTab(MovementTransferDocumentsTab):
-    """Uses both Database operation columns for the Movement Transfer feature."""
+    """Keeps the normal Database columns and makes only Movement Transfer full width."""
+
+    def _card(self, parent, title: str, description: str, warning: bool = False):
+        # All existing Database cards keep their original parent/column.
+        # Only Movement Transfer is created directly in the operations grid so
+        # it can span both columns without changing left_stack/right_stack.
+        if title == "Μεταφορά κινήσεων" and hasattr(self, "operations"):
+            parent = self.operations
+        return super()._card(parent, title, description, warning)
 
     def _build_ui(self) -> None:
         super()._build_ui()
-        # DatabaseTab performs an early layout pass before the movement card
-        # exists, so run one final pass after the extended UI is complete.
+        self.document_results.grid_columnconfigure(7, weight=1)
         self._apply_layout()
 
     def _apply_layout(self) -> None:
+        # Keep all existing Database cards in the original two side-by-side
+        # stacks. Only Movement Transfer is placed across both columns below.
         super()._apply_layout()
 
         if not hasattr(self, "movement_card"):
             return
 
-        operation_width = self.operations.winfo_width()
-        if operation_width <= 100:
-            available = max(self.winfo_width() - 48, 320)
-            operation_width = available * 0.58 if self.winfo_width() >= 1550 else available
-        paired_cards = operation_width >= 900
-
-        # In wide mode the left stack becomes the two-column operation grid.
-        # The existing right stack is placed inside its second column and the
-        # Movement Transfer card spans both columns underneath both stacks.
-        if paired_cards:
-            self.right_stack.grid_forget()
-            self.left_stack.grid_forget()
-
-            self.left_stack.grid_columnconfigure(0, weight=3)
-            self.left_stack.grid_columnconfigure(1, weight=2)
-            self.left_stack.grid(
-                row=0,
-                column=0,
-                columnspan=2,
-                padx=4,
-                sticky="new",
-            )
-            self.right_stack.grid(
-                in_=self.left_stack,
-                row=0,
-                column=1,
-                rowspan=3,
-                padx=(14, 0),
-                sticky="new",
-            )
-            self.movement_card.grid_configure(
-                row=3,
-                column=0,
-                columnspan=2,
-                padx=0,
-                pady=(4, 10),
-                sticky="ew",
-            )
-            return
-
-        # Compact layout remains single-column so it still works on smaller
-        # windows, while Movement Transfer takes the entire available width.
-        self.right_stack.grid_forget()
-        self.left_stack.grid_forget()
-        self.left_stack.grid_columnconfigure(0, weight=1)
-        self.left_stack.grid_columnconfigure(1, weight=0)
-        self.left_stack.grid(
-            row=0,
-            column=0,
-            columnspan=1,
-            padx=4,
-            sticky="new",
-        )
-        self.right_stack.grid(
-            in_=self.operations,
-            row=1,
-            column=0,
-            padx=4,
-            sticky="new",
-        )
         self.movement_card.grid_configure(
             row=3,
             column=0,
-            columnspan=1,
-            padx=0,
-            pady=(0, 10),
+            columnspan=2,
+            padx=4,
+            pady=(4, 10),
             sticky="ew",
         )
+
+    def _apply_receipts(self, receipts: list[dict]) -> None:
+        self._clear_document_results()
+        if not receipts:
+            self._show_document_message("Δεν βρέθηκαν παραστατικά.")
+            return
+
+        headers = (
+            "",
+            "Περιγραφή παραστατικού",
+            "Αρ. παραστατικού",
+            "Code",
+            "Εστιατορική",
+            "Πραγματική",
+            "SalesStation",
+            "Ποσό",
+        )
+        for column, title in enumerate(headers):
+            ctk.CTkLabel(
+                self.document_results,
+                text=title,
+                font=FONTS.small_bold if hasattr(FONTS, "small_bold") else FONTS.small,
+                text_color=COLORS.text_secondary,
+                anchor="w",
+            ).grid(row=0, column=column, padx=5, pady=(2, 6), sticky="ew")
+
+        for index, document in enumerate(receipts, start=1):
+            key = self._document_key(document, index)
+            variable = tk.BooleanVar(value=False)
+            self._document_vars[key] = variable
+            self._document_rows[key] = document
+
+            checkbox = ctk.CTkCheckBox(
+                self.document_results,
+                text="",
+                width=24,
+                variable=variable,
+                command=self._update_selected_count,
+            )
+            checkbox.grid(row=index, column=0, padx=5, pady=4, sticky="w")
+
+            value = document.get("value")
+            amount = "-" if value is None else f"{float(value):.2f}"
+            station = str(document.get("station_descr") or "").strip()
+            if not station:
+                station = f"OID {document.get('station_oid')}"
+
+            values = (
+                str(document.get("document_descr") or ""),
+                str(document.get("note_no") or ""),
+                str(document.get("note_code") or ""),
+                str(document.get("init_date") or ""),
+                str(document.get("real_date") or ""),
+                station,
+                amount,
+            )
+            for column, text in enumerate(values, start=1):
+                ctk.CTkLabel(
+                    self.document_results,
+                    text=text,
+                    font=FONTS.small,
+                    text_color=COLORS.text_primary,
+                    anchor="w",
+                ).grid(row=index, column=column, padx=5, pady=4, sticky="ew")
+
+        self._update_selected_count()
+
+    def _show_document_message(self, message: str) -> None:
+        if not hasattr(self, "document_results"):
+            return
+        ctk.CTkLabel(
+            self.document_results,
+            text=message,
+            font=FONTS.small,
+            text_color=COLORS.text_secondary,
+            anchor="w",
+        ).grid(row=0, column=0, columnspan=8, padx=8, pady=10, sticky="ew")
+
+    def _format_result(self, payload: dict) -> str:
+        if payload.get("action") == "movement_receipt_search":
+            documents = payload.get("receipts") or []
+            lines = [
+                "Action: Αναζήτηση παραστατικών",
+                f"Results: {len(documents)}",
+            ]
+            for document in documents[:20]:
+                lines.append(
+                    f"- {document.get('document_descr') or '-'} | "
+                    f"No {document.get('note_no')} | Code {document.get('note_code')} | "
+                    f"Εστιατορική {document.get('init_date')} | "
+                    f"Πραγματική {document.get('real_date')} | "
+                    f"Station {document.get('station_oid')}"
+                )
+            return "\n".join(lines)
+        return super()._format_result(payload)

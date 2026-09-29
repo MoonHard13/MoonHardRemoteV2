@@ -78,6 +78,32 @@ class MovementTransferDocumentsService(MovementTransferDatabaseService):
             "receipts": rows,
         }
 
+    @staticmethod
+    def _note_type_table(cursor) -> str | None:
+        """Returns a compatible NoteType table name without assuming every DB version is identical."""
+
+        cursor.execute(
+            """
+            SELECT TOP (1) t.name
+            FROM sys.tables AS t
+            WHERE t.name IN (N'TblSnNoteType', N'NoteType')
+              AND EXISTS (
+                  SELECT 1 FROM sys.columns AS c
+                  WHERE c.object_id = t.object_id AND c.name = N'NoteTypeOID'
+              )
+              AND EXISTS (
+                  SELECT 1 FROM sys.columns AS c
+                  WHERE c.object_id = t.object_id AND c.name = N'NoteTypeDescr'
+              )
+            ORDER BY CASE WHEN t.name = N'TblSnNoteType' THEN 0 ELSE 1 END
+            """
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        name = str(row[0] or "").strip()
+        return name if name in {"TblSnNoteType", "NoteType"} else None
+
     def _receipt_rows(
         self,
         cursor,
@@ -101,11 +127,25 @@ class MovementTransferDocumentsService(MovementTransferDatabaseService):
         if not where:
             raise ValueError("Document search requires a number or restaurant date.")
 
+        note_type_table = self._note_type_table(cursor)
+        if note_type_table:
+            descr_select = "COALESCE(nt.NoteTypeDescr, N'')"
+            note_type_join = (
+                f"LEFT JOIN dbo.{note_type_table} AS nt "
+                "ON nt.NoteTypeOID = s.SalesTransNoteCode"
+            )
+            descr_group = ", nt.NoteTypeDescr"
+        else:
+            descr_select = "CAST(N'' AS nvarchar(40))"
+            note_type_join = ""
+            descr_group = ""
+
         sql = f"""
             SELECT TOP (1000)
                 p.SalesTransPosHdr,
                 s.SalesTransNoteNo,
                 s.SalesTransNoteCode,
+                {descr_select} AS DocumentDescr,
                 s.SalesTransInitDate,
                 s.SalesTransRealDate,
                 s.SalesStationOID,
@@ -116,6 +156,7 @@ class MovementTransferDocumentsService(MovementTransferDatabaseService):
             FROM dbo.{trans} AS s
             INNER JOIN dbo.{pos} AS p ON p.SalesTransOID = s.SalesTransOID
             LEFT JOIN dbo.TblSnSalesStation AS st ON st.SalesStationOID = s.SalesStationOID
+            {note_type_join}
             WHERE {' AND '.join(where)}
             GROUP BY
                 p.SalesTransPosHdr,
@@ -126,6 +167,7 @@ class MovementTransferDocumentsService(MovementTransferDatabaseService):
                 s.SalesStationOID,
                 st.SalesStationNo,
                 st.SalesStationDescr
+                {descr_group}
             ORDER BY s.SalesTransInitDate DESC, s.SalesTransNoteNo DESC,
                      s.SalesTransNoteCode, p.SalesTransPosHdr DESC
         """
@@ -139,13 +181,14 @@ class MovementTransferDocumentsService(MovementTransferDatabaseService):
                     "pos_hdr": int(row[0]),
                     "note_no": int(row[1]) if row[1] is not None else 0,
                     "note_code": int(row[2]) if row[2] is not None else 0,
-                    "init_date": self._date_value(row[3]),
-                    "real_date": self._date_value(row[4]),
-                    "station_oid": int(row[5]) if row[5] is not None else 0,
-                    "station_no": int(row[6]) if row[6] is not None else None,
-                    "station_descr": str(row[7] or "").strip(),
-                    "movement_rows": int(row[8]) if row[8] is not None else 0,
-                    "value": float(row[9]) if row[9] is not None else None,
+                    "document_descr": str(row[3] or "").strip(),
+                    "init_date": self._date_value(row[4]),
+                    "real_date": self._date_value(row[5]),
+                    "station_oid": int(row[6]) if row[6] is not None else 0,
+                    "station_no": int(row[7]) if row[7] is not None else None,
+                    "station_descr": str(row[8] or "").strip(),
+                    "movement_rows": int(row[9]) if row[9] is not None else 0,
+                    "value": float(row[10]) if row[10] is not None else None,
                 }
             )
         return result
