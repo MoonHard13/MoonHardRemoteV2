@@ -15,18 +15,26 @@ class DuplicateMarkDatabaseTab(DatabaseTab):
     def _build_ui(self) -> None:
         super()._build_ui()
 
-        # Κρατάμε το υπάρχον Rebuild και προσθέτουμε τη νέα destructive action
-        # ακριβώς από κάτω, στο ίδιο maintenance card.
-        self.rebuild_button.grid_configure(pady=(0, 8))
+        # Το MARK cleanup είναι ανεξάρτητη λειτουργική ενότητα και δεν
+        # συγχέεται με τα γενικά Database maintenance actions.
+        self.mark_cleanup_card = self._card(
+            self.right_stack,
+            "MARK cleanup",
+            "Run the controlled duplicate MARK cleanup steps on the selected database.",
+            warning=True,
+        )
+        self.mark_cleanup_card.grid(row=2, column=0, pady=(0, 10), sticky="ew")
+
         self.duplicate_mark_button = self._action_button(
-            self.maintenance_card,
+            self.mark_cleanup_card,
             text="Διαγραφή διπλών ΜΑΡΚ",
             command=self.request_delete_duplicate_mark,
             style="danger",
         )
         self.duplicate_mark_button.grid(
-            row=4,
+            row=2,
             column=0,
+            columnspan=2,
             padx=16,
             pady=(0, 16),
             sticky="ew",
