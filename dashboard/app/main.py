@@ -65,6 +65,10 @@ def main() -> None:
     from app.database_duplicate_mark_extension import install_database_duplicate_mark_extension
     install_database_duplicate_mark_extension()
 
+    # Προσθέτει τη Μεταφορά κινήσεων πάνω από το ήδη extended Database tab.
+    from app.database_movement_transfer_extension import install_database_movement_transfer_extension
+    install_database_movement_transfer_extension()
+
     # Εγκαθιστά το Registry tab και το Registry WebSocket result routing
     # πριν δημιουργηθεί το κύριο Dashboard instance.
     from app.registry_dashboard_extension import install_registry_dashboard_extension

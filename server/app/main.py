@@ -8,6 +8,7 @@ from app.routes.client_routes import router as client_router
 from app.routes.websocket_routes import router as websocket_router, websocket_routes
 from app.routes.update_routes import router as update_router
 from app.websocket.database_duplicate_mark_extension import install_database_duplicate_mark_extension
+from app.websocket.database_movement_transfer_extension import install_database_movement_transfer_extension
 from app.websocket.registry_extension import install_registry_extension
 
 
@@ -20,6 +21,9 @@ config.validate_security_config()
 # Επεκτείνουμε το υπάρχον DatabaseRequestRouter με την allowlisted
 # Διαγραφή διπλών ΜΑΡΚ και step-level progress.
 install_database_duplicate_mark_extension(websocket_routes)
+
+# Προσθέτουμε τις ελεγχόμενες λειτουργίες Μεταφοράς κινήσεων.
+install_database_movement_transfer_extension(websocket_routes)
 
 # Εγκαθιστούμε το Registry protocol πάνω στο υπάρχον WebSocketRoutes instance
 # χωρίς να αλλάζουμε το μεγάλο legacy routing file.
