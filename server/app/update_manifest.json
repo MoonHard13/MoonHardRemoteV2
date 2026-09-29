@@ -1,8 +1,8 @@
 {
     "product":  "moonhard-remote-client",
-    "latest_version":  "1.0.14",
-    "download_url":  "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.14/moonhard-client-1.0.14.zip",
-    "sha256":  "535708A8C3C71F07030225FC7D8E98DEE537A8576DB269E7FB0B077F420BD371",
+    "latest_version":  "1.0.15",
+    "download_url":  "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.15/moonhard-client-1.0.15.zip",
+    "sha256":  "88E4A760784F89F5F392A69C49A1ABEA5D1A11DE84904007A8B6B191CDD12FD9",
     "mandatory":  false,
-    "release_notes":  "Movement Transfer, document search, multi-select transfer and Database improvements."
+    "release_notes":  "Fixed client update packaging, missing PyInstaller runtime files, and package validation. Includes Movement Transfer and Database improvements."
 }
