@@ -15,6 +15,13 @@ class DuplicateMarkUiContractTests(unittest.TestCase):
         self.assertIn('"delete_duplicate_mark"', source)
         self.assertIn("request_delete_duplicate_mark", source)
 
+    def test_mark_cleanup_uses_its_own_card(self):
+        source = UI_FILE.read_text(encoding="utf-8")
+        self.assertIn('"MARK cleanup"', source)
+        self.assertIn("self.mark_cleanup_card", source)
+        self.assertIn("self.right_stack", source)
+        self.assertNotIn("self._action_button(\n            self.maintenance_card,\n            text=\"Διαγραφή διπλών ΜΑΡΚ\"", source)
+
     def test_optional_step_is_described_as_best_effort(self):
         source = UI_FILE.read_text(encoding="utf-8")
         self.assertIn("best effort", source)
