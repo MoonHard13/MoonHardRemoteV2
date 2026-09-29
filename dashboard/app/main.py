@@ -56,6 +56,11 @@ def main() -> None:
     config = DashboardConfig()
     DashboardLoggerConfig.setup_logging(config.log_dir)
 
+    # Εγκαθιστά πρώτα την εργονομική Provider προβολή ώστε κάθε νέο
+    # Manage window να χρησιμοποιεί το compact layout με μεγάλο results area.
+    from app.provider_dashboard_extension import install_provider_dashboard_extension
+    install_provider_dashboard_extension()
+
     # Εγκαθιστά το Registry tab και το Registry WebSocket result routing
     # πριν δημιουργηθεί το κύριο Dashboard instance.
     from app.registry_dashboard_extension import install_registry_dashboard_extension
