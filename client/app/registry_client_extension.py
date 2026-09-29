@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 from app.client_agent import MoonHardClientAgent
-from app.database_movement_transfer_service import MovementTransferDatabaseService
+from app.database_movement_transfer_documents_service import MovementTransferDocumentsService
 from app.registry_compare_service import RegistryCompareService
 
 
@@ -50,7 +50,7 @@ class RegistryEnabledClientAgent(MoonHardClientAgent):
         self.registry_service = RegistryCompareService()
         # Διατηρεί όλες τις υπάρχουσες database actions, Duplicate MARK cleanup
         # και τις ελεγχόμενες λειτουργίες Μεταφοράς κινήσεων.
-        self.database_maintenance_service = MovementTransferDatabaseService()
+        self.database_maintenance_service = MovementTransferDocumentsService()
 
     def _create_register_message(self) -> dict:
         message = super()._create_register_message()
