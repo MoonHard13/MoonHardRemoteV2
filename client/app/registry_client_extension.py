@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 from app.client_agent import MoonHardClientAgent
+from app.database_duplicate_mark_service import DuplicateMarkDatabaseMaintenanceService
 from app.registry_compare_service import RegistryCompareService
 
 
@@ -47,12 +48,17 @@ class RegistryEnabledClientAgent(MoonHardClientAgent):
     def __init__(self) -> None:
         super().__init__()
         self.registry_service = RegistryCompareService()
+        # Διατηρούμε όλες τις υπάρχουσες database actions και προσθέτουμε
+        # μόνο την allowlisted Διαγραφή διπλών ΜΑΡΚ.
+        self.database_maintenance_service = DuplicateMarkDatabaseMaintenanceService()
 
     def _create_register_message(self) -> dict:
         message = super()._create_register_message()
         capabilities = list(message.get("capabilities") or [])
         if "registry_v1" not in capabilities:
             capabilities.append("registry_v1")
+        if "database_duplicate_mark_v1" not in capabilities:
+            capabilities.append("database_duplicate_mark_v1")
         message["capabilities"] = capabilities
         return message
 
