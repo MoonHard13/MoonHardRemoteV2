@@ -47,7 +47,7 @@ def main() -> None:
 
     if len(sys.argv) == 3 and sys.argv[1] == "--overview-self-test":
         from app.overview_smoke import OverviewSmokeTest
-        raise SystemExit(OverviewSmokeTest.run(sys.argv[2]))
+        raise SystemExit(OverviewSmokeTest.run(sys.argv[2:]))
 
     if len(sys.argv) > 1 and sys.argv[1] == "--overview":
         from app.overview_cli import main as overview_main
@@ -60,6 +60,10 @@ def main() -> None:
     # Manage window να χρησιμοποιεί το compact layout με μεγάλο results area.
     from app.provider_dashboard_extension import install_provider_dashboard_extension
     install_provider_dashboard_extension()
+
+    # Επεκτείνει το Database tab με την ελεγχόμενη Διαγραφή διπλών ΜΑΡΚ.
+    from app.database_duplicate_mark_extension import install_database_duplicate_mark_extension
+    install_database_duplicate_mark_extension()
 
     # Εγκαθιστά το Registry tab και το Registry WebSocket result routing
     # πριν δημιουργηθεί το κύριο Dashboard instance.
