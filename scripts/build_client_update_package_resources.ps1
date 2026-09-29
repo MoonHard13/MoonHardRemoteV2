@@ -40,13 +40,35 @@ if (-not (Test-Path $SqlResourceDir)) {
 }
 
 New-Item -ItemType Directory -Force $ReleaseRoot | Out-Null
-Compress-Archive `
-    -Path (Join-Path $ClientDistDir "*") `
-    -DestinationPath $PackageZip `
-    -Force
+if (Test-Path $PackageZip) {
+    Remove-Item $PackageZip -Force
+}
+
+Push-Location $ClientDistDir
+
+try {
+    tar.exe -a -c -f $PackageZip *
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to create client update ZIP."
+    }
+}
+finally {
+    Pop-Location
+}
 
 if (-not (Test-Path $PackageZip)) {
     throw "Package ZIP was not created: $PackageZip"
+}
+
+$PackageContents = tar.exe -tf $PackageZip
+
+if (-not ($PackageContents -match "_internal/base_library.zip")) {
+    throw "Package validation failed: _internal/base_library.zip is missing."
+}
+
+if (-not ($PackageContents -match "MoonHardRemoteClient.exe")) {
+    throw "Package validation failed: MoonHardRemoteClient.exe is missing."
 }
 
 $Sha256 = (Get-FileHash -Algorithm SHA256 $PackageZip).Hash.ToUpperInvariant()

@@ -17,7 +17,7 @@ class ClientConfig:
         self._load_environment()
 
         self.app_name = "MoonHard Remote Client"
-        self.app_version = "1.0.14"
+        self.app_version = "1.0.15"
         self.client_token = os.getenv("CLIENT_TOKEN", "")
 
         self.server_websocket_url = os.getenv(
