@@ -1,0 +1,56 @@
+name: Database Duplicate MARK Windows validation
+
+on:
+  pull_request:
+    paths:
+      - "client/app/database_duplicate_mark_service.py"
+      - "client/app/sql/**"
+      - "client/app/registry_client_extension.py"
+      - "server/app/websocket/database_duplicate_mark_extension.py"
+      - "server/app/main.py"
+      - "dashboard/app/database_duplicate_mark_extension.py"
+      - "dashboard/app/views/manage/database_duplicate_mark_tab.py"
+      - "dashboard/app/main.py"
+      - "scripts/build_client_exe.ps1"
+      - "scripts/build_client_installer.ps1"
+      - "tests/test_database_duplicate_mark.py"
+      - "tests/test_database_duplicate_mark_router.py"
+      - ".github/workflows/database-duplicate-mark-windows.yml"
+
+jobs:
+  duplicate-mark:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test dependency
+        run: python -m pip install pyodbc
+
+      - name: Compile duplicate MARK modules
+        run: |
+          python -m py_compile client/app/database_duplicate_mark_service.py
+          python -m py_compile client/app/registry_client_extension.py
+          python -m py_compile server/app/websocket/database_duplicate_mark_extension.py
+          python -m py_compile dashboard/app/database_duplicate_mark_extension.py
+          python -m py_compile dashboard/app/views/manage/database_duplicate_mark_tab.py
+
+      - name: Run duplicate MARK service tests
+        run: python -m unittest tests.test_database_duplicate_mark -v
+
+      - name: Run duplicate MARK router tests
+        run: python -m unittest tests.test_database_duplicate_mark_router -v
+
+      - name: Verify SQL resources exist
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "client/app/sql/!Delete_Duplicate_Success_Mark.sql")) { throw "Missing Success MARK SQL resource" }
+          if (-not (Test-Path "client/app/sql/!Delete_Duplicate_MArK.sql")) { throw "Missing duplicate MARK SQL resource" }
