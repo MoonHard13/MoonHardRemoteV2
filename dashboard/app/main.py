@@ -47,7 +47,7 @@ def main() -> None:
 
     if len(sys.argv) == 3 and sys.argv[1] == "--overview-self-test":
         from app.overview_smoke import OverviewSmokeTest
-        raise SystemExit(OverviewSmokeTest.run(sys.argv[2:]))
+        raise SystemExit(OverviewSmokeTest.run(sys.argv[2]))
 
     if len(sys.argv) > 1 and sys.argv[1] == "--overview":
         from app.overview_cli import main as overview_main
