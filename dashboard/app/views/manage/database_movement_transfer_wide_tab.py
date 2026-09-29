@@ -6,6 +6,12 @@ from app.views.manage.database_movement_transfer_documents_tab import MovementTr
 class MovementTransferWideDocumentsTab(MovementTransferDocumentsTab):
     """Uses both Database operation columns for the Movement Transfer feature."""
 
+    def _build_ui(self) -> None:
+        super()._build_ui()
+        # DatabaseTab performs an early layout pass before the movement card
+        # exists, so run one final pass after the extended UI is complete.
+        self._apply_layout()
+
     def _apply_layout(self) -> None:
         super()._apply_layout()
 
