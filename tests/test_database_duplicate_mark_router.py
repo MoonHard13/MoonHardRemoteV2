@@ -40,11 +40,18 @@ extension_module = _load_module(
 
 
 class FakeManager:
-    def __init__(self):
+    def __init__(self, capabilities: set[str] | None = None):
         self.sent: list[tuple[object, dict]] = []
+        self.capabilities = capabilities or set()
 
     async def send_to_dashboard(self, dashboard, payload):
         self.sent.append((dashboard, payload))
+
+    async def send_to_client(self, _client_code, _payload):
+        return True
+
+    def client_supports(self, _client_code: str, capability: str) -> bool:
+        return capability in self.capabilities
 
 
 class FakeRoutes:
@@ -64,8 +71,33 @@ class DuplicateMarkRouterTests(unittest.TestCase):
             frozenset(),
         )
 
-    def test_step_progress_is_forwarded(self):
+    def test_old_client_is_rejected_with_clear_update_error(self):
         manager = FakeManager()
+        router = router_module.DatabaseRequestRouter(manager)
+        extension_module.install_database_duplicate_mark_extension(FakeRoutes(router))
+        dashboard = object()
+
+        asyncio.run(
+            router.request(
+                dashboard,
+                {
+                    "type": "database_action",
+                    "request_id": "00000000-0000-0000-0000-000000000002",
+                    "client_code": "PC-OLD",
+                    "bo_connection_id": 1,
+                    "action": "delete_duplicate_mark",
+                    "parameters": {},
+                },
+            )
+        )
+
+        self.assertEqual(len(manager.sent), 1)
+        _, payload = manager.sent[0]
+        self.assertFalse(payload["success"])
+        self.assertIn("Client update required", payload["error"])
+
+    def test_step_progress_is_forwarded(self):
+        manager = FakeManager({"database_duplicate_mark_v1"})
         router = router_module.DatabaseRequestRouter(manager)
         extension_module.install_database_duplicate_mark_extension(FakeRoutes(router))
         dashboard = object()
