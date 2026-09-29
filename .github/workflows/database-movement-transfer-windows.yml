@@ -3,16 +3,14 @@ name: Database Movement Transfer Windows validation
 on:
   pull_request:
     paths:
-      - "client/app/database_movement_transfer_service.py"
+      - "client/app/database_movement_transfer*.py"
       - "client/app/registry_client_extension.py"
       - "server/app/websocket/database_movement_transfer_extension.py"
       - "server/app/main.py"
       - "dashboard/app/database_movement_transfer_extension.py"
-      - "dashboard/app/views/manage/database_movement_transfer_tab.py"
+      - "dashboard/app/views/manage/database_movement_transfer*.py"
       - "dashboard/app/main.py"
-      - "tests/test_database_movement_transfer.py"
-      - "tests/test_database_movement_transfer_router.py"
-      - "tests/test_database_movement_transfer_ui_contract.py"
+      - "tests/test_database_movement_transfer*.py"
       - ".github/workflows/database-movement-transfer-windows.yml"
 
 jobs:
@@ -36,18 +34,27 @@ jobs:
       - name: Compile Movement Transfer modules
         run: |
           python -m py_compile client/app/database_movement_transfer_service.py
+          python -m py_compile client/app/database_movement_transfer_documents_service.py
           python -m py_compile client/app/registry_client_extension.py
           python -m py_compile server/app/websocket/database_movement_transfer_extension.py
           python -m py_compile server/app/main.py
           python -m py_compile dashboard/app/database_movement_transfer_extension.py
           python -m py_compile dashboard/app/views/manage/database_movement_transfer_tab.py
+          python -m py_compile dashboard/app/views/manage/database_movement_transfer_documents_tab.py
+          python -m py_compile dashboard/app/views/manage/database_movement_transfer_wide_tab.py
           python -m py_compile dashboard/app/main.py
 
       - name: Run Movement Transfer service tests
         run: python -m unittest tests.test_database_movement_transfer -v
+
+      - name: Run document search tests
+        run: python -m unittest tests.test_database_movement_transfer_documents -v
 
       - name: Run Movement Transfer router contract tests
         run: python -m unittest tests.test_database_movement_transfer_router -v
 
       - name: Run Movement Transfer UI contract tests
         run: python -m unittest tests.test_database_movement_transfer_ui_contract -v
+
+      - name: Run document UI and wide-layout tests
+        run: python -m unittest tests.test_database_movement_transfer_documents_ui -v
