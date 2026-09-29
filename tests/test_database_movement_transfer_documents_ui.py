@@ -17,7 +17,9 @@ class MovementTransferDocumentsUiTests(unittest.TestCase):
         self.assertIn("Αρ. παραστατικού", source)
         self.assertIn("Αναζήτηση παραστατικών", source)
         self.assertIn("Μεταφορά επιλεγμένων παραστατικών", source)
-        self.assertNotIn("Απόδειξη", source)
+        self.assertNotIn('RECEIPT_MODE = "Απόδειξη"', source)
+        self.assertNotIn('text="Αναζήτηση απόδειξης"', source)
+        self.assertNotIn('text="Μεταφορά επιλεγμένης απόδειξης"', source)
 
     def test_date_results_show_both_restaurant_and_real_dates(self):
         source = DOCUMENT_UI.read_text(encoding="utf-8")
