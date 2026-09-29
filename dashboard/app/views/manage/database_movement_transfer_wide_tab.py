@@ -4,7 +4,15 @@ from app.views.manage.database_movement_transfer_documents_tab import MovementTr
 
 
 class MovementTransferWideDocumentsTab(MovementTransferDocumentsTab):
-    """Uses both Database operation columns for the Movement Transfer feature."""
+    """Keeps the normal Database columns and makes only Movement Transfer full width."""
+
+    def _card(self, parent, title: str, description: str, warning: bool = False):
+        # All existing Database cards keep their original parent/column.
+        # Only Movement Transfer is created directly in the operations grid so
+        # it can span both columns without changing left_stack/right_stack.
+        if title == "Μεταφορά κινήσεων" and hasattr(self, "operations"):
+            parent = self.operations
+        return super()._card(parent, title, description, warning)
 
     def _build_ui(self) -> None:
         super()._build_ui()
@@ -13,76 +21,20 @@ class MovementTransferWideDocumentsTab(MovementTransferDocumentsTab):
         self._apply_layout()
 
     def _apply_layout(self) -> None:
+        # Preserve DatabaseTab's original layout for every existing feature:
+        # left_stack and right_stack remain exactly as before.
         super()._apply_layout()
 
         if not hasattr(self, "movement_card"):
             return
 
-        operation_width = self.operations.winfo_width()
-        if operation_width <= 100:
-            available = max(self.winfo_width() - 48, 320)
-            operation_width = available * 0.58 if self.winfo_width() >= 1550 else available
-        paired_cards = operation_width >= 900
-
-        # In wide mode the left stack becomes the two-column operation grid.
-        # The existing right stack is placed inside its second column and the
-        # Movement Transfer card spans both columns underneath both stacks.
-        if paired_cards:
-            self.right_stack.grid_forget()
-            self.left_stack.grid_forget()
-
-            self.left_stack.grid_columnconfigure(0, weight=3)
-            self.left_stack.grid_columnconfigure(1, weight=2)
-            self.left_stack.grid(
-                row=0,
-                column=0,
-                columnspan=2,
-                padx=4,
-                sticky="new",
-            )
-            self.right_stack.grid(
-                in_=self.left_stack,
-                row=0,
-                column=1,
-                rowspan=3,
-                padx=(14, 0),
-                sticky="new",
-            )
-            self.movement_card.grid_configure(
-                row=3,
-                column=0,
-                columnspan=2,
-                padx=0,
-                pady=(4, 10),
-                sticky="ew",
-            )
-            return
-
-        # Compact layout remains single-column so it still works on smaller
-        # windows, while Movement Transfer takes the entire available width.
-        self.right_stack.grid_forget()
-        self.left_stack.grid_forget()
-        self.left_stack.grid_columnconfigure(0, weight=1)
-        self.left_stack.grid_columnconfigure(1, weight=0)
-        self.left_stack.grid(
-            row=0,
-            column=0,
-            columnspan=1,
-            padx=4,
-            sticky="new",
-        )
-        self.right_stack.grid(
-            in_=self.operations,
-            row=1,
-            column=0,
-            padx=4,
-            sticky="new",
-        )
+        # Movement Transfer is the only card that spans both operation columns.
+        # Row 2 is already used by the shortcuts hint, so place it underneath.
         self.movement_card.grid_configure(
             row=3,
             column=0,
-            columnspan=1,
-            padx=0,
-            pady=(0, 10),
+            columnspan=2,
+            padx=4,
+            pady=(4, 10),
             sticky="ew",
         )
