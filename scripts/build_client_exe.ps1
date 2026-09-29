@@ -13,6 +13,7 @@ python -m PyInstaller `
   --name MoonHardRemoteClient `
   --console `
   --paths .\client `
+  --add-data ".\client\app\sql;app\sql" `
   .\client\app\main.py
 
 if ($LASTEXITCODE -ne 0) { throw "Αποτυχία build του Client." }
