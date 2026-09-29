@@ -84,6 +84,7 @@ python -m PyInstaller `
   --console `
   --paths .\client `
   --collect-data certifi `
+  --add-data ".\client\app\sql;app\sql" `
   .\client\app\main.py
 
 $BuiltExe = Join-Path $ClientDistDir "$AppName.exe"

@@ -7,6 +7,7 @@ from app.routes.health_routes import router as health_router
 from app.routes.client_routes import router as client_router
 from app.routes.websocket_routes import router as websocket_router, websocket_routes
 from app.routes.update_routes import router as update_router
+from app.websocket.database_duplicate_mark_extension import install_database_duplicate_mark_extension
 from app.websocket.registry_extension import install_registry_extension
 
 
@@ -15,6 +16,10 @@ LoggerConfig.setup_logging()
 logger = logging.getLogger(__name__)
 config = AppConfig()
 config.validate_security_config()
+
+# Επεκτείνουμε το υπάρχον DatabaseRequestRouter με την allowlisted
+# Διαγραφή διπλών ΜΑΡΚ και step-level progress.
+install_database_duplicate_mark_extension(websocket_routes)
 
 # Εγκαθιστούμε το Registry protocol πάνω στο υπάρχον WebSocketRoutes instance
 # χωρίς να αλλάζουμε το μεγάλο legacy routing file.
@@ -40,7 +45,7 @@ class MoonHardServerApp:
 
     def _register_routes(self) -> None:
         """
-        Δηλώνει όλα τα routes του server.
+        Δηλώνει όλα τα routes του FastAPI application.
         """
 
         self.app.include_router(health_router)

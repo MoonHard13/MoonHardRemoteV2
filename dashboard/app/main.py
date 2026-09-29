@@ -61,6 +61,10 @@ def main() -> None:
     from app.provider_dashboard_extension import install_provider_dashboard_extension
     install_provider_dashboard_extension()
 
+    # Επεκτείνει το Database tab με την ελεγχόμενη Διαγραφή διπλών ΜΑΡΚ.
+    from app.database_duplicate_mark_extension import install_database_duplicate_mark_extension
+    install_database_duplicate_mark_extension()
+
     # Εγκαθιστά το Registry tab και το Registry WebSocket result routing
     # πριν δημιουργηθεί το κύριο Dashboard instance.
     from app.registry_dashboard_extension import install_registry_dashboard_extension
