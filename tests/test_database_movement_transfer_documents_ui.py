@@ -14,9 +14,10 @@ class MovementTransferDocumentsUiTests(unittest.TestCase):
     def test_user_facing_terms_use_documents(self):
         source = DOCUMENT_UI.read_text(encoding="utf-8")
         self.assertIn('RECEIPT_MODE = "Παραστατικό"', source)
-        self.assertIn("Αριθμός παραστατικού", source)
+        self.assertIn("Αρ. παραστατικού", source)
         self.assertIn("Αναζήτηση παραστατικών", source)
         self.assertIn("Μεταφορά επιλεγμένων παραστατικών", source)
+        self.assertNotIn("Απόδειξη", source)
 
     def test_date_results_show_both_restaurant_and_real_dates(self):
         source = DOCUMENT_UI.read_text(encoding="utf-8")
