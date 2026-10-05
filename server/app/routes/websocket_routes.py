@@ -38,8 +38,9 @@ class WebSocketRoutes:
         self.terminal_requests = TerminalRequestRouter(connection_manager)
         self.database_requests = DatabaseRequestRouter(connection_manager)
         self.backup_requests = BackupRequestRouter(connection_manager)
-        self.heartbeat_db_write_interval_seconds = 300
+        self.heartbeat_db_write_interval_seconds = 3600
         self.client_last_db_heartbeat: dict[str, datetime] = {}
+        self.client_memory_last_seen: dict[str, datetime] = {}
         self.clients_list_broadcast_interval_seconds = 600
         self.last_clients_list_broadcast_at: datetime | None = None        
 
@@ -189,7 +190,13 @@ class WebSocketRoutes:
             client["ws_connected"] = ws_connected
             client["controllable"] = ws_connected
 
-            if not ws_connected:
+            if ws_connected:
+                client["status"] = "online"
+
+                memory_last_seen = self.client_memory_last_seen.get(client_code)
+                if memory_last_seen is not None:
+                    client["last_seen"] = memory_last_seen.isoformat()
+            else:
                 client["status"] = "offline"
 
         return clients
@@ -308,8 +315,8 @@ class WebSocketRoutes:
         """
         Ελέγχει αν πρέπει να γράψουμε heartbeat στη Supabase.
 
-        Για μείωση Supabase egress/writes, δεν γράφουμε κάθε heartbeat στη βάση.
-        Γράφουμε max μία φορά ανά client κάθε 5 λεπτά.
+        Για μείωση Supabase log ingestion και writes, δεν γράφουμε κάθε heartbeat στη βάση.
+        Γράφουμε max μία φορά ανά client κάθε 60 λεπτά.
         """
 
         now_utc = datetime.now(timezone.utc)
@@ -327,12 +334,17 @@ class WebSocketRoutes:
 
         return False
 
-    def _get_memory_last_seen(self) -> str:
+    def _record_memory_heartbeat(self, client_code: str) -> str:
         """
-        Επιστρέφει τρέχον UTC timestamp για heartbeat ack χωρίς Supabase read/write.
+        Ενημερώνει το in-memory last_seen χωρίς Supabase read/write.
         """
 
-        return datetime.now(timezone.utc).isoformat()
+        now_utc = datetime.now(timezone.utc)
+
+        if client_code:
+            self.client_memory_last_seen[client_code] = now_utc
+
+        return now_utc.isoformat()
         
     async def client_socket(self, websocket: WebSocket) -> None:
         """
@@ -418,6 +430,13 @@ class WebSocketRoutes:
                 capabilities=capabilities,
             )
 
+            # Το register έχει ήδη γράψει last_seen στη Supabase.
+            # Ξεκινάμε το checkpoint timer από εδώ ώστε το πρώτο heartbeat
+            # να μη δημιουργήσει αμέσως δεύτερο database write.
+            registered_at = datetime.now(timezone.utc)
+            self.client_last_db_heartbeat[client_code] = registered_at
+            self.client_memory_last_seen[client_code] = registered_at
+
             await websocket.send_json({
                 "type": "registered",
                 "message": "Client registered successfully.",
@@ -465,6 +484,8 @@ class WebSocketRoutes:
                         data.get("request_id"),
                         data.get("operation"),
                     )
+                elif message_type == "heartbeat":
+                    logger.debug("Client heartbeat received from %s", client_code)
                 else:
                     logger.info("Client message received from %s: %s", client_code, data)
 
@@ -493,7 +514,7 @@ class WebSocketRoutes:
                     continue
 
                 if data.get("type") == "heartbeat":
-                    last_seen = self._get_memory_last_seen()
+                    last_seen = self._record_memory_heartbeat(client_code)
 
                     if self._should_write_heartbeat_to_db(client_code):
                         try:
@@ -877,6 +898,7 @@ class WebSocketRoutes:
                     await self.terminal_requests.discard_client(client_code)
                     self.client_repository.mark_client_offline(client_code)
                     self.client_last_db_heartbeat.pop(client_code, None)
+                    self.client_memory_last_seen.pop(client_code, None)
 
                     await self.broadcast_single_client_update(
                         client_code=client_code,
@@ -901,6 +923,7 @@ class WebSocketRoutes:
                     await self.terminal_requests.discard_client(client_code)
                     self.client_repository.mark_client_offline(client_code)
                     self.client_last_db_heartbeat.pop(client_code, None)
+                    self.client_memory_last_seen.pop(client_code, None)
 
                     await self.broadcast_single_client_update(
                         client_code=client_code,
