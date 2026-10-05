@@ -1,8 +1,8 @@
 {
-    "product":  "moonhard-remote-client",
-    "latest_version":  "1.0.15",
-    "download_url":  "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.15/moonhard-client-1.0.15.zip",
-    "sha256":  "88E4A760784F89F5F392A69C49A1ABEA5D1A11DE84904007A8B6B191CDD12FD9",
-    "mandatory":  false,
-    "release_notes":  "Fixed client update packaging, missing PyInstaller runtime files, and package validation. Includes Movement Transfer and Database improvements."
+  "product": "moonhard-remote-client",
+  "latest_version": "1.0.16",
+  "download_url": "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.16/moonhard-client-1.0.16.zip",
+  "sha256": "C055F6F46FB984DB9D0C75264590D27934C71FE1447C0AA591C00529A4ECC40F",
+  "mandatory": false,
+  "release_notes": "Reduced application heartbeat frequency and optimized heartbeat persistence to reduce Supabase writes and log ingestion."
 }
