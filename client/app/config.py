@@ -17,7 +17,7 @@ class ClientConfig:
         self._load_environment()
 
         self.app_name = "MoonHard Remote Client"
-        self.app_version = "1.0.15"
+        self.app_version = "1.0.16"
         self.client_token = os.getenv("CLIENT_TOKEN", "")
 
         self.server_websocket_url = os.getenv(
@@ -51,7 +51,7 @@ class ClientConfig:
         self.reconnect_max_seconds = 30
         self.reconnect_reset_after_success_seconds = 60
 
-        self.heartbeat_seconds = 25
+        self.heartbeat_seconds = 60
         self.websocket_open_timeout_seconds = 20
         self.websocket_ping_interval_seconds = 20
         self.websocket_ping_timeout_seconds = 20
