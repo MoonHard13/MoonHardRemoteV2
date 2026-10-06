@@ -40,7 +40,7 @@ class MoonHardDashboardApp(ctk.CTk):
         self.bulk_update_max_parallel_downloads: int = 5
         self.bulk_update_active_downloads: set[str] = set()
         self.bulk_update_download_queue: list[str] = []
-        self.clients_auto_refresh_interval_ms: int = 600000
+        self.clients_auto_refresh_interval_ms: int = 1800000
         self.clients_auto_refresh_job = None
                 
         self.title(self.config_data.app_name)
@@ -1873,7 +1873,7 @@ class MoonHardDashboardApp(ctk.CTk):
             
     def _schedule_clients_auto_refresh(self) -> None:
         """
-        Κάνει auto refresh τη λίστα clients κάθε 10 λεπτά.
+        Κάνει auto refresh τη λίστα clients κάθε 30 λεπτά.
         Το manual refresh εξακολουθεί να δουλεύει άμεσα.
         """
         if self.clients_auto_refresh_job:
