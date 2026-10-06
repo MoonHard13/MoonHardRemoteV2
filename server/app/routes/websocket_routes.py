@@ -1067,6 +1067,14 @@ class WebSocketRoutes:
                     await SqlResponseRouter.forward(data, self.pending_requests, connection_manager)
                     continue
 
+                if data.get("type") in (
+                    "client_update_download_result",
+                    "client_update_extract_result",
+                    "client_update_apply_result",
+                ):
+                    if await self._handle_mandatory_update_result(client_code, data):
+                        continue
+
                 if data.get("type") in ("client_update_extract_result",):
                     request_id = data.get("request_id", "")
 
@@ -1264,14 +1272,6 @@ class WebSocketRoutes:
                         await connection_manager.broadcast_to_dashboards(data)
 
                     continue
-
-                if data.get("type") in (
-                    "client_update_download_result",
-                    "client_update_extract_result",
-                    "client_update_apply_result",
-                ):
-                    if await self._handle_mandatory_update_result(client_code, data):
-                        continue
 
                 if data.get("type") in ("client_update_apply_result",):
                     request_id = data.get("request_id", "")
