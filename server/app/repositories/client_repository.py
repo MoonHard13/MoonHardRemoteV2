@@ -873,9 +873,9 @@ class ClientRepository:
         """
         Αποθηκεύει safe/masked AppSettings μόνο όταν έχουν πραγματικά αλλάξει.
 
-        Το cache είναι process-local. Μετά από server restart επιτρέπεται ένα
-        αρχικό write ανά client, αλλά τα επαναλαμβανόμενα reconnects δεν
-        δημιουργούν πλέον redundant Supabase POST requests.
+        Το cache είναι process-local και γίνεται prime με ένα bulk GET μετά από
+        server restart. Έτσι τα reconnects με αμετάβλητο AppSettings δεν
+        δημιουργούν redundant Supabase POST requests.
         """
 
         self._ensure_appsettings_cache_loaded()
@@ -925,48 +925,35 @@ class ClientRepository:
 
     def get_client_appsettings(self, client_code: str) -> dict[str, Any]:
         """
-        Επιστρέφει μόνο safe/masked appsettings.production.json για συγκεκριμένο client.
+        Επιστρέφει safe/masked AppSettings από το in-memory cache.
+
+        Το cache γίνεται prime με ένα bulk Supabase GET ανά server process και
+        ενημερώνεται σε κάθε πραγματική αλλαγή AppSettings.
         """
 
         if not client_code:
             raise ValueError("Missing client_code.")
 
-        logger.info("Fetching safe appsettings for client: %s", client_code)
+        self._ensure_appsettings_cache_loaded()
 
-        response = (
-            self.db
-            .table("client_appsettings")
-            .select(
-                "id, client_code, file_found, file_path, "
-                "database_connection, database_server, database_name, "
-                "last_read_at, selected_bo_connection_id, "
-                "bo_connections, provider_connections, appsettings_summary"
-            )
-            .eq("client_code", client_code)
-            .execute()
-        )
+        cached_data = self._appsettings_payload_cache.get(client_code)
 
-        data = response.data or []
-
-        if not data:
+        if not cached_data:
             return {
                 "client_code": client_code,
                 "file_found": False,
                 "message": "No appsettings saved for this client yet."
             }
 
-        safe_data = data[0]
+        safe_data = dict(cached_data)
         safe_data["raw_json"] = None
         safe_data["raw_text"] = None
         safe_data["database_user"] = None
         safe_data["database_password"] = None
 
-        payload_hash = self._get_appsettings_payload_hash(safe_data)
-        self._appsettings_payload_hashes[client_code] = payload_hash
-        self._appsettings_payload_cache[client_code] = safe_data
-
         return safe_data
-    
+
+
     def delete_client(self, client_code: str) -> dict[str, Any]:
         """
         Διαγράφει έναν client από τη βάση με βάση το client_code.
