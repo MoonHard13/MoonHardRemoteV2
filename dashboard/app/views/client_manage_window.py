@@ -384,6 +384,14 @@ class ClientManageWindow(ctk.CTkToplevel):
         if hasattr(self, "processes_tab_view"):
             self.processes_tab_view.handle_process_kill_result(payload)
 
+    def handle_mandatory_client_update_status(self, payload: dict) -> None:
+        """
+        Προωθεί automatic mandatory update status στο UpdatesTab.
+        """
+
+        if hasattr(self, "updates_tab_view"):
+            self.updates_tab_view.handle_mandatory_update_status(payload)
+
     def handle_client_update_check_result(self, payload: dict) -> None:
         """
         Προωθεί update check result στο UpdatesTab.
