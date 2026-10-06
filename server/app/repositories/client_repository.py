@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 from typing import Any
 from datetime import datetime, timezone
@@ -16,10 +18,13 @@ class ClientRepository:
 
     def __init__(self) -> None:
         """
-        Αρχικοποιεί τον Supabase client.
+        Αρχικοποιεί τον Supabase client και τα process-local optimization caches.
         """
 
         self.db = database.get_client()
+        self._appsettings_payload_hashes: dict[str, str] = {}
+        self._appsettings_payload_cache: dict[str, dict[str, Any]] = {}
+        self._appsettings_cache_loaded = False
 
     def get_all_clients(self) -> list[dict[str, Any]]:
         """
@@ -402,7 +407,9 @@ class ClientRepository:
             self.db
             .table("clients")
             .select(
-                "id, client_code, client_token_hash, client_token_revoked, client_token_version"
+                "id, client_code, display_name, group_id, "
+                "client_token_hash, client_token_revoked, client_token_version, "
+                "client_token_last_seen_at"
             )
             .eq("client_code", client_code)
             .limit(1)
@@ -454,9 +461,51 @@ class ClientRepository:
 
         return response.data[0] if response.data else {}
 
+    def should_touch_client_token_last_seen(
+        self,
+        security_record: dict[str, Any] | None,
+        min_interval_hours: int = 24
+    ) -> bool:
+        """
+        Ελέγχει αν το audit timestamp του per-client token χρειάζεται refresh.
+
+        Ο έλεγχος γίνεται πάνω στο security record που ήδη διαβάστηκε στο register,
+        ώστε να μην απαιτείται επιπλέον Supabase GET.
+        """
+
+        if not security_record:
+            return False
+
+        raw_last_seen = security_record.get("client_token_last_seen_at")
+
+        if not raw_last_seen:
+            return True
+
+        try:
+            normalized_value = str(raw_last_seen).replace("Z", "+00:00")
+            last_seen = datetime.fromisoformat(normalized_value)
+
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+
+            elapsed_seconds = (
+                datetime.now(timezone.utc) - last_seen.astimezone(timezone.utc)
+            ).total_seconds()
+
+            return elapsed_seconds >= max(1, min_interval_hours) * 3600
+
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid client_token_last_seen_at value. A refresh will be persisted."
+            )
+            return True
+
     def touch_client_token_last_seen(self, client_code: str) -> None:
         """
-        Ενημερώνει πότε έγινε τελευταία επιτυχής per-client token authentication.
+        Ενημερώνει χειροκίνητα το token audit timestamp.
+
+        Παραμένει διαθέσιμο για συμβατότητα, αλλά το normal register flow
+        συγχωνεύει το timestamp στο ήδη απαραίτητο client UPDATE.
         """
 
         if not client_code:
@@ -528,10 +577,18 @@ class ClientRepository:
 
         return response.data[0]
 
-    def upsert_connected_client(self, client_data: dict[str, Any]) -> dict[str, Any]:
+    def upsert_connected_client(
+        self,
+        client_data: dict[str, Any],
+        existing_client_record: dict[str, Any] | None = None,
+        existing_client_checked: bool = False,
+        touch_token_last_seen: bool = False
+    ) -> dict[str, Any]:
         """
         Δημιουργεί ή ενημερώνει έναν πραγματικό client που συνδέθηκε μέσω WebSocket.
-        Αν ο client υπάρχει ήδη, δεν αλλάζει ποτέ το display_name.
+
+        Όταν το authentication flow έχει ήδη διαβάσει τον client, επαναχρησιμοποιεί
+        εκείνο το record και αποφεύγει δεύτερο GET /rest/v1/clients.
         """
 
         client_code = client_data.get("client_code")
@@ -543,33 +600,45 @@ class ClientRepository:
 
         now_utc = datetime.now(timezone.utc).isoformat()
 
-        existing_response = (
-            self.db
-            .table("clients")
-            .select("id, display_name")
-            .eq("client_code", client_code)
-            .execute()
-        )
+        if existing_client_checked:
+            existing_clients = (
+                [existing_client_record]
+                if existing_client_record
+                else []
+            )
+        else:
+            existing_response = (
+                self.db
+                .table("clients")
+                .select("id, display_name, group_id")
+                .eq("client_code", client_code)
+                .execute()
+            )
 
-        existing_clients = existing_response.data or []
+            existing_clients = existing_response.data or []
 
         if existing_clients:
+            update_payload = {
+                "pc_name": client_data.get("pc_name", "UNKNOWN-PC"),
+                "username": client_data.get("username"),
+                "app_version": client_data.get("app_version"),
+                "amv_version": client_data.get("amv_version"),
+                "bo_version": client_data.get("bo_version"),
+                "etp_version": client_data.get("etp_version"),
+                "aws_version": client_data.get("aws_version"),
+                "status": "online",
+                "last_seen": now_utc,
+                "connected_at": now_utc,
+                "disconnected_at": None
+            }
+
+            if touch_token_last_seen:
+                update_payload["client_token_last_seen_at"] = now_utc
+
             response = (
                 self.db
                 .table("clients")
-                .update({
-                    "pc_name": client_data.get("pc_name", "UNKNOWN-PC"),
-                    "username": client_data.get("username"),
-                    "app_version": client_data.get("app_version"),
-                    "amv_version": client_data.get("amv_version"),
-                    "bo_version": client_data.get("bo_version"),
-                    "etp_version": client_data.get("etp_version"),
-                    "aws_version": client_data.get("aws_version"),
-                    "status": "online",
-                    "last_seen": now_utc,
-                    "connected_at": now_utc,
-                    "disconnected_at": None
-                })
+                .update(update_payload)
                 .eq("client_code", client_code)
                 .execute()
             )
@@ -689,15 +758,12 @@ class ClientRepository:
 
         return response.data[0]
     
-    def upsert_client_appsettings(self, appsettings_data: dict[str, Any]) -> dict[str, Any]:
+    def _build_safe_appsettings_payload(
+        self,
+        appsettings_data: dict[str, Any]
+    ) -> dict[str, Any]:
         """
-        Αποθηκεύει μόνο safe/masked appsettings δεδομένα.
-
-        Δεν αποθηκεύει:
-        - raw_json
-        - raw_text
-        - πραγματικό database password
-        - πραγματικό database user
+        Δημιουργεί το safe payload που επιτρέπεται να αποθηκευτεί στη Supabase.
         """
 
         client_code = appsettings_data.get("client_code")
@@ -705,9 +771,7 @@ class ClientRepository:
         if not client_code:
             raise ValueError("Missing client_code.")
 
-        logger.info("Saving safe appsettings for client: %s", client_code)
-
-        safe_payload = {
+        return {
             "client_code": client_code,
             "file_found": appsettings_data.get("file_found", False),
             "file_path": appsettings_data.get("file_path"),
@@ -725,6 +789,120 @@ class ClientRepository:
             "appsettings_summary": appsettings_data.get("appsettings_summary") or {}
         }
 
+    def _get_appsettings_payload_hash(self, payload: dict[str, Any]) -> str:
+        """
+        Υπολογίζει σταθερό hash μόνο από τις πραγματικές ρυθμίσεις.
+
+        Το last_read_at εξαιρείται επίτηδες, επειδή αλλάζει σε κάθε reconnect
+        ακόμα και όταν το AppSettings περιεχόμενο είναι ακριβώς το ίδιο.
+        """
+
+        comparable_keys = (
+            "client_code",
+            "file_found",
+            "file_path",
+            "database_connection",
+            "database_server",
+            "database_name",
+            "selected_bo_connection_id",
+            "bo_connections",
+            "provider_connections",
+            "appsettings_summary",
+        )
+
+        comparable_payload = {
+            key: payload.get(key)
+            for key in comparable_keys
+        }
+
+        serialized_payload = json.dumps(
+            comparable_payload,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str
+        )
+
+        return hashlib.sha256(
+            serialized_payload.encode("utf-8")
+        ).hexdigest()
+
+    def _ensure_appsettings_cache_loaded(self) -> None:
+        """
+        Φορτώνει μία φορά τα αποθηκευμένα safe AppSettings στη μνήμη του server.
+
+        Έτσι μετά από Render restart γίνεται ένα μόνο bulk GET αντί να ξαναγράφει
+        κάθε client τα ίδια AppSettings στη Supabase κατά το reconnect.
+        """
+
+        if self._appsettings_cache_loaded:
+            return
+
+        logger.info("Priming AppSettings comparison cache from Supabase.")
+
+        response = (
+            self.db
+            .table("client_appsettings")
+            .select(
+                "id, client_code, file_found, file_path, "
+                "database_connection, database_server, database_name, "
+                "last_read_at, selected_bo_connection_id, "
+                "bo_connections, provider_connections, appsettings_summary"
+            )
+            .execute()
+        )
+
+        for saved_payload in response.data or []:
+            client_code = str(saved_payload.get("client_code") or "").strip()
+
+            if not client_code:
+                continue
+
+            payload_hash = self._get_appsettings_payload_hash(saved_payload)
+            self._appsettings_payload_hashes[client_code] = payload_hash
+            self._appsettings_payload_cache[client_code] = saved_payload
+
+        self._appsettings_cache_loaded = True
+
+        logger.info(
+            "AppSettings comparison cache primed. clients=%s",
+            len(self._appsettings_payload_hashes)
+        )
+
+    def upsert_client_appsettings(self, appsettings_data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Αποθηκεύει safe/masked AppSettings μόνο όταν έχουν πραγματικά αλλάξει.
+
+        Το cache είναι process-local και γίνεται prime με ένα bulk GET μετά από
+        server restart. Έτσι τα reconnects με αμετάβλητο AppSettings δεν
+        δημιουργούν redundant Supabase POST requests.
+        """
+
+        self._ensure_appsettings_cache_loaded()
+
+        safe_payload = self._build_safe_appsettings_payload(appsettings_data)
+        client_code = str(safe_payload["client_code"])
+        payload_hash = self._get_appsettings_payload_hash(safe_payload)
+        cached_hash = self._appsettings_payload_hashes.get(client_code)
+
+        if cached_hash == payload_hash:
+            logger.debug(
+                "Skipping unchanged appsettings Supabase upsert. client_code=%s",
+                client_code
+            )
+
+            cached_payload = self._appsettings_payload_cache.get(
+                client_code,
+                safe_payload
+            )
+
+            return {
+                **cached_payload,
+                "_write_skipped": True
+            }
+
+        logger.info("Saving changed safe appsettings for client: %s", client_code)
+
         response = (
             self.db
             .table("client_appsettings")
@@ -738,48 +916,44 @@ class ClientRepository:
         if not response.data:
             raise RuntimeError("Appsettings upsert returned no data.")
 
-        return response.data[0]
-    
+        saved_payload = response.data[0]
+        self._appsettings_payload_hashes[client_code] = payload_hash
+        self._appsettings_payload_cache[client_code] = saved_payload
+
+        return saved_payload
+
+
     def get_client_appsettings(self, client_code: str) -> dict[str, Any]:
         """
-        Επιστρέφει μόνο safe/masked appsettings.production.json για συγκεκριμένο client.
+        Επιστρέφει safe/masked AppSettings από το in-memory cache.
+
+        Το cache γίνεται prime με ένα bulk Supabase GET ανά server process και
+        ενημερώνεται σε κάθε πραγματική αλλαγή AppSettings.
         """
 
         if not client_code:
             raise ValueError("Missing client_code.")
 
-        logger.info("Fetching safe appsettings for client: %s", client_code)
+        self._ensure_appsettings_cache_loaded()
 
-        response = (
-            self.db
-            .table("client_appsettings")
-            .select(
-                "id, client_code, file_found, file_path, "
-                "database_connection, database_server, database_name, "
-                "last_read_at, selected_bo_connection_id, "
-                "bo_connections, provider_connections, appsettings_summary"
-            )
-            .eq("client_code", client_code)
-            .execute()
-        )
+        cached_data = self._appsettings_payload_cache.get(client_code)
 
-        data = response.data or []
-
-        if not data:
+        if not cached_data:
             return {
                 "client_code": client_code,
                 "file_found": False,
                 "message": "No appsettings saved for this client yet."
             }
 
-        safe_data = data[0]
+        safe_data = dict(cached_data)
         safe_data["raw_json"] = None
         safe_data["raw_text"] = None
         safe_data["database_user"] = None
         safe_data["database_password"] = None
 
         return safe_data
-    
+
+
     def delete_client(self, client_code: str) -> dict[str, Any]:
         """
         Διαγράφει έναν client από τη βάση με βάση το client_code.
