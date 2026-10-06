@@ -8,6 +8,7 @@ Write-Host "Building MoonHard Remote Dashboard..." -ForegroundColor Cyan
 
 python -m PyInstaller --noconfirm --clean --onefile --windowed `
     --name MoonHardRemoteDashboard `
+    --uac-admin `
     --paths .\dashboard `
     --collect-all customtkinter `
     --hidden-import app.terminal_cli `
