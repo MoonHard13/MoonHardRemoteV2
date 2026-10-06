@@ -37,7 +37,7 @@ class DashboardConfig:
             load_dotenv()
 
         self.app_name = "MoonHard Remote Dashboard"
-        self.app_version = "1.0.2"
+        self.app_version = "1.0.3"
         self.dashboard_token = os.getenv("DASHBOARD_TOKEN", "")
 
         self.dashboard_websocket_url = os.getenv(
