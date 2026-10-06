@@ -41,6 +41,7 @@ class WebSocketRoutes:
         self.heartbeat_db_write_interval_seconds = 3600
         self.client_last_db_heartbeat: dict[str, datetime] = {}
         self.client_memory_last_seen: dict[str, datetime] = {}
+        self.client_dashboard_cache: dict[str, dict] = {}
         self.clients_list_broadcast_interval_seconds = 600
         self.last_clients_list_broadcast_at: datetime | None = None        
 
@@ -106,7 +107,8 @@ class WebSocketRoutes:
                 "error_code": "TOKEN_REVOKED",
                 "should_store_client_token": False,
                 "client_token_hash": None,
-                "auth_mode": auth_mode
+                "auth_mode": auth_mode,
+                "security_record": security_record
             }
 
         provided_token_hash = self._hash_client_instance_token(provided_token)
@@ -118,7 +120,8 @@ class WebSocketRoutes:
                     "message": "Per-client token accepted.",
                     "should_store_client_token": False,
                     "client_token_hash": provided_token_hash,
-                    "auth_mode": "client_instance"
+                    "auth_mode": "client_instance",
+                    "security_record": security_record
                 }
 
             return {
@@ -127,7 +130,8 @@ class WebSocketRoutes:
                 "error_code": "INVALID_CLIENT_INSTANCE_TOKEN",
                 "should_store_client_token": False,
                 "client_token_hash": None,
-                "auth_mode": auth_mode
+                "auth_mode": auth_mode,
+                "security_record": security_record
             }
 
         legacy_bootstrap_used = hmac.compare_digest(
@@ -141,7 +145,8 @@ class WebSocketRoutes:
                 "message": "Legacy bootstrap token accepted.",
                 "should_store_client_token": False,
                 "client_token_hash": None,
-                "auth_mode": "legacy"
+                "auth_mode": "legacy",
+                "security_record": security_record
             }
 
         if auth_mode == "client_instance" and not bootstrap_token:
@@ -151,7 +156,8 @@ class WebSocketRoutes:
                 "error_code": "TOKEN_RESET_REQUIRED",
                 "should_store_client_token": False,
                 "client_token_hash": None,
-                "auth_mode": auth_mode
+                "auth_mode": auth_mode,
+                "security_record": security_record
             }
 
         bootstrap_valid = hmac.compare_digest(
@@ -166,7 +172,8 @@ class WebSocketRoutes:
                 "error_code": None,
                 "should_store_client_token": True,
                 "client_token_hash": provided_token_hash,
-                "auth_mode": "client_instance_bootstrap"
+                "auth_mode": "client_instance_bootstrap",
+                "security_record": security_record
             }
 
         return {
@@ -175,7 +182,8 @@ class WebSocketRoutes:
             "error_code": "INVALID_BOOTSTRAP_TOKEN",
             "should_store_client_token": False,
             "client_token_hash": None,
-            "auth_mode": auth_mode
+            "auth_mode": auth_mode,
+            "security_record": security_record
         }
                 
     def _enrich_clients_with_connection_state(self, clients: list[dict]) -> list[dict]:
@@ -201,6 +209,41 @@ class WebSocketRoutes:
 
         return clients
 
+    def _replace_dashboard_client_cache(self, clients: list[dict]) -> None:
+        """
+        Αντικαθιστά το cache της dashboard λίστας μετά από full Supabase read.
+        """
+
+        self.client_dashboard_cache = {
+            str(client.get("client_code", "")): dict(client)
+            for client in clients
+            if str(client.get("client_code", ""))
+        }
+
+    def _merge_dashboard_client_cache(
+        self,
+        client_code: str,
+        client: dict | None
+    ) -> dict:
+        """
+        Συγχωνεύει base-table client δεδομένα με το υπάρχον dashboard view cache.
+
+        Έτσι διατηρούνται group_name/group_color χωρίς νέο GET στο
+        v_clients_dashboard μετά από κάθε connect/disconnect.
+        """
+
+        merged_client = dict(
+            self.client_dashboard_cache.get(client_code, {})
+        )
+
+        if client:
+            merged_client.update(client)
+
+        if client_code:
+            merged_client["client_code"] = client_code
+
+        return merged_client
+
     async def send_clients_list_to_dashboard(self, websocket: WebSocket) -> None:
         """
         Στέλνει φρέσκια λίστα clients σε συγκεκριμένο dashboard.
@@ -208,6 +251,7 @@ class WebSocketRoutes:
 
         clients = self.client_repository.get_all_clients()
         clients = self._enrich_clients_with_connection_state(clients)
+        self._replace_dashboard_client_cache(clients)
 
         await connection_manager.send_to_dashboard(
             websocket,
@@ -224,8 +268,12 @@ class WebSocketRoutes:
         Περιλαμβάνει και πραγματική WebSocket κατάσταση σύνδεσης.
         """
 
+        if connection_manager.get_connected_dashboard_count() == 0:
+            return
+
         clients = self.client_repository.get_all_clients()
         clients = self._enrich_clients_with_connection_state(clients)
+        self._replace_dashboard_client_cache(clients)
 
         await connection_manager.broadcast_to_dashboards(
             {
@@ -235,24 +283,48 @@ class WebSocketRoutes:
             }
         )
 
-    async def broadcast_single_client_update(self, client_code: str, reason: str = "") -> None:
+    async def broadcast_single_client_update(
+        self,
+        client_code: str,
+        reason: str = "",
+        client: dict | None = None
+    ) -> None:
         """
-        Στέλνει update μόνο για έναν client σε όλα τα dashboards.
-        Χρησιμοποιείται μετά από client reconnect/update ώστε να μη στέλνουμε όλη τη λίστα.
+        Στέλνει update μόνο για έναν client χωρίς υποχρεωτικό Supabase read.
+
+        Όταν υπάρχει ήδη payload από UPDATE/INSERT, το επαναχρησιμοποιεί.
+        Fallback GET γίνεται μόνο αν λείπει και payload και cached dashboard row.
         """
 
-        client = self.client_repository.get_client_by_code(client_code)
+        merged_client = self._merge_dashboard_client_cache(
+            client_code,
+            client
+        )
 
-        if not client:
-            logger.warning(
-                "Cannot broadcast single client update. Client not found. client_code=%s reason=%s",
-                client_code,
-                reason
-            )
-            return
+        if not merged_client or len(merged_client) <= 1:
+            if connection_manager.get_connected_dashboard_count() == 0:
+                return
 
-        enriched_clients = self._enrich_clients_with_connection_state([client])
+            fetched_client = self.client_repository.get_client_by_code(client_code)
+
+            if not fetched_client:
+                logger.warning(
+                    "Cannot broadcast single client update. Client not found. client_code=%s reason=%s",
+                    client_code,
+                    reason
+                )
+                return
+
+            merged_client = fetched_client
+
+        enriched_clients = self._enrich_clients_with_connection_state(
+            [merged_client]
+        )
         enriched_client = enriched_clients[0]
+        self.client_dashboard_cache[client_code] = dict(enriched_client)
+
+        if connection_manager.get_connected_dashboard_count() == 0:
+            return
 
         await connection_manager.broadcast_to_dashboards(
             {
@@ -323,13 +395,11 @@ class WebSocketRoutes:
         last_write = self.client_last_db_heartbeat.get(client_code)
 
         if last_write is None:
-            self.client_last_db_heartbeat[client_code] = now_utc
             return True
 
         elapsed_seconds = (now_utc - last_write).total_seconds()
 
         if elapsed_seconds >= self.heartbeat_db_write_interval_seconds:
-            self.client_last_db_heartbeat[client_code] = now_utc
             return True
 
         return False
@@ -403,7 +473,21 @@ class WebSocketRoutes:
                 await websocket.close()
                 return
 
-            saved_client = self.client_repository.upsert_connected_client(first_message)
+            security_record = auth_result.get("security_record")
+            should_touch_token_last_seen = (
+                auth_result.get("auth_mode") == "client_instance"
+                and self.client_repository.should_touch_client_token_last_seen(
+                    security_record,
+                    min_interval_hours=24
+                )
+            )
+
+            saved_client = self.client_repository.upsert_connected_client(
+                first_message,
+                existing_client_record=security_record,
+                existing_client_checked=True,
+                touch_token_last_seen=should_touch_token_last_seen
+            )
 
             if auth_result.get("should_store_client_token"):
                 client_token_hash = auth_result.get("client_token_hash")
@@ -414,8 +498,11 @@ class WebSocketRoutes:
                         client_token_hash=client_token_hash
                     )
 
-            elif auth_result.get("auth_mode") == "client_instance":
-                self.client_repository.touch_client_token_last_seen(client_code)
+            elif should_touch_token_last_seen:
+                logger.debug(
+                    "Client token audit timestamp refreshed inside connect UPDATE. client_code=%s",
+                    client_code
+                )
 
             raw_capabilities = first_message.get("capabilities")
             capabilities = (
@@ -447,7 +534,8 @@ class WebSocketRoutes:
 
             await self.broadcast_single_client_update(
                 client_code=client_code,
-                reason="client_registered"
+                reason="client_registered",
+                client=saved_client
             )
 
             while True:
@@ -520,6 +608,7 @@ class WebSocketRoutes:
                         try:
                             updated_client = self.client_repository.update_client_heartbeat(client_code)
                             last_seen = updated_client.get("last_seen") or last_seen
+                            self.client_last_db_heartbeat[client_code] = datetime.now(timezone.utc)
                         except Exception:
                             logger.exception(
                                 "Failed to update throttled heartbeat in Supabase for client: %s",
@@ -536,11 +625,13 @@ class WebSocketRoutes:
 
                 if data.get("type") == "appsettings_result":
                     saved_appsettings = self.client_repository.upsert_client_appsettings(data)
+                    write_skipped = bool(saved_appsettings.pop("_write_skipped", False))
 
                     await websocket.send_json({
                         "type": "appsettings_saved",
                         "client_code": client_code,
                         "success": True,
+                        "write_skipped": write_skipped,
                         "appsettings": saved_appsettings
                     })
 
@@ -896,13 +987,14 @@ class WebSocketRoutes:
 
                 if disconnected_active_client:
                     await self.terminal_requests.discard_client(client_code)
-                    self.client_repository.mark_client_offline(client_code)
+                    offline_client = self.client_repository.mark_client_offline(client_code)
                     self.client_last_db_heartbeat.pop(client_code, None)
                     self.client_memory_last_seen.pop(client_code, None)
 
                     await self.broadcast_single_client_update(
                         client_code=client_code,
-                        reason="client_disconnected"
+                        reason="client_disconnected",
+                        client=offline_client
                     )
                 else:
                     logger.warning(
@@ -921,13 +1013,14 @@ class WebSocketRoutes:
 
                 if disconnected_active_client:
                     await self.terminal_requests.discard_client(client_code)
-                    self.client_repository.mark_client_offline(client_code)
+                    offline_client = self.client_repository.mark_client_offline(client_code)
                     self.client_last_db_heartbeat.pop(client_code, None)
                     self.client_memory_last_seen.pop(client_code, None)
 
                     await self.broadcast_single_client_update(
                         client_code=client_code,
-                        reason="client_disconnected"
+                        reason="client_disconnected",
+                        client=offline_client
                     )
                 else:
                     logger.warning(
@@ -1020,7 +1113,11 @@ class WebSocketRoutes:
                             }
                         )
 
-                        await self.broadcast_clients_list()
+                        await self.broadcast_single_client_update(
+                            client_code=client_code,
+                            reason="client_renamed",
+                            client=renamed_client
+                        )
 
                     except Exception as exc:
                         logger.exception("Failed to rename client.")
@@ -1063,7 +1160,8 @@ class WebSocketRoutes:
 
                         await self.broadcast_single_client_update(
                             client_code=client_code,
-                            reason="client_token_reset"
+                            reason="client_token_reset",
+                            client=reset_client
                         )
 
                     except Exception as exc:
