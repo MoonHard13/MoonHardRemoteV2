@@ -24,6 +24,7 @@ class ClientRepository:
         self.db = database.get_client()
         self._appsettings_payload_hashes: dict[str, str] = {}
         self._appsettings_payload_cache: dict[str, dict[str, Any]] = {}
+        self._appsettings_cache_loaded = False
 
     def get_all_clients(self) -> list[dict[str, Any]]:
         """
@@ -826,6 +827,48 @@ class ClientRepository:
             serialized_payload.encode("utf-8")
         ).hexdigest()
 
+    def _ensure_appsettings_cache_loaded(self) -> None:
+        """
+        Φορτώνει μία φορά τα αποθηκευμένα safe AppSettings στη μνήμη του server.
+
+        Έτσι μετά από Render restart γίνεται ένα μόνο bulk GET αντί να ξαναγράφει
+        κάθε client τα ίδια AppSettings στη Supabase κατά το reconnect.
+        """
+
+        if self._appsettings_cache_loaded:
+            return
+
+        logger.info("Priming AppSettings comparison cache from Supabase.")
+
+        response = (
+            self.db
+            .table("client_appsettings")
+            .select(
+                "id, client_code, file_found, file_path, "
+                "database_connection, database_server, database_name, "
+                "last_read_at, selected_bo_connection_id, "
+                "bo_connections, provider_connections, appsettings_summary"
+            )
+            .execute()
+        )
+
+        for saved_payload in response.data or []:
+            client_code = str(saved_payload.get("client_code") or "").strip()
+
+            if not client_code:
+                continue
+
+            payload_hash = self._get_appsettings_payload_hash(saved_payload)
+            self._appsettings_payload_hashes[client_code] = payload_hash
+            self._appsettings_payload_cache[client_code] = saved_payload
+
+        self._appsettings_cache_loaded = True
+
+        logger.info(
+            "AppSettings comparison cache primed. clients=%s",
+            len(self._appsettings_payload_hashes)
+        )
+
     def upsert_client_appsettings(self, appsettings_data: dict[str, Any]) -> dict[str, Any]:
         """
         Αποθηκεύει safe/masked AppSettings μόνο όταν έχουν πραγματικά αλλάξει.
@@ -834,6 +877,8 @@ class ClientRepository:
         αρχικό write ανά client, αλλά τα επαναλαμβανόμενα reconnects δεν
         δημιουργούν πλέον redundant Supabase POST requests.
         """
+
+        self._ensure_appsettings_cache_loaded()
 
         safe_payload = self._build_safe_appsettings_payload(appsettings_data)
         client_code = str(safe_payload["client_code"])
@@ -915,6 +960,10 @@ class ClientRepository:
         safe_data["raw_text"] = None
         safe_data["database_user"] = None
         safe_data["database_password"] = None
+
+        payload_hash = self._get_appsettings_payload_hash(safe_data)
+        self._appsettings_payload_hashes[client_code] = payload_hash
+        self._appsettings_payload_cache[client_code] = safe_data
 
         return safe_data
     
