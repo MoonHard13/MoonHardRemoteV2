@@ -3,7 +3,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectRoot
 
 # Ελέγχει το SSMS και τις δύο προηγούμενες αλλαγές του Manage window.
-foreach ($Pattern in @("test_sql_execution.py", "test_ssms.py", "test_appsettings.py", "test_terminal_ui.py", "test_heartbeat_optimization.py", "test_supabase_optimization_pass2.py")) {
+foreach ($Pattern in @("test_sql_execution.py", "test_ssms.py", "test_appsettings.py", "test_terminal_ui.py", "test_heartbeat_optimization.py", "test_supabase_optimization_pass2.py", "test_mandatory_client_update.py")) {
     python -m unittest discover -s tests -p $Pattern -v
     if ($LASTEXITCODE -ne 0) { throw "Αποτυχία δοκιμών $Pattern." }
 }

@@ -2,7 +2,8 @@ from app.websocket.sql_responses import SqlResponseRouter
 import hashlib
 import hmac
 import logging
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Header, HTTPException, WebSocket, WebSocketDisconnect
 
@@ -12,6 +13,7 @@ from app.websocket.database_requests import DatabaseRequestRouter
 from app.websocket.transmitted_requests import TransmittedRequestRouter
 from app.websocket.terminal_requests import TerminalRequestRouter
 from app.repositories.client_repository import ClientRepository
+from app.routes.update_routes import manifest_service
 
 from app.config import AppConfig
 
@@ -43,7 +45,10 @@ class WebSocketRoutes:
         self.client_memory_last_seen: dict[str, datetime] = {}
         self.client_dashboard_cache: dict[str, dict] = {}
         self.clients_list_broadcast_interval_seconds = 600
-        self.last_clients_list_broadcast_at: datetime | None = None        
+        self.last_clients_list_broadcast_at: datetime | None = None
+        self.mandatory_update_states: dict[str, dict] = {}
+        self.mandatory_update_retry_after: dict[str, datetime] = {}
+        self.mandatory_update_retry_cooldown_seconds = 900
 
     def _hash_client_instance_token(self, raw_token: str) -> str:
         """
@@ -416,6 +421,380 @@ class WebSocketRoutes:
 
         return now_utc.isoformat()
         
+    def _parse_update_version(self, version: str) -> tuple[int, int, int]:
+        """
+        Μετατρέπει έκδοση τύπου 1.2.3 σε tuple για ασφαλή σύγκριση.
+        """
+
+        parts = str(version or "0.0.0").split(".")
+        numbers: list[int] = []
+
+        for part in parts[:3]:
+            try:
+                numbers.append(int(part))
+            except ValueError:
+                numbers.append(0)
+
+        while len(numbers) < 3:
+            numbers.append(0)
+
+        return tuple(numbers)
+
+    async def _broadcast_mandatory_update_status(
+        self,
+        client_code: str,
+        phase: str,
+        status: str,
+        message: str,
+        latest_version: str = "",
+        error: str = ""
+    ) -> None:
+        """
+        Ενημερώνει τα ενεργά Dashboards για την αυτόματη mandatory update ροή.
+        """
+
+        if connection_manager.get_connected_dashboard_count() == 0:
+            return
+
+        await connection_manager.broadcast_to_dashboards(
+            {
+                "type": "mandatory_client_update_status",
+                "client_code": client_code,
+                "phase": phase,
+                "status": status,
+                "latest_version": latest_version,
+                "message": message,
+                "error": error
+            }
+        )
+
+    def _set_mandatory_update_retry_cooldown(self, client_code: str) -> None:
+        """
+        Αποφεύγει update loop όταν download/extract/apply αποτυγχάνει επανειλημμένα.
+        """
+
+        self.mandatory_update_retry_after[client_code] = (
+            datetime.now(timezone.utc)
+            + timedelta(seconds=self.mandatory_update_retry_cooldown_seconds)
+        )
+
+    async def _fail_mandatory_update(
+        self,
+        client_code: str,
+        state: dict,
+        phase: str,
+        error: str
+    ) -> None:
+        """
+        Τερματίζει με ασφάλεια mandatory update attempt και αφήνει τον client λειτουργικό.
+        """
+
+        self.mandatory_update_states.pop(client_code, None)
+        self._set_mandatory_update_retry_cooldown(client_code)
+
+        logger.error(
+            "Mandatory client update failed. client_code=%s phase=%s target=%s error=%s",
+            client_code,
+            phase,
+            state.get("latest_version", ""),
+            error
+        )
+
+        await self._broadcast_mandatory_update_status(
+            client_code=client_code,
+            phase=phase,
+            status="failed",
+            latest_version=str(state.get("latest_version") or ""),
+            message="Mandatory client update failed. The current client remains active.",
+            error=error
+        )
+
+    async def _start_mandatory_update_if_needed(
+        self,
+        client_code: str,
+        current_version: str
+    ) -> None:
+        """
+        Ξεκινά αυτόματα update μετά το register μόνο όταν το manifest είναι mandatory.
+
+        Το υπάρχον manual/Bulk Update flow παραμένει ανεξάρτητο.
+        """
+
+        if not client_code or client_code in self.mandatory_update_states:
+            return
+
+        retry_after = self.mandatory_update_retry_after.get(client_code)
+
+        if retry_after and datetime.now(timezone.utc) < retry_after:
+            logger.info(
+                "Mandatory update retry cooldown active. client_code=%s retry_after=%s",
+                client_code,
+                retry_after.isoformat()
+            )
+            return
+
+        try:
+            manifest = manifest_service.get_client_manifest()
+        except Exception:
+            logger.exception(
+                "Failed to read mandatory update manifest. client_code=%s",
+                client_code
+            )
+            return
+
+        if not bool(manifest.get("mandatory", False)):
+            return
+
+        latest_version = str(manifest.get("latest_version") or "").strip()
+        download_url = str(manifest.get("download_url") or "").strip()
+        expected_sha256 = str(manifest.get("sha256") or "").strip()
+
+        if not latest_version or not download_url or not expected_sha256:
+            logger.error(
+                "Mandatory update manifest is incomplete. client_code=%s",
+                client_code
+            )
+            return
+
+        if self._parse_update_version(latest_version) <= self._parse_update_version(current_version):
+            self.mandatory_update_retry_after.pop(client_code, None)
+            return
+
+        request_id = f"mandatory-update-{uuid.uuid4().hex}"
+
+        state = {
+            "request_id": request_id,
+            "phase": "download",
+            "current_version": current_version,
+            "latest_version": latest_version,
+            "download_url": download_url,
+            "sha256": expected_sha256
+        }
+
+        self.mandatory_update_states[client_code] = state
+
+        await self._broadcast_mandatory_update_status(
+            client_code=client_code,
+            phase="download",
+            status="starting",
+            latest_version=latest_version,
+            message=(
+                f"Mandatory update started automatically: "
+                f"{current_version or '-'} -> {latest_version}"
+            )
+        )
+
+        sent = await connection_manager.send_to_client(
+            client_code,
+            {
+                "type": "client_update_download",
+                "request_id": request_id,
+                "client_code": client_code,
+                "download_url": download_url,
+                "sha256": expected_sha256,
+                "latest_version": latest_version
+            }
+        )
+
+        if not sent:
+            await self._fail_mandatory_update(
+                client_code=client_code,
+                state=state,
+                phase="download",
+                error="Client disconnected before mandatory update download could start."
+            )
+            return
+
+        logger.info(
+            "Mandatory update download requested. client_code=%s current=%s latest=%s",
+            client_code,
+            current_version,
+            latest_version
+        )
+
+    async def _handle_mandatory_update_result(
+        self,
+        client_code: str,
+        data: dict
+    ) -> bool:
+        """
+        Προχωρά το automatic mandatory update state machine.
+
+        Επιστρέφει True όταν το result ανήκει σε automatic update ώστε να μη
+        δρομολογηθεί παράλληλα στο manual/Bulk Update flow.
+        """
+
+        state = self.mandatory_update_states.get(client_code)
+
+        if not state:
+            return False
+
+        request_id = str(data.get("request_id") or "")
+
+        if request_id != str(state.get("request_id") or ""):
+            return False
+
+        message_type = str(data.get("type") or "")
+        latest_version = str(state.get("latest_version") or "")
+        phase = str(state.get("phase") or "")
+
+        if phase == "download" and message_type == "client_update_download_result":
+            if not data.get("success") or not data.get("sha256_verified"):
+                await self._fail_mandatory_update(
+                    client_code,
+                    state,
+                    "download",
+                    str(data.get("error") or "Download or SHA256 verification failed.")
+                )
+                return True
+
+            package_path = str(data.get("saved_path") or "")
+
+            if not package_path:
+                await self._fail_mandatory_update(
+                    client_code,
+                    state,
+                    "download",
+                    "Mandatory update download returned no saved_path."
+                )
+                return True
+
+            state["phase"] = "extract"
+            state["package_path"] = package_path
+
+            await self._broadcast_mandatory_update_status(
+                client_code,
+                "extract",
+                "running",
+                "Mandatory update package downloaded and verified. Extracting package.",
+                latest_version
+            )
+
+            sent = await connection_manager.send_to_client(
+                client_code,
+                {
+                    "type": "client_update_extract",
+                    "request_id": request_id,
+                    "client_code": client_code,
+                    "package_path": package_path,
+                    "latest_version": latest_version
+                }
+            )
+
+            if not sent:
+                await self._fail_mandatory_update(
+                    client_code,
+                    state,
+                    "extract",
+                    "Client disconnected before mandatory update extract could start."
+                )
+
+            return True
+
+        if phase == "extract" and message_type == "client_update_extract_result":
+            if not data.get("success") or not data.get("package_valid"):
+                await self._fail_mandatory_update(
+                    client_code,
+                    state,
+                    "extract",
+                    str(data.get("error") or "Extracted package validation failed.")
+                )
+                return True
+
+            extracted_path = str(data.get("extracted_path") or "")
+
+            if not extracted_path:
+                await self._fail_mandatory_update(
+                    client_code,
+                    state,
+                    "extract",
+                    "Mandatory update extract returned no extracted_path."
+                )
+                return True
+
+            state["phase"] = "apply"
+            state["extracted_path"] = extracted_path
+
+            await self._broadcast_mandatory_update_status(
+                client_code,
+                "apply",
+                "running",
+                "Mandatory update package validated. Starting silent updater.",
+                latest_version
+            )
+
+            sent = await connection_manager.send_to_client(
+                client_code,
+                {
+                    "type": "client_update_apply",
+                    "request_id": request_id,
+                    "client_code": client_code,
+                    "extracted_path": extracted_path,
+                    "latest_version": latest_version
+                }
+            )
+
+            if not sent:
+                await self._fail_mandatory_update(
+                    client_code,
+                    state,
+                    "apply",
+                    "Client disconnected before mandatory update apply could start."
+                )
+
+            return True
+
+        if phase == "apply" and message_type == "client_update_apply_result":
+            if not data.get("success"):
+                await self._fail_mandatory_update(
+                    client_code,
+                    state,
+                    "apply",
+                    str(data.get("error") or "Silent updater failed to start.")
+                )
+                return True
+
+            self.mandatory_update_states.pop(client_code, None)
+            self.mandatory_update_retry_after.pop(client_code, None)
+
+            logger.info(
+                "Mandatory update apply started successfully. client_code=%s latest=%s",
+                client_code,
+                latest_version
+            )
+
+            await self._broadcast_mandatory_update_status(
+                client_code,
+                "apply",
+                "restarting",
+                "Silent updater started. Waiting for the client service to reconnect.",
+                latest_version
+            )
+
+            return True
+
+        return False
+
+    async def _cancel_mandatory_update_on_disconnect(self, client_code: str) -> None:
+        """
+        Καθαρίζει ημιτελές automatic update αν χαθεί η σύνδεση πριν ξεκινήσει apply.
+        """
+
+        state = self.mandatory_update_states.pop(client_code, None)
+
+        if not state:
+            return
+
+        self._set_mandatory_update_retry_cooldown(client_code)
+
+        await self._broadcast_mandatory_update_status(
+            client_code=client_code,
+            phase=str(state.get("phase") or ""),
+            status="interrupted",
+            latest_version=str(state.get("latest_version") or ""),
+            message="Mandatory update was interrupted by disconnect and will retry later."
+        )
+
     async def client_socket(self, websocket: WebSocket) -> None:
         """
         WebSocket endpoint για client PCs.
@@ -536,6 +915,11 @@ class WebSocketRoutes:
                 client_code=client_code,
                 reason="client_registered",
                 client=saved_client
+            )
+
+            await self._start_mandatory_update_if_needed(
+                client_code=client_code,
+                current_version=str(first_message.get("app_version") or "")
             )
 
             while True:
@@ -682,6 +1066,14 @@ class WebSocketRoutes:
                 if data.get("type") in ("sql_result", "sql_test_connection_result", "sql_cancel_result"):
                     await SqlResponseRouter.forward(data, self.pending_requests, connection_manager)
                     continue
+
+                if data.get("type") in (
+                    "client_update_download_result",
+                    "client_update_extract_result",
+                    "client_update_apply_result",
+                ):
+                    if await self._handle_mandatory_update_result(client_code, data):
+                        continue
 
                 if data.get("type") in ("client_update_extract_result",):
                     request_id = data.get("request_id", "")
@@ -990,6 +1382,7 @@ class WebSocketRoutes:
                     offline_client = self.client_repository.mark_client_offline(client_code)
                     self.client_last_db_heartbeat.pop(client_code, None)
                     self.client_memory_last_seen.pop(client_code, None)
+                    await self._cancel_mandatory_update_on_disconnect(client_code)
 
                     await self.broadcast_single_client_update(
                         client_code=client_code,
@@ -1016,6 +1409,7 @@ class WebSocketRoutes:
                     offline_client = self.client_repository.mark_client_offline(client_code)
                     self.client_last_db_heartbeat.pop(client_code, None)
                     self.client_memory_last_seen.pop(client_code, None)
+                    await self._cancel_mandatory_update_on_disconnect(client_code)
 
                     await self.broadcast_single_client_update(
                         client_code=client_code,

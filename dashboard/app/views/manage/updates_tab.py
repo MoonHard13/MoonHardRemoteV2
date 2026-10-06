@@ -229,6 +229,51 @@ class UpdatesTab(ctk.CTkFrame):
 
         self._set_result_text(result_text)
 
+    def handle_mandatory_update_status(self, payload: dict) -> None:
+        """
+        Εμφανίζει live κατάσταση automatic mandatory update.
+        """
+
+        if payload.get("client_code") != self.client_code:
+            return
+
+        phase = str(payload.get("phase") or "-")
+        status = str(payload.get("status") or "-")
+        latest_version = str(payload.get("latest_version") or "-")
+        message = str(payload.get("message") or "")
+        error = str(payload.get("error") or "")
+
+        if status == "failed":
+            label_text = "Mandatory update failed"
+            label_color = COLORS.danger
+        elif status == "restarting":
+            label_text = "Mandatory update applied - reconnecting..."
+            label_color = COLORS.warning
+        elif status == "interrupted":
+            label_text = "Mandatory update interrupted - retry scheduled"
+            label_color = COLORS.warning
+        else:
+            label_text = "Mandatory update in progress..."
+            label_color = COLORS.accent
+
+        self.status_label.configure(
+            text=label_text,
+            text_color=label_color
+        )
+
+        result_text = (
+            "=== Automatic Mandatory Client Update ===\n\n"
+            f"Phase:          {phase}\n"
+            f"Status:         {status}\n"
+            f"Target version: {latest_version}\n\n"
+            f"{message or '-'}\n"
+        )
+
+        if error:
+            result_text += f"\nError:\n{error}\n"
+
+        self._set_result_text(result_text)
+
     def clear_result(self) -> None:
         """
         Καθαρίζει το αποτέλεσμα ελέγχου update.

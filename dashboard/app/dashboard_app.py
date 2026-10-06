@@ -454,6 +454,20 @@ class MoonHardDashboardApp(ctk.CTk):
             if manage_window and manage_window.winfo_exists():
                 manage_window.handle_process_kill_result(payload)
 
+        elif message_type == "mandatory_client_update_status":
+            client_code = payload.get("client_code", "")
+            manage_window = self.manage_windows.get(client_code)
+
+            if manage_window and manage_window.winfo_exists():
+                manage_window.handle_mandatory_client_update_status(payload)
+
+            logger.info(
+                "Mandatory client update status. client_code=%s phase=%s status=%s",
+                client_code,
+                payload.get("phase", ""),
+                payload.get("status", "")
+            )
+
         elif message_type == "client_update_check_result":
             client_code = payload.get("client_code", "")
             manage_window = self.manage_windows.get(client_code)
