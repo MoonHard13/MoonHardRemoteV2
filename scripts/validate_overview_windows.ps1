@@ -3,7 +3,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectRoot
 
 # Η αλλαγή Manage επηρεάζει τον χώρο εργασίας κάθε καρτέλας.
-foreach ($Pattern in @("test_overview.py", "test_sql_execution.py", "test_ssms.py", "test_appsettings.py", "test_terminal_ui.py")) {
+foreach ($Pattern in @("test_overview.py", "test_sql_execution.py", "test_ssms.py", "test_appsettings.py", "test_terminal_ui.py", "test_button_labels.py")) {
     python -m unittest discover -s tests -p $Pattern -v
     if ($LASTEXITCODE -ne 0) { throw "Αποτυχία δοκιμών $Pattern." }
 }
