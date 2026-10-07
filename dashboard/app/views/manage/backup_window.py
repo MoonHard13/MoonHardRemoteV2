@@ -397,7 +397,7 @@ class BackupManagerWindow(ctk.CTkToplevel):
         self.bo_option.set(selected)
         ctk.CTkButton(
             toolbar,
-            text="Refresh  ·  Ctrl+R",
+            text="Refresh",
             command=self.refresh_data,
             width=155,
             height=34,
@@ -478,7 +478,7 @@ class BackupManagerWindow(ctk.CTkToplevel):
         self.manual_form.grid(row=2, column=0, padx=8, pady=4, sticky="ew")
         ctk.CTkButton(
             self.manual_card,
-            text="Start verified backup  ·  Ctrl+B",
+            text="Start verified backup",
             command=self.run_manual_backup,
             height=38,
             **primary_button_style(),
@@ -684,7 +684,7 @@ class BackupManagerWindow(ctk.CTkToplevel):
         )
         ctk.CTkButton(
             self.schedule_destination_card,
-            text="Save schedule  ·  Ctrl+S",
+            text="Save schedule",
             command=self.save_schedule,
             height=38,
             **primary_button_style(),

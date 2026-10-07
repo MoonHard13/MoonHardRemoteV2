@@ -122,7 +122,7 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
 
         self.retry_button = ctk.CTkButton(
             button_frame,
-            text="Retry problems  ·  Ctrl+R",
+            text="Retry problems",
             width=205,
             height=36,
             command=self._retry_clicked,
@@ -136,7 +136,7 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
 
         ctk.CTkButton(
             button_frame,
-            text="Close  ·  Esc",
+            text="Close",
             width=120,
             height=36,
             command=self.destroy,
@@ -260,7 +260,7 @@ class BulkUpdateProgressWindow(ctk.CTkToplevel):
 
         ctk.CTkButton(
             filter_frame,
-            text="Clear  ·  Ctrl+L",
+            text="Clear",
             width=135,
             height=36,
             command=self._clear_filters,

@@ -91,7 +91,7 @@ class SqlTab(ctk.CTkFrame):
         self.timeout_entry = ctk.CTkEntry(self.actions, width=56, height=32)
         self.timeout_entry.insert(0, '120')
         self.timeout_entry.grid(row=0, column=4, padx=(0, 10))
-        self.execute_button = ctk.CTkButton(self.actions, text='Execute · F5', width=110, height=32,
+        self.execute_button = ctk.CTkButton(self.actions, text='Execute', width=110, height=32,
                                            command=self.execute_sql, **primary_button_style())
         self.execute_button.grid(row=0, column=5, padx=(0, 6))
         self.stop_sql_button = ctk.CTkButton(self.actions, text='Stop', width=70, height=32,

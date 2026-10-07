@@ -136,7 +136,7 @@ class ProviderTab(ctk.CTkFrame):
 
         self.transmitted_button = ctk.CTkButton(
             header_toolbar,
-            text="Transmitted invoices  ·  Ctrl+Shift+D",
+            text="Transmitted invoices",
             width=245,
             height=34,
             command=self._open_transmitted,
@@ -236,7 +236,7 @@ class ProviderTab(ctk.CTkFrame):
         ).grid(row=0, column=2, padx=(0, 8))
         self.search_button = ctk.CTkButton(
             self.search_actions,
-            text="Search  ·  Ctrl+F",
+            text="Search",
             width=145,
             height=32,
             command=self._search_invoices,
@@ -351,7 +351,7 @@ class ProviderTab(ctk.CTkFrame):
 
         clear_filter_button = ctk.CTkButton(
             filter_frame,
-            text="Clear  ·  Ctrl+L",
+            text="Clear",
             width=125,
             command=self._clear_local_filter,
             **secondary_button_style()
@@ -436,7 +436,7 @@ class ProviderTab(ctk.CTkFrame):
 
         self.send_selected_button = ctk.CTkButton(
             actions_frame,
-            text="Send selected  ·  Ctrl+Enter",
+            text="Send selected",
             width=205,
             command=self._send_selected,
             **primary_button_style()
@@ -445,7 +445,7 @@ class ProviderTab(ctk.CTkFrame):
 
         self.send_all_button = ctk.CTkButton(
             actions_frame,
-            text="Send all  ·  Ctrl+Shift+Enter",
+            text="Send all",
             width=205,
             command=self._send_all,
             **primary_button_style()
@@ -454,7 +454,7 @@ class ProviderTab(ctk.CTkFrame):
 
         self.errors_button = ctk.CTkButton(
             actions_frame,
-            text="Errors  ·  Ctrl+E",
+            text="Errors",
             width=125,
             command=self._show_errors,
             **secondary_button_style()
@@ -463,7 +463,7 @@ class ProviderTab(ctk.CTkFrame):
 
         self.mydata_button = ctk.CTkButton(
             actions_frame,
-            text="Delete MyDATA  ·  Ctrl+Shift+Del",
+            text="Delete MyDATA",
             width=205,
             command=self._delete_mydata,
             fg_color=COLORS.danger_soft,
@@ -478,7 +478,7 @@ class ProviderTab(ctk.CTkFrame):
 
         self.payways_button = ctk.CTkButton(
             actions_frame,
-            text="Payways  ·  Ctrl+P",
+            text="Payways",
             width=135,
             command=self._show_payways,
             **secondary_button_style()

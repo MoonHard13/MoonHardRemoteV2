@@ -104,7 +104,7 @@ class TransmittedInvoicesView(ctk.CTkFrame):
         self.connection_badge.grid(row=0, column=1, padx=(8, 10), pady=(14, 0))
         ctk.CTkButton(
             self.header_card,
-            text="← Provider  ·  Esc",
+            text="Provider",
             width=145,
             height=30,
             command=self.back_callback,
@@ -131,7 +131,7 @@ class TransmittedInvoicesView(ctk.CTkFrame):
         filter_actions.grid(row=0, column=1, padx=16, pady=(10, 3), sticky="e")
         self.search_button = ctk.CTkButton(
             filter_actions,
-            text="Αναζήτηση  ·  F5",
+            text="Αναζήτηση",
             width=145,
             height=30,
             command=self.search,
@@ -140,7 +140,7 @@ class TransmittedInvoicesView(ctk.CTkFrame):
         self.search_button.grid(row=0, column=0, padx=(0, 6))
         self.clear_button = ctk.CTkButton(
             filter_actions,
-            text="Καθαρισμός  ·  Ctrl+L",
+            text="Καθαρισμός",
             width=165,
             height=30,
             command=self.clear,
@@ -263,7 +263,7 @@ class TransmittedInvoicesView(ctk.CTkFrame):
         url_actions.grid(row=1, column=1, padx=(0, 14), pady=(0, 8), sticky="e")
         self.open_button = ctk.CTkButton(
             url_actions,
-            text="Άνοιγμα  ·  Ctrl+O",
+            text="Άνοιγμα",
             width=155,
             state="disabled",
             command=self.open_url,
@@ -272,7 +272,7 @@ class TransmittedInvoicesView(ctk.CTkFrame):
         self.open_button.grid(row=0, column=0, padx=(0, 6))
         self.copy_button = ctk.CTkButton(
             url_actions,
-            text="Αντιγραφή  ·  Ctrl+Shift+C",
+            text="Αντιγραφή",
             width=205,
             state="disabled",
             command=self.copy_url,

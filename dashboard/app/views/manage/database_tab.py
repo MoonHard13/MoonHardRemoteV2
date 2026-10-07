@@ -128,7 +128,7 @@ class DatabaseTab(ctk.CTkFrame):
 
         refresh_button = ctk.CTkButton(
             toolbar,
-            text="Refresh  ·  F5",
+            text="Refresh",
             width=130,
             height=34,
             command=self.refresh_bo_values,
@@ -138,7 +138,7 @@ class DatabaseTab(ctk.CTkFrame):
 
         test_button = self._action_button(
             toolbar,
-            text="Test connection  ·  Ctrl+T",
+            text="Test connection",
             command=lambda: self.request_action("test_connection"),
             width=205,
             style="primary",
@@ -168,14 +168,14 @@ class DatabaseTab(ctk.CTkFrame):
 
         sales_button = self._action_button(
             self.info_card,
-            text="SalesTrans information  ·  Ctrl+1",
+            text="SalesTrans information",
             command=lambda: self.request_action("sales_trans_info"),
         )
         sales_button.grid(row=2, column=0, padx=16, pady=(0, 8), sticky="ew")
 
         mydata_button = self._action_button(
             self.info_card,
-            text="MyData failed responses  ·  Ctrl+2",
+            text="MyData failed responses",
             command=lambda: self.request_action("mydata_info"),
         )
         mydata_button.grid(row=3, column=0, padx=16, pady=(0, 16), sticky="ew")
@@ -190,7 +190,7 @@ class DatabaseTab(ctk.CTkFrame):
             self.history_card, "Cutoff date  ·  YYYYMMDD", 2, 0)
         history_button = self._action_button(
             self.history_card,
-            text="Run sales history  ·  Ctrl+4",
+            text="Run sales history",
             command=self.request_history,
         )
         history_button.grid(row=3, column=0, padx=16, pady=(2, 16), sticky="ew")
@@ -203,7 +203,7 @@ class DatabaseTab(ctk.CTkFrame):
         self.backup_card.grid(row=2, column=0, pady=(0, 10), sticky="ew")
         backup_button = ctk.CTkButton(
             self.backup_card,
-            text="Open Backup Manager  ·  Ctrl+7",
+            text="Open Backup Manager",
             command=self.open_backup_manager,
             height=36,
             **primary_button_style(),
@@ -225,7 +225,7 @@ class DatabaseTab(ctk.CTkFrame):
 
         self.clean_button = self._action_button(
             self.cleanup_card,
-            text="Delete failed responses  ·  Ctrl+3",
+            text="Delete failed responses",
             command=self.request_clean_mydata,
             style="danger",
         )
@@ -243,7 +243,7 @@ class DatabaseTab(ctk.CTkFrame):
 
         self.shrink_button = self._action_button(
             self.maintenance_card,
-            text="Shrink database files  ·  Ctrl+5",
+            text="Shrink database files",
             command=self.request_shrink,
             style="danger",
         )
@@ -251,7 +251,7 @@ class DatabaseTab(ctk.CTkFrame):
 
         self.rebuild_button = self._action_button(
             self.maintenance_card,
-            text="Rebuild / Update database  ·  Ctrl+6",
+            text="Rebuild / Update database",
             command=self.request_rebuild,
             style="danger",
         )

@@ -220,7 +220,7 @@ class ClientsView(ctk.CTkFrame):
 
         self.manage_groups_button = ctk.CTkButton(
             self.actions_frame,
-            text="Groups  ·  Ctrl+G",
+            text="Groups",
             width=145,
             height=36,
             command=self._open_manage_groups_window,
@@ -230,7 +230,7 @@ class ClientsView(ctk.CTkFrame):
 
         self.clear_button = ctk.CTkButton(
             self.actions_frame,
-            text="Clear  ·  Ctrl+L",
+            text="Clear",
             width=120,
             height=36,
             command=self._clear_filters,
@@ -240,7 +240,7 @@ class ClientsView(ctk.CTkFrame):
 
         self.refresh_button = ctk.CTkButton(
             self.actions_frame,
-            text="Refresh  ·  F5",
+            text="Refresh",
             width=120,
             height=36,
             command=self.request_refresh,
@@ -250,7 +250,7 @@ class ClientsView(ctk.CTkFrame):
 
         self.bulk_update_button = ctk.CTkButton(
             self.actions_frame,
-            text="Bulk update  ·  Ctrl+U",
+            text="Bulk update",
             width=175,
             height=36,
             command=self.request_bulk_update,
@@ -285,7 +285,7 @@ class ClientsView(ctk.CTkFrame):
 
         self.previous_page_button = ctk.CTkButton(
             self.pagination_frame,
-            text="← Previous  ·  Alt+Left",
+            text="Previous",
             width=170,
             height=34,
             command=lambda: self._change_page(-1),
@@ -304,7 +304,7 @@ class ClientsView(ctk.CTkFrame):
 
         self.next_page_button = ctk.CTkButton(
             self.pagination_frame,
-            text="Next  ·  Alt+Right →",
+            text="Next",
             width=170,
             height=34,
             command=lambda: self._change_page(1),

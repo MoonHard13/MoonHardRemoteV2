@@ -86,7 +86,7 @@ class SupabaseOptimizationPass2Tests(unittest.TestCase):
             PROJECT_ROOT / "dashboard/app/config.py"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('self.app_version = "1.0.4"', source)
+        self.assertIn('self.app_version = "1.0.5"', source)
 
 
 if __name__ == "__main__":

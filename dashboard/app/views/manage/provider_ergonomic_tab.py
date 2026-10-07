@@ -70,7 +70,7 @@ class ErgonomicProviderTab(ProviderTab):
 
         self.send_selected_button = ctk.CTkButton(
             actions_frame,
-            text="Send selected  ·  Ctrl+Enter",
+            text="Send selected",
             width=188,
             height=32,
             command=self._send_selected,
@@ -80,7 +80,7 @@ class ErgonomicProviderTab(ProviderTab):
 
         self.send_all_button = ctk.CTkButton(
             actions_frame,
-            text="Send all  ·  Ctrl+Shift+Enter",
+            text="Send all",
             width=190,
             height=32,
             command=self._send_all,
@@ -90,7 +90,7 @@ class ErgonomicProviderTab(ProviderTab):
 
         self.errors_button = ctk.CTkButton(
             actions_frame,
-            text="Errors  ·  Ctrl+E",
+            text="Errors",
             width=112,
             height=32,
             command=self._show_errors,
@@ -100,7 +100,7 @@ class ErgonomicProviderTab(ProviderTab):
 
         self.payways_button = ctk.CTkButton(
             actions_frame,
-            text="Payways  ·  Ctrl+P",
+            text="Payways",
             width=122,
             height=32,
             command=self._show_payways,
@@ -110,7 +110,7 @@ class ErgonomicProviderTab(ProviderTab):
 
         self.mydata_button = ctk.CTkButton(
             actions_frame,
-            text="Delete MyDATA  ·  Ctrl+Shift+Del",
+            text="Delete MyDATA",
             width=188,
             height=32,
             command=self._delete_mydata,
