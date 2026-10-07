@@ -124,7 +124,7 @@ class ErgonomicRegistryTab(RegeditRegistryTab):
 
         ctk.CTkButton(
             search_row,
-            text="Search  ·  Ctrl+F",
+            text="Search",
             width=136,
             height=32,
             command=self.search_registry,
