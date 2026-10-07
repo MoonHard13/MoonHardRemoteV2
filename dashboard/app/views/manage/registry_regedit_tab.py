@@ -127,7 +127,7 @@ class RegeditRegistryTab(RegistryTab):
 
         ctk.CTkButton(
             toolbar,
-            text="Refresh  ·  F5",
+            text="Refresh",
             width=130,
             height=34,
             command=self.refresh_current_key,
@@ -207,7 +207,7 @@ class RegeditRegistryTab(RegistryTab):
 
         ctk.CTkButton(
             actions_card,
-            text="Search  ·  Ctrl+F",
+            text="Search",
             width=135,
             height=34,
             command=self.search_registry,
