@@ -107,13 +107,38 @@ New-Item -ItemType Directory -Force $ReleaseRoot | Out-Null
 Write-Host ""
 Write-Host "Step 5/6 - Creating update ZIP..." -ForegroundColor Cyan
 
-Compress-Archive `
-    -Path (Join-Path $ClientDistDir "*") `
-    -DestinationPath $PackageZip `
-    -Force
+$ZipCreated = $false
+$ZipAttempts = 5
 
-if (-not (Test-Path $PackageZip)) {
-    throw "Package ZIP was not created: $PackageZip"
+for ($Attempt = 1; $Attempt -le $ZipAttempts; $Attempt++) {
+    if (Test-Path $PackageZip) {
+        Remove-Item $PackageZip -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Host "Creating ZIP with tar.exe (attempt $Attempt/$ZipAttempts)..." -ForegroundColor Gray
+
+    Push-Location $ClientDistDir
+
+    try {
+        tar.exe -a -c -f $PackageZip *
+
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $PackageZip)) {
+            $ZipCreated = $true
+            break
+        }
+    }
+    finally {
+        Pop-Location
+    }
+
+    if ($Attempt -lt $ZipAttempts) {
+        Write-Warning "ZIP creation failed, possibly because a PyInstaller file is temporarily locked. Retrying in 3 seconds..."
+        Start-Sleep -Seconds 3
+    }
+}
+
+if (-not $ZipCreated) {
+    throw "Package ZIP was not created after $ZipAttempts attempts. A file in $ClientDistDir may still be locked by another process."
 }
 
 Remove-Item $ValidationDir -Recurse -Force -ErrorAction SilentlyContinue

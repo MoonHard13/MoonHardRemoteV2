@@ -33,6 +33,15 @@ class DuplicateMarkResourceTests(unittest.TestCase):
         self.assertIn('ValidationSqlResourceDir', text)
         self.assertIn('Missing required SQL resource', text)
 
+    def test_update_package_uses_retrying_tar_zip_creation(self):
+        path = ROOT / "scripts" / "build_client_update_package.ps1"
+        text = path.read_text(encoding="utf-8-sig")
+
+        self.assertIn("tar.exe -a -c -f $PackageZip *", text)
+        self.assertIn("$ZipAttempts = 5", text)
+        self.assertIn("Start-Sleep -Seconds 3", text)
+        self.assertNotIn("Compress-Archive", text)
+
     def test_client_release_version_is_1_0_17(self):
         config_text = (ROOT / "client" / "app" / "config.py").read_text(
             encoding="utf-8"
