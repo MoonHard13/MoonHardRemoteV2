@@ -1,8 +1,8 @@
 {
   "product": "moonhard-remote-client",
-  "latest_version": "1.0.17",
-  "download_url": "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.17/moonhard-client-1.0.17.zip",
-  "sha256": "6B7050029FC37DF23F4290A576CDE571F9DF1B9A92C94FF4D2845DD5B54F760B",
+  "latest_version": "1.0.18",
+  "download_url": "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.18/moonhard-client-1.0.18.zip",
+  "sha256": "B313BF23676514B0FA45FA4F0B5C94457A75F59C93EF1AD95C6E8A67F673231C",
   "mandatory": true,
-  "release_notes": "Fixed missing SQL resources required for Duplicate MARK cleanup and improved client update package reliability."
+  "release_notes": "Database Shrink now follows SSMS-style database-level shrinking without fixed file-size targets."
 }
