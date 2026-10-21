@@ -13,6 +13,7 @@ on:
       - "dashboard/app/main.py"
       - "scripts/build_client_exe.ps1"
       - "scripts/build_client_installer.ps1"
+      - "scripts/build_client_update_package.ps1"
       - "scripts/build_client_update_package_resources.ps1"
       - "tests/test_database_duplicate_mark.py"
       - "tests/test_database_duplicate_mark_router.py"
