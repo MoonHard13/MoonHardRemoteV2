@@ -88,12 +88,12 @@ class MandatoryClientUpdateTests(unittest.TestCase):
         self.assertIn("handle_mandatory_client_update_status", manage_source)
         self.assertIn("handle_mandatory_update_status", updates_source)
 
-    def test_dashboard_version_is_1_0_5(self):
+    def test_dashboard_version_is_1_0_6(self):
         source = (
             PROJECT_ROOT / "dashboard/app/config.py"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('self.app_version = "1.0.5"', source)
+        self.assertIn('self.app_version = "1.0.6"', source)
 
     def test_current_manifest_forces_1_0_17_update(self):
         manifest = json.loads(
