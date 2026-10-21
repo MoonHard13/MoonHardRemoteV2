@@ -1,8 +1,8 @@
 {
   "product": "moonhard-remote-client",
-  "latest_version": "1.0.16",
-  "download_url": "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.16/moonhard-client-1.0.16.zip",
-  "sha256": "C055F6F46FB984DB9D0C75264590D27934C71FE1447C0AA591C00529A4ECC40F",
-  "mandatory": false,
-  "release_notes": "Reduced application heartbeat frequency and optimized heartbeat persistence to reduce Supabase writes and log ingestion."
+  "latest_version": "1.0.17",
+  "download_url": "https://github.com/MoonHard13/MoonHardRemoteV2/releases/download/client-v1.0.17/moonhard-client-1.0.17.zip",
+  "sha256": "6B7050029FC37DF23F4290A576CDE571F9DF1B9A92C94FF4D2845DD5B54F760B",
+  "mandatory": true,
+  "release_notes": "Fixed missing SQL resources required for Duplicate MARK cleanup and improved client update package reliability."
 }

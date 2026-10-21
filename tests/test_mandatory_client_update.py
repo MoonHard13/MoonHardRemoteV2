@@ -95,15 +95,19 @@ class MandatoryClientUpdateTests(unittest.TestCase):
 
         self.assertIn('self.app_version = "1.0.5"', source)
 
-    def test_current_manifest_does_not_force_existing_1_0_16_clients(self):
+    def test_current_manifest_forces_1_0_17_update(self):
         manifest = json.loads(
             (PROJECT_ROOT / "server/app/update_manifest.json").read_text(
                 encoding="utf-8"
             )
         )
 
-        self.assertEqual(manifest["latest_version"], "1.0.16")
-        self.assertFalse(manifest["mandatory"])
+        self.assertEqual(manifest["latest_version"], "1.0.17")
+        self.assertTrue(manifest["mandatory"])
+        self.assertEqual(
+            manifest["sha256"],
+            "6B7050029FC37DF23F4290A576CDE571F9DF1B9A92C94FF4D2845DD5B54F760B",
+        )
 
 
 if __name__ == "__main__":
