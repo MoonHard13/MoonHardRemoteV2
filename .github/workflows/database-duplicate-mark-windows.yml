@@ -15,10 +15,12 @@ on:
       - "scripts/build_client_installer.ps1"
       - "scripts/build_client_update_package.ps1"
       - "scripts/build_client_update_package_resources.ps1"
+      - "updater/requirements.txt"
       - "tests/test_database_duplicate_mark.py"
       - "tests/test_database_duplicate_mark_router.py"
       - "tests/test_database_duplicate_mark_ui_contract.py"
       - "tests/test_database_duplicate_mark_resources.py"
+      - "tests/test_client_build_dependencies.py"
       - ".github/workflows/database-duplicate-mark-windows.yml"
 
 jobs:
@@ -58,6 +60,9 @@ jobs:
 
       - name: Run duplicate MARK resource tests
         run: python -m unittest tests.test_database_duplicate_mark_resources -v
+
+      - name: Run client build dependency tests
+        run: python -m unittest tests.test_client_build_dependencies -v
 
       - name: Verify SQL resources exist
         shell: pwsh
