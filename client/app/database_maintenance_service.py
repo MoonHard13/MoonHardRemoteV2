@@ -196,38 +196,12 @@ class DatabaseMaintenanceService:
 
         if action == "shrink":
             cursor.execute(
-                """
-                SELECT name, type_desc
-                FROM sys.database_files
-                WHERE type_desc IN (N'ROWS', N'LOG')
-                ORDER BY CASE WHEN type_desc = N'ROWS' THEN 0 ELSE 1 END, file_id
-                """
-            )
-            files = cursor.fetchall()
-            data_file = next(
-                (str(row[0]) for row in files if str(row[1]) == "ROWS"), ""
-            )
-            log_file = next((str(row[0]) for row in files if str(row[1]) == "LOG"), "")
-
-            if not data_file or not log_file:
-                raise RuntimeError("Database data and log files were not both found.")
-
-            sql_messages: list[str] = []
-            cursor.execute(
                 f"DBCC SHRINKDATABASE ({self._quote_identifier(database_name)})"
             )
-            sql_messages.extend(self._consume_all_results(cursor))
-            cursor.execute(f"DBCC SHRINKFILE ({self._quote_literal(data_file)}, 5000)")
-            sql_messages.extend(self._consume_all_results(cursor))
-            cursor.execute(f"DBCC SHRINKFILE ({self._quote_literal(log_file)}, 1000)")
-            sql_messages.extend(self._consume_all_results(cursor))
+            sql_messages = self._consume_all_results(cursor)
 
             return {
                 "message": "Database shrink completed successfully.",
-                "data_file": data_file,
-                "data_target_mb": 5000,
-                "log_file": log_file,
-                "log_target_mb": 1000,
                 "sql_messages": sql_messages,
             }
 

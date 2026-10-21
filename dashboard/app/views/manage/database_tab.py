@@ -669,7 +669,8 @@ class DatabaseTab(ctk.CTkFrame):
             "Confirm Database Shrink",
             "Run this operation only outside working hours and after verifying a backup.\n\n"
             f"Database: {self.bo_option.get()}\n"
-            "Targets: data file 5000 MB, log file 1000 MB.\n\nContinue?",
+            "SQL Server will shrink the database according to its current free space.\n\n"
+            "Continue?",
         ):
             self.request_action("shrink")
 
@@ -786,18 +787,11 @@ class DatabaseTab(ctk.CTkFrame):
                 ("History date", "history_date"),
                 ("Completion message detected", "completion_detected"),
             ),
-            "shrink": (
-                ("Data file", "data_file"),
-                ("Data target", "data_target_mb"),
-                ("Log file", "log_file"),
-                ("Log target", "log_target_mb"),
-            ),
         }
         for label, key in fields_by_action.get(action, ()):
             value = payload.get(key)
-            suffix = " MB" if key in {"data_target_mb", "log_target_mb"} else ""
             lines.append(
-                f"{label}: {value if value not in (None, '') else '-'}{suffix}"
+                f"{label}: {value if value not in (None, '') else '-'}"
             )
 
         sql_messages = payload.get("sql_messages") or []

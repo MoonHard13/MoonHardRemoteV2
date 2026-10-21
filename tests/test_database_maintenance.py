@@ -130,6 +130,40 @@ class DatabaseServiceTests(unittest.TestCase):
         self.assertEqual(self.service._quote_identifier("Db]Name"), "[Db]]Name]")
         self.assertEqual(self.service._quote_literal("Data'File"), "N'Data''File'")
 
+    def test_shrink_uses_database_level_dbcc_without_fixed_file_targets(self):
+        class ShrinkCursor:
+            def __init__(self):
+                self.calls = []
+                self.description = None
+                self.messages = [
+                    (
+                        "01000",
+                        "DBCC execution completed. If DBCC printed error messages, contact your system administrator.",
+                    )
+                ]
+
+            def execute(self, sql, *args):
+                self.calls.append((sql, args))
+                return self
+
+            def nextset(self):
+                return False
+
+        cursor = ShrinkCursor()
+        result = self.service._execute_action(
+            cursor=cursor,
+            action="shrink",
+            parameters={},
+            database_name="mango",
+        )
+
+        self.assertEqual(len(cursor.calls), 1)
+        self.assertIn("DBCC SHRINKDATABASE ([mango])", cursor.calls[0][0])
+        self.assertNotIn("SHRINKFILE", cursor.calls[0][0])
+        self.assertNotIn("data_target_mb", result)
+        self.assertNotIn("log_target_mb", result)
+        self.assertEqual(result["message"], "Database shrink completed successfully.")
+
     def test_rebuild_messages_are_complete_and_reported_as_progress(self):
         class ResultCursor:
             """Προσομοιώνει διαδοχικά ODBC result sets με περισσότερα από 100 messages."""
@@ -277,6 +311,32 @@ class DatabaseIntegrationSourceTests(unittest.TestCase):
         self.assertNotIn("execute_sql", source)
         self.assertNotIn("execute_script", source)
         self.assertNotIn("Load .sql", source)
+
+    def test_database_shrink_ui_has_no_fixed_targets(self):
+        service_source = (
+            ROOT / "client/app/database_maintenance_service.py"
+        ).read_text(encoding="utf-8")
+        dashboard_source = (
+            ROOT / "dashboard/app/views/manage/database_tab.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("DBCC SHRINKFILE", service_source)
+        self.assertNotIn("data_target_mb", service_source)
+        self.assertNotIn("log_target_mb", service_source)
+        self.assertNotIn("Targets: data file 5000 MB, log file 1000 MB.", dashboard_source)
+        self.assertNotIn('"Data target"', dashboard_source)
+        self.assertNotIn('"Log target"', dashboard_source)
+
+    def test_shrink_release_versions_are_bumped(self):
+        client_source = (ROOT / "client/app/config.py").read_text(encoding="utf-8")
+        dashboard_source = (ROOT / "dashboard/app/config.py").read_text(encoding="utf-8")
+        installer_source = (
+            ROOT / "installer/MoonHardRemoteClientSetup.iss"
+        ).read_text(encoding="utf-8-sig")
+
+        self.assertIn('self.app_version = "1.0.18"', client_source)
+        self.assertIn('self.app_version = "1.0.6"', dashboard_source)
+        self.assertIn("AppVersion=1.0.18", installer_source)
 
     def test_cli_does_not_offer_sql_script_execution(self):
         source = (ROOT / "dashboard/app/database_cli.py").read_text(encoding="utf-8")

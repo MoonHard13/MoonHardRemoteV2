@@ -42,7 +42,7 @@ class DuplicateMarkResourceTests(unittest.TestCase):
         self.assertIn("Start-Sleep -Seconds 3", text)
         self.assertNotIn("Compress-Archive", text)
 
-    def test_client_release_version_is_1_0_17(self):
+    def test_client_release_version_is_1_0_18(self):
         config_text = (ROOT / "client" / "app" / "config.py").read_text(
             encoding="utf-8"
         )
@@ -50,8 +50,8 @@ class DuplicateMarkResourceTests(unittest.TestCase):
             ROOT / "installer" / "MoonHardRemoteClientSetup.iss"
         ).read_text(encoding="utf-8-sig")
 
-        self.assertIn('self.app_version = "1.0.17"', config_text)
-        self.assertIn("AppVersion=1.0.17", installer_text)
+        self.assertIn('self.app_version = "1.0.18"', config_text)
+        self.assertIn("AppVersion=1.0.18", installer_text)
 
 
 if __name__ == "__main__":
