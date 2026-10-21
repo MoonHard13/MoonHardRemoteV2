@@ -23,6 +23,27 @@ class DuplicateMarkResourceTests(unittest.TestCase):
         self.assertIn("DuplicateMArK", text)
         self.assertGreaterEqual(text.lower().count("\ngo\n"), 2)
 
+    def test_standard_update_package_builder_includes_sql_resources(self):
+        path = ROOT / "scripts" / "build_client_update_package.ps1"
+        text = path.read_text(encoding="utf-8-sig")
+
+        self.assertIn('--add-data ".\\client\\app\\sql;app\\sql"', text)
+        self.assertIn('!Delete_Duplicate_Success_Mark.sql', text)
+        self.assertIn('!Delete_Duplicate_MArK.sql', text)
+        self.assertIn('ValidationSqlResourceDir', text)
+        self.assertIn('Missing required SQL resource', text)
+
+    def test_client_release_version_is_1_0_17(self):
+        config_text = (ROOT / "client" / "app" / "config.py").read_text(
+            encoding="utf-8"
+        )
+        installer_text = (
+            ROOT / "installer" / "MoonHardRemoteClientSetup.iss"
+        ).read_text(encoding="utf-8-sig")
+
+        self.assertIn('self.app_version = "1.0.17"', config_text)
+        self.assertIn("AppVersion=1.0.17", installer_text)
+
 
 if __name__ == "__main__":
     unittest.main()

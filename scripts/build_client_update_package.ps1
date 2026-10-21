@@ -60,10 +60,16 @@ python -m PyInstaller `
   --console `
   --paths .\client `
   --collect-data certifi `
+  --add-data ".\client\app\sql;app\sql" `
   .\client\app\main.py
 
 $BuiltExe = Join-Path $ClientDistDir "$AppName.exe"
 $BuiltInternalDir = Join-Path $ClientDistDir "_internal"
+$SqlResourceDir = Join-Path $BuiltInternalDir "app\sql"
+$RequiredSqlResources = @(
+    "!Delete_Duplicate_Success_Mark.sql",
+    "!Delete_Duplicate_MArK.sql"
+)
 
 if (-not (Test-Path $BuiltExe)) {
     throw "PyInstaller build failed. Missing EXE: $BuiltExe"
@@ -73,7 +79,19 @@ if (-not (Test-Path $BuiltInternalDir)) {
     throw "PyInstaller build failed. Missing _internal folder: $BuiltInternalDir"
 }
 
-Write-Host "Client EXE built: $BuiltExe" -ForegroundColor Green
+if (-not (Test-Path $SqlResourceDir)) {
+    throw "PyInstaller build failed. Missing packaged SQL resource folder: $SqlResourceDir"
+}
+
+foreach ($Resource in $RequiredSqlResources) {
+    $ResourcePath = Join-Path $SqlResourceDir $Resource
+
+    if (-not (Test-Path $ResourcePath)) {
+        throw "PyInstaller build failed. Missing required SQL resource: $ResourcePath"
+    }
+}
+
+Write-Host "Client EXE and SQL resources built successfully." -ForegroundColor Green
 
 Write-Host ""
 Write-Host "Step 4/6 - Creating release package folder..." -ForegroundColor Cyan
@@ -107,6 +125,20 @@ if (-not (Test-Path (Join-Path $ValidationDir "MoonHardRemoteClient.exe"))) {
 
 if (-not (Test-Path (Join-Path $ValidationDir "_internal"))) {
     throw "ZIP validation failed. Missing _internal folder in ZIP root."
+}
+
+$ValidationSqlResourceDir = Join-Path $ValidationDir "_internal\app\sql"
+
+if (-not (Test-Path $ValidationSqlResourceDir)) {
+    throw "ZIP validation failed. Missing SQL resource folder: $ValidationSqlResourceDir"
+}
+
+foreach ($Resource in $RequiredSqlResources) {
+    $ValidationResourcePath = Join-Path $ValidationSqlResourceDir $Resource
+
+    if (-not (Test-Path $ValidationResourcePath)) {
+        throw "ZIP validation failed. Missing required SQL resource: $ValidationResourcePath"
+    }
 }
 
 Remove-Item $ValidationDir -Recurse -Force -ErrorAction SilentlyContinue
