@@ -40,7 +40,12 @@ python -m pip install --upgrade pip
 python -m pip install -r .\client\requirements.txt
 python -m pip install -r .\updater\requirements.txt
 
-Write-Host "Pinned requirements installed." -ForegroundColor Green
+python -c "import pkg_resources"
+if ($LASTEXITCODE -ne 0) {
+    throw "Build dependency check failed: pkg_resources is unavailable. setuptools==80.9.0 must be installed."
+}
+
+Write-Host "Pinned requirements installed and pkg_resources verified." -ForegroundColor Green
 
 Write-Host ""
 Write-Host "Step 2/6 - Cleaning build output..." -ForegroundColor Cyan
